@@ -132,8 +132,9 @@
         (when (= (:method notif) "session.event")
           (let [{:keys [sessionId event]} (:params notif)]
             (log/debug "Routing event to session " sessionId ": type=" (:type event))
-            (when (get-in @(:state client) [:session-io sessionId])
-              (session/dispatch-event! client sessionId event))))
+            (when-not (:destroyed? (get-in @(:state client) [:sessions sessionId]))
+              (when-let [{:keys [event-chan]} (get-in @(:state client) [:session-io sessionId])]
+                (>! event-chan event)))))
         (recur)))))
 
 (defn- setup-request-handler!
@@ -148,8 +149,7 @@
             (let [{:keys [sessionId toolCallId toolName arguments]} params]
               (if-not (get-in @(:state client) [:sessions sessionId])
                 {:error {:code -32001 :message (str "Unknown session: " sessionId)}}
-                (let [result (<! (session/handle-tool-call! client sessionId toolCallId toolName arguments))]
-                  {:result result})))
+                {:result (<! (session/handle-tool-call! client sessionId toolCallId toolName arguments))}))
 
             "permission.request"
             (let [{:keys [sessionId permissionRequest]} params]

@@ -6,7 +6,7 @@
    - [:session-io session-id] -> {:event-chan :event-mult}
    
    Functions take client + session-id, accessing state through the client."
-  (:require [clojure.core.async :as async :refer [go go-loop <! >! chan close! put! alts!! mult tap untap]]
+  (:require [clojure.core.async :as async :refer [go go-loop <! >! >!! chan close! put! alts!! mult tap untap]]
             [clojure.core.async.impl.channels :as channels]
             [cheshire.core :as json]
             [krukow.copilot-sdk.protocol :as proto]
@@ -70,7 +70,7 @@
   (log/debug "Dispatching event to session " session-id ": type=" (:type event))
   (when-not (:destroyed? (session-state client session-id))
     (when-let [{:keys [event-chan]} (session-io client session-id)]
-      (put! event-chan event))))
+      (>!! event-chan event))))
 
 (defn- normalize-tool-result
   "Normalize a tool result to the wire format."
@@ -104,7 +104,7 @@
   (instance? clojure.core.async.impl.channels.ManyToManyChannel x))
 
 (defn handle-tool-call!
-  "Handle an incoming tool call request. Returns a channel with the result."
+  "Handle an incoming tool call request. Returns a channel with the result wrapper."
   [client session-id tool-call-id tool-name arguments]
   (go
     (let [handler (get-in (session-state client session-id) [:tool-handlers tool-name])]

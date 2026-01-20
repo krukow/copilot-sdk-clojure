@@ -157,6 +157,21 @@
         (is (pos? (count @events))))
       (sdk/unsubscribe-events session events-ch))))
 
+(deftest test-dispatch-event-blocks-when-full
+  (testing "dispatch-event! waits for space instead of dropping events"
+    (let [session (sdk/create-session *test-client* {})
+          session-id (sdk/session-id session)
+          small-ch (chan 1)]
+      (swap! (:state *test-client*) assoc-in [:session-io session-id :event-chan] small-ch)
+      (swap! (:state *test-client*) assoc-in [:session-io session-id :event-mult] nil)
+      (>!! small-ch {:type "dummy"})
+      (let [dispatch-future (future (session/dispatch-event! *test-client* session-id
+                                                            {:type "session.idle"}))]
+        (is (= ::timeout (deref dispatch-future 50 ::timeout)))
+        (is (= "dummy" (:type (<!! small-ch))))
+        (is (not= ::timeout (deref dispatch-future 200 ::timeout)))
+        (is (= "session.idle" (:type (<!! small-ch))))))))
+
 ;; -----------------------------------------------------------------------------
 ;; Tool Handler Tests
 ;; -----------------------------------------------------------------------------
@@ -170,6 +185,24 @@
                                                                 :properties {"value" {:type "string"}}}})]
                                         :on-tool-call (fn [_] "result")})]
       (is (some? session)))))
+
+(deftest test-tool-call-response-shape
+  (testing "tool.call handler returns a nested result wrapper"
+    (let [tool (sdk/define-tool "echo"
+                 {:handler (fn [args _] args)})
+          session (sdk/create-session *test-client* {:tools [tool]})
+          handler (get-in @(:state *test-client*) [:connection :request-handler])
+          response (<!! (handler "tool.call" {:sessionId (sdk/session-id session)
+                                              :toolCallId "tc-1"
+                                              :toolName "echo"
+                                              :arguments {:x 1}}))]
+      (is (map? response))
+      (is (contains? response :result))
+      (is (map? (:result response)))
+      (is (contains? (:result response) :result))
+      (is (map? (get-in response [:result :result])))
+      (is (contains? (get-in response [:result :result]) :textResultForLlm))
+      (is (not (contains? (get-in response [:result :result]) :result))))))
 
 ;; -----------------------------------------------------------------------------
 ;; Last Session ID Tests
