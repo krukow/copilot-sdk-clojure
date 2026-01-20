@@ -200,6 +200,22 @@
       ;; Should include idle event
       (is (some #(= "session.idle" (:type %)) @events)))))
 
+(deftest test-send-async-with-id
+  (testing "send-async-with-id returns message-id and matching events"
+    (let [session (sdk/create-session *test-client* {})
+          {:keys [message-id events-ch]} (sdk/send-async-with-id session {:prompt "Async with id"})]
+      (is (string? message-id))
+      (let [matched (loop [count 0]
+                      (when (< count 30)
+                        (let [[event _] (alts!! [events-ch (timeout 1000)])]
+                          (cond
+                            (nil? event) nil
+                            (and (= "assistant.message" (:type event))
+                                 (= message-id (get-in event [:data :message-id])))
+                            event
+                            :else (recur (inc count))))))]
+        (is (some? matched))))))
+
 (deftest test-send-async-serializes
   (testing "send-async serializes concurrent calls"
     (let [session (sdk/create-session *test-client* {})

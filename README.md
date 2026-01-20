@@ -91,6 +91,16 @@ Or use the simpler blocking API:
 
 Start the CLI server and establish connection. Blocks until connected.
 
+##### `with-client`
+
+```clojure
+(copilot/with-client [client {:log-level :info}]
+  ;; use client
+  )
+```
+
+Create a client, start it, and ensure `stop!` runs on exit.
+
 ##### `stop!`
 
 ```clojure
@@ -114,6 +124,16 @@ Force stop the CLI server without graceful cleanup. Use when `stop!` takes too l
 ```
 
 Create a new conversation session.
+
+##### `with-session`
+
+```clojure
+(copilot/with-session [session client {:model "gpt-5"}]
+  ;; use session
+  )
+```
+
+Create a session and ensure `destroy!` runs on exit.
 
 **Config:**
 
@@ -222,6 +242,14 @@ Send a message and block until the session becomes idle. Returns the final assis
 
 Send a message and return a core.async channel that receives all events for this message, closing when idle.
 
+##### `send-async-with-id`
+
+```clojure
+(copilot/send-async-with-id session options)
+```
+
+Send a message and return `{:message-id :events-ch}` for correlating responses.
+
 ##### `events`
 
 ```clojure
@@ -238,6 +266,15 @@ Get the core.async `mult` for session events. Use `tap` to subscribe:
       (println event)
       (recur))))
 ```
+
+##### `events->chan`
+
+```clojure
+(copilot/events->chan session {:buffer 256
+                               :xf (filter #(= "assistant.message" (:type %)))})
+```
+
+Subscribe to session events with optional buffer size and transducer.
 
 ##### `abort!`
 

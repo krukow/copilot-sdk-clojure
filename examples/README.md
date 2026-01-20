@@ -48,37 +48,29 @@ The simplest use case—create a client, start a conversation, and get responses
 - Creating a session with a specific model
 - Sending messages with `send-and-wait!`
 - Multi-turn conversation (context is preserved)
-- Proper cleanup with `destroy!` and `stop!`
+- Proper cleanup with `with-client` and `with-session`
 
 ### Code Walkthrough
 
 ```clojure
-;; 1. Create a client with configuration
-(def client (copilot/client {:cli-path "copilot"
-                              :log-level :info}))
+;; 1. Create a client with configuration and start it
+(copilot/with-client [client {:cli-path "copilot"
+                              :log-level :info}]
+  ;; 2. Create a session (specifying model)
+  (copilot/with-session [session client {:model "gpt-5"}]
+    ;; 3. Send a message and wait for the complete response
+    (def response (copilot/send-and-wait! session
+                    {:prompt "What is the capital of France?"}))
 
-;; 2. Start the CLI server connection
-(copilot/start! client)
+    ;; 4. Access the response content
+    (println (get-in response [:data :content]))
+    ;; => "The capital of France is Paris."
 
-;; 3. Create a session (specifying model)
-(def session (copilot/create-session client {:model "gpt-5"}))
-
-;; 4. Send a message and wait for the complete response
-(def response (copilot/send-and-wait! session
-                {:prompt "What is the capital of France?"}))
-
-;; 5. Access the response content
-(println (get-in response [:data :content]))
-;; => "The capital of France is Paris."
-
-;; 6. Follow-up question (conversation context preserved)
-(def response2 (copilot/send-and-wait! session
-                 {:prompt "What is its population?"}))
-;; The model knows "its" refers to Paris
-
-;; 7. Clean up
-(copilot/destroy! session)
-(copilot/stop! client)
+    ;; 5. Follow-up question (conversation context preserved)
+    (def response2 (copilot/send-and-wait! session
+                     {:prompt "What is its population?"}))
+    ;; The model knows "its" refers to Paris
+    ))
 ```
 
 ### Expected Output
@@ -390,8 +382,9 @@ await client.start();
 **Clojure:**
 ```clojure
 (require '[krukow.copilot-sdk :as copilot])
-(def client (copilot/client {:log-level :info}))
-(copilot/start! client)
+(copilot/with-client [client {:log-level :info}]
+  ;; use client
+  )
 ```
 
 ### Event Handling
@@ -407,12 +400,11 @@ session.on((event) => {
 
 **Clojure:**
 ```clojure
-(let [ch (chan 100)]
-  (tap (copilot/events session) ch)
+(let [ch (copilot/events->chan session
+                               {:xf (filter #(= "assistant.message" (:type %)))})]
   (go-loop []
     (when-let [event (<! ch)]
-      (when (= (:type event) "assistant.message")
-        (println (get-in event [:data :content])))
+      (println (get-in event [:data :content]))
       (recur))))
 ```
 

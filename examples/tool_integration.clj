@@ -39,51 +39,46 @@
   (println "🔧 Tool Integration Example")
   (println "============================\n")
 
-  (let [cli-path (or (System/getenv "COPILOT_CLI_PATH") "copilot")
-        client (copilot/client {:cli-path cli-path
-                                :log-level :info})]
+  (let [cli-path (or (System/getenv "COPILOT_CLI_PATH") "copilot")]
     (try
       (println "📡 Starting Copilot client...")
-      (copilot/start! client)
-      (println "✅ Connected!\n")
+      (copilot/with-client [client {:cli-path cli-path
+                                    :log-level :info}]
+        (println "✅ Connected!\n")
 
-      ;; Create a session with our custom tool
-      (println "📝 Creating session with lookup_language tool...")
-      (let [session (copilot/create-session client
-                                            {:model "gpt-5.2"
-                                             :tools [lookup-tool]})]
-        (println "✅ Session created\n")
+        ;; Create a session with our custom tool
+        (println "📝 Creating session with lookup_language tool...")
+        (copilot/with-session [session client
+                               {:model "gpt-5.2"
+                                :tools [lookup-tool]}]
+          (println "✅ Session created\n")
 
-        ;; First lookup - Clojure
-        (println "💬 Question 1: Tell me about Clojure")
-        (let [response (copilot/send-and-wait! session
-                                               {:prompt "What is Clojure? Use the lookup_language tool to find out."})]
-          (println "🤖 Response:")
-          (println (str "   " (get-in response [:data :content]) "\n")))
+          ;; First lookup - Clojure
+          (println "💬 Question 1: Tell me about Clojure")
+          (let [response (copilot/send-and-wait! session
+                                                 {:prompt "What is Clojure? Use the lookup_language tool to find out."})]
+            (println "🤖 Response:")
+            (println (str "   " (get-in response [:data :content]) "\n")))
 
-        ;; Second lookup - Python (same tool, different input)
-        (println "💬 Question 2: Tell me about Python")
-        (let [response (copilot/send-and-wait! session
-                                               {:prompt "Now tell me about Python. Use the lookup_language tool."})]
-          (println "🤖 Response:")
-          (println (str "   " (get-in response [:data :content]) "\n")))
+          ;; Second lookup - Python (same tool, different input)
+          (println "💬 Question 2: Tell me about Python")
+          (let [response (copilot/send-and-wait! session
+                                                 {:prompt "Now tell me about Python. Use the lookup_language tool."})]
+            (println "🤖 Response:")
+            (println (str "   " (get-in response [:data :content]) "\n")))
 
-        ;; Third lookup - Rust
-        (println "💬 Question 3: Tell me about Rust")
-        (let [response (copilot/send-and-wait! session
-                                               {:prompt "What about Rust? Look it up please."})]
-          (println "🤖 Response:")
-          (println (str "   " (get-in response [:data :content]) "\n")))
+          ;; Third lookup - Rust
+          (println "💬 Question 3: Tell me about Rust")
+          (let [response (copilot/send-and-wait! session
+                                                 {:prompt "What about Rust? Look it up please."})]
+            (println "🤖 Response:")
+            (println (str "   " (get-in response [:data :content]) "\n")))
 
-        ;; Clean up
-        (println "🧹 Cleaning up...")
-        (copilot/destroy! session))
+          (println "🧹 Cleaning up...")))
 
-      (copilot/stop! client)
       (println "✅ Done!")
 
       (catch Exception e
         (println (str "❌ Error: " (.getMessage e)))
         (.printStackTrace e)
-        (copilot/stop! client)
         (System/exit 1)))))

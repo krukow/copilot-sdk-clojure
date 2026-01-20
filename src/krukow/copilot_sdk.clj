@@ -88,6 +88,20 @@
   [client]
   (client/state client))
 
+(defmacro with-client
+  "Create a client, start it, and ensure stop! on exit.
+
+   Usage:
+   (with-client [c {:log-level :info}]
+     ...)"
+  [[client-sym & [opts]] & body]
+  `(let [~client-sym ~(if opts `(client ~opts) `(client))]
+     (start! ~client-sym)
+     (try
+       ~@body
+       (finally
+         (stop! ~client-sym)))))
+
 (defn notifications
   "Get the channel that receives non-session notifications.
    Notifications are dropped if the channel is full."
@@ -130,6 +144,21 @@
    (client/create-session client))
   ([client config]
    (client/create-session client config)))
+
+(defmacro with-session
+  "Create a session and ensure destroy! on exit.
+
+   Usage:
+   (with-session [s client {:model \"gpt-5\"}]
+     ...)"
+  [[session-sym client & [config]] & body]
+  `(let [~session-sym ~(if config
+                         `(create-session ~client ~config)
+                         `(create-session ~client))]
+     (try
+       ~@body
+       (finally
+         (destroy! ~session-sym)))))
 
 (defn resume-session
   "Resume an existing session by ID.
@@ -214,6 +243,11 @@
   [session opts]
   (session/send-async session opts))
 
+(defn send-async-with-id
+  "Send a message and return {:message-id :events-ch}."
+  [session opts]
+  (session/send-async-with-id session opts))
+
 (defn abort!
   "Abort the currently processing message in this session."
   [session]
@@ -264,6 +298,17 @@
    ```"
   [session]
   (session/subscribe-events session))
+
+(defn events->chan
+  "Subscribe to session events with options.
+
+   Options:
+   - :buffer - Channel buffer size (default 1024)
+   - :xf     - Transducer applied to events"
+  ([session]
+   (session/events->chan session))
+  ([session opts]
+   (session/events->chan session opts)))
 
 (defn unsubscribe-events
   "Unsubscribe a channel from session events."

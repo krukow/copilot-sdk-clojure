@@ -267,10 +267,8 @@
            (close! event-ch)
            (.release send-lock)))))))
 
-(defn send-async
-  "Send a message and return a channel that receives events until session.idle.
-   The channel closes after session.idle or session.error.
-   Serialized per session to avoid mixing concurrent sends."
+(defn- send-async*
+  "Send a message and return {:message-id :events-ch}."
   [session opts]
   (let [{:keys [session-id client]} session]
     (when (:destroyed? (session-state client session-id))
@@ -294,44 +292,56 @@
       
       ;; Send the message
       (try
-        (send! session opts)
-        (go-loop []
-          (let [event (<! event-ch)]
-            (cond
-              (nil? event)
-              (do
-                (untap event-mult event-ch)
-                (close! out-ch)
-                (release-lock!))
+        (let [message-id (send! session opts)]
+          (go-loop []
+            (let [event (<! event-ch)]
+              (cond
+                (nil? event)
+                (do
+                  (untap event-mult event-ch)
+                  (close! out-ch)
+                  (release-lock!))
 
-              (= "session.idle" (:type event))
-              (do
-                (>! out-ch event)
-                (untap event-mult event-ch)
-                (close! event-ch)
-                (close! out-ch)
-                (release-lock!))
+                (= "session.idle" (:type event))
+                (do
+                  (>! out-ch event)
+                  (untap event-mult event-ch)
+                  (close! event-ch)
+                  (close! out-ch)
+                  (release-lock!))
 
-              (= "session.error" (:type event))
-              (do
-                (>! out-ch event)
-                (untap event-mult event-ch)
-                (close! event-ch)
-                (close! out-ch)
-                (release-lock!))
+                (= "session.error" (:type event))
+                (do
+                  (>! out-ch event)
+                  (untap event-mult event-ch)
+                  (close! event-ch)
+                  (close! out-ch)
+                  (release-lock!))
 
-              :else
-              (do
-                (>! out-ch event)
-                (recur)))))
+                :else
+                (do
+                  (>! out-ch event)
+                  (recur)))))
+          {:message-id message-id
+           :events-ch out-ch})
         (catch Exception e
           (untap event-mult event-ch)
           (close! event-ch)
           (close! out-ch)
           (release-lock!)
-          (throw e)))
-      
-      out-ch)))
+          (throw e))))))
+
+(defn send-async
+  "Send a message and return a channel that receives events until session.idle.
+   The channel closes after session.idle or session.error.
+   Serialized per session to avoid mixing concurrent sends."
+  [session opts]
+  (:events-ch (send-async* session opts)))
+
+(defn send-async-with-id
+  "Send a message and return {:message-id :events-ch}."
+  [session opts]
+  (send-async* session opts))
 
 (defn abort!
   "Abort the currently processing message in this session."
@@ -405,6 +415,21 @@
         {:keys [event-mult]} (session-io client session-id)]
     (tap event-mult ch)
     ch))
+
+(defn events->chan
+  "Subscribe to session events with options.
+
+   Options:
+   - :buffer - Channel buffer size (default 1024)
+   - :xf     - Transducer applied to events"
+  ([session]
+   (events->chan session {}))
+  ([session {:keys [buffer xf] :or {buffer 1024}}]
+   (let [{:keys [session-id client]} session
+         {:keys [event-mult]} (session-io client session-id)
+         ch (if xf (chan buffer xf) (chan buffer))]
+     (tap event-mult ch)
+     ch)))
 
 (defn unsubscribe-events
   "Unsubscribe a channel from session events."

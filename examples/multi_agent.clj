@@ -73,98 +73,95 @@
   (println "  2. Analyst - identifies patterns and insights")
   (println "  3. Writer - synthesizes a final summary\n")
   
-  (let [cli-path (or (System/getenv "COPILOT_CLI_PATH") "copilot")
-        client (copilot/client {:cli-path cli-path
-                                :log-level :info})]
+  (let [cli-path (or (System/getenv "COPILOT_CLI_PATH") "copilot")]
     (try
       (println "📡 Starting Copilot client...")
-      (copilot/start! client)
-      (println "✅ Connected!\n")
-      
-      ;; Create our specialized agents
-      (println "🎭 Creating specialized agents...")
-      
-      (let [researcher (create-agent client "Researcher"
-                         "You are a research assistant. Your job is to gather factual information
-                          about topics. Be concise and focus on key facts. Respond in 2-3 sentences."
-                         "gpt-5.2")
-            _ (println "  ✓ Researcher agent ready")
-            
-            analyst (create-agent client "Analyst"  
-                      "You are an analytical assistant. Your job is to identify patterns,
-                       connections, and insights from information provided. Be insightful but concise."
-                      "gpt-5.2")
-            _ (println "  ✓ Analyst agent ready")
-            
-            writer (create-agent client "Writer"
-                     "You are a professional writer. Your job is to synthesize information
-                      into clear, engaging prose. Write in a professional but accessible style."
-                     "gpt-5.2")
-            _ (println "  ✓ Writer agent ready\n")]
+      (copilot/with-client [client {:cli-path cli-path
+                                    :log-level :info}]
+        (println "✅ Connected!\n")
         
-        ;; Phase 1: Parallel Research
-        (println "📖 Phase 1: Parallel Research")
-        (println "   Researching multiple topics concurrently...\n")
+        ;; Create our specialized agents
+        (println "🎭 Creating specialized agents...")
         
-        (let [topics ["functional programming benefits"
-                      "immutable data structures"
-                      "concurrent programming challenges"]
+        (let [researcher (create-agent client "Researcher"
+                           "You are a research assistant. Your job is to gather factual information
+                            about topics. Be concise and focus on key facts. Respond in 2-3 sentences."
+                           "gpt-5.2")
+              _ (println "  ✓ Researcher agent ready")
               
-              ;; Run research in parallel and wait for all results
-              research-results (<!! (run-parallel-research! researcher topics))]
+              analyst (create-agent client "Analyst"  
+                        "You are an analytical assistant. Your job is to identify patterns,
+                         connections, and insights from information provided. Be insightful but concise."
+                        "gpt-5.2")
+              _ (println "  ✓ Analyst agent ready")
+              
+              writer (create-agent client "Writer"
+                       "You are a professional writer. Your job is to synthesize information
+                        into clear, engaging prose. Write in a professional but accessible style."
+                       "gpt-5.2")
+              _ (println "  ✓ Writer agent ready\n")]
           
-          (println "\n   Research Results:")
-          (doseq [result research-results]
-            (if (:success result)
-              (println (str "   • " (:topic result) ": " 
-                           (subs (:content result) 0 (min 100 (count (:content result)))) "..."))
-              (println (str "   • " (:topic result) ": ERROR - " (:error result)))))
+          ;; Phase 1: Parallel Research
+          (println "📖 Phase 1: Parallel Research")
+          (println "   Researching multiple topics concurrently...\n")
           
-          ;; Phase 2: Analysis
-          (println "\n🔍 Phase 2: Analysis")
-          (println "   Sending research findings to Analyst...\n")
-          
-          (let [research-summary (->> research-results
-                                      (filter :success)
-                                      (map #(str "- " (:topic %) ": " (:content %)))
-                                      (clojure.string/join "\n"))
+          (let [topics ["functional programming benefits"
+                        "immutable data structures"
+                        "concurrent programming challenges"]
                 
-                analysis-prompt (str "Analyze these research findings and identify 2-3 key insights "
-                                    "or patterns:\n\n" research-summary)
-                
-                analysis-response (<!! (agent-respond! analyst analysis-prompt))]
+                ;; Run research in parallel and wait for all results
+                research-results (<!! (run-parallel-research! researcher topics))]
             
-            (println "   Analysis Complete:")
-            (println (str "   " (:content analysis-response)))
+            (println "\n   Research Results:")
+            (doseq [result research-results]
+              (if (:success result)
+                (println (str "   • " (:topic result) ": " 
+                             (subs (:content result) 0 (min 100 (count (:content result)))) "..."))
+                (println (str "   • " (:topic result) ": ERROR - " (:error result)))))
             
-            ;; Phase 3: Synthesis
-            (println "\n✍️  Phase 3: Synthesis")
-            (println "   Writer is creating final summary...\n")
+            ;; Phase 2: Analysis
+            (println "\n🔍 Phase 2: Analysis")
+            (println "   Sending research findings to Analyst...\n")
             
-            (let [synthesis-prompt (str "Based on the following research and analysis, "
-                                       "write a brief (3-4 sentence) executive summary:\n\n"
-                                       "RESEARCH:\n" research-summary "\n\n"
-                                       "ANALYSIS:\n" (:content analysis-response))
+            (let [research-summary (->> research-results
+                                        (filter :success)
+                                        (map #(str "- " (:topic %) ": " (:content %)))
+                                        (clojure.string/join "\n"))
                   
-                  final-response (<!! (agent-respond! writer synthesis-prompt))]
+                  analysis-prompt (str "Analyze these research findings and identify 2-3 key insights "
+                                      "or patterns:\n\n" research-summary)
+                  
+                  analysis-response (<!! (agent-respond! analyst analysis-prompt))]
               
-              (println "═══════════════════════════════════════════════════")
-              (println "📋 FINAL SUMMARY")
-              (println "═══════════════════════════════════════════════════")
-              (println (:content final-response))
-              (println "═══════════════════════════════════════════════════"))))
+              (println "   Analysis Complete:")
+              (println (str "   " (:content analysis-response)))
+              
+              ;; Phase 3: Synthesis
+              (println "\n✍️  Phase 3: Synthesis")
+              (println "   Writer is creating final summary...\n")
+              
+              (let [synthesis-prompt (str "Based on the following research and analysis, "
+                                         "write a brief (3-4 sentence) executive summary:\n\n"
+                                         "RESEARCH:\n" research-summary "\n\n"
+                                         "ANALYSIS:\n" (:content analysis-response))
+                    
+                    final-response (<!! (agent-respond! writer synthesis-prompt))]
+                
+                (println "═══════════════════════════════════════════════════")
+                (println "📋 FINAL SUMMARY")
+                (println "═══════════════════════════════════════════════════")
+                (println (:content final-response))
+                (println "═══════════════════════════════════════════════════"))))
+          
+          ;; Clean up all agents
+          (println "\n🧹 Cleaning up agents...")
+          (copilot/destroy! (:session researcher))
+          (copilot/destroy! (:session analyst))
+          (copilot/destroy! (:session writer)))
         
-        ;; Clean up all agents
-        (println "\n🧹 Cleaning up agents...")
-        (copilot/destroy! (:session researcher))
-        (copilot/destroy! (:session analyst))
-        (copilot/destroy! (:session writer)))
-      
-      (copilot/stop! client)
-      (println "\n✅ Multi-agent workflow complete!")
+        (println "\n✅ Multi-agent workflow complete!"))
       
       (catch Exception e
         (println (str "\n❌ Error: " (.getMessage e)))
         (.printStackTrace e)
-        (copilot/stop! client)
         (System/exit 1)))))
