@@ -22,7 +22,7 @@ Add to your `deps.edn`:
 (copilot/start! client)
 
 ;; Create a session
-(def session (copilot/create-session client {:model "gpt-5"}))
+(def session (copilot/create-session client {:model "gpt-5.2"}))
 
 ;; Wait for response using events
 (require '[clojure.core.async :refer [chan tap go-loop <!]])
@@ -37,7 +37,7 @@ Add to your `deps.edn`:
         "session.idle" (deliver done true)
         nil)
       (recur)))
-  
+
   ;; Send a message and wait for completion
   (copilot/send! session {:prompt "What is 2+2?"})
   @done)
@@ -183,7 +183,7 @@ Get current connection state: `:disconnected` | `:connecting` | `:connected` | `
 (copilot/notifications client)
 ```
 
-Get a channel that receives non-session notifications. The channel is unbounded; do not leave it unconsumed.
+Get a channel that receives non-session notifications. The channel is buffered; notifications are dropped if it fills.
 
 ##### `list-sessions`
 
@@ -222,7 +222,7 @@ Send a message to the session. Returns immediately with the message ID.
 | Key | Type | Description |
 |-----|------|-------------|
 | `:prompt` | string | The message/prompt to send |
-| `:attachments` | vector | File attachments `[{:type :path :display-name}]` |
+| `:attachments` | vector | File attachments `[{:type :file/:directory :path :display-name}]` |
 | `:mode` | keyword | `:enqueue` or `:immediate` |
 
 ##### `send-and-wait!`
@@ -330,7 +330,8 @@ Sessions emit various events during processing:
 | `assistant.reasoning` | Model reasoning (if supported) |
 | `assistant.reasoning_delta` | Streaming reasoning chunk |
 | `tool.execution_start` | Tool execution started |
-| `tool.execution_end` | Tool execution completed |
+| `tool.execution_partial_result` | Tool execution partial result |
+| `tool.execution_complete` | Tool execution completed |
 | `session.idle` | Session finished processing |
 
 ## Streaming
@@ -347,19 +348,19 @@ Enable streaming to receive assistant response chunks as they're generated:
   (go-loop []
     (when-let [event (<! ch)]
       (case (:type event)
-        "assistant.message_delta" 
+        "assistant.message_delta"
           ;; Streaming chunk - print incrementally
           (print (get-in event [:data :delta-content]))
-        
+
         "assistant.reasoning_delta"
           ;; Streaming reasoning (model-dependent)
           (print (get-in event [:data :delta-content]))
-        
+
         "assistant.message"
           ;; Final complete message
           (println "\n--- Final ---")
           (println (get-in event [:data :content]))
-        
+
         nil)
       (recur))))
 
@@ -434,7 +435,7 @@ Control the system prompt:
 ```clojure
 (def session (copilot/create-session client
                {:model "gpt-5"
-                :system-message 
+                :system-message
                   {:content "
 <workflow_rules>
 - Always check for security vulnerabilities
