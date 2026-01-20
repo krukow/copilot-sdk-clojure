@@ -1,7 +1,7 @@
 (ns krukow.copilot-sdk.integration-test
   "Integration tests using mock JSON-RPC server."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
-            [clojure.core.async :as async :refer [<!! >!! chan go timeout alts!!]]
+            [clojure.core.async :as async :refer [<!! >!! chan close! go timeout alts!!]]
             [krukow.copilot-sdk :as sdk]
             [krukow.copilot-sdk.client :as client]
             [krukow.copilot-sdk.session :as session]
@@ -25,10 +25,10 @@
       (try
         (test-fn)
         (finally
-          ;; Stop mock server first to unblock client reader
-          (mock/stop-mock-server! server)
+          ;; Stop client first to suppress auto-restart during teardown
+          (try (sdk/stop! client) (catch Exception _))
           (Thread/sleep 50)
-          (try (sdk/stop! client) (catch Exception _)))))))
+          (mock/stop-mock-server! server))))))
 
 (use-fixtures :each with-mock-server)
 
@@ -40,6 +40,59 @@
   (testing "Client connects to mock server"
     (is (= :connected (sdk/state *test-client*)))
     (is (some? (:connection @(:state *test-client*))))))
+
+(deftest test-auto-restart-on-connection-close
+  (testing "auto-restart triggers on connection close"
+    (let [starts (atom 0)
+          stops (atom 0)]
+      (with-redefs [client/stop! (fn [c]
+                                   (swap! stops inc)
+                                   (swap! (:state c) assoc :status :disconnected)
+                                   [])
+                    client/start! (fn [c]
+                                    (swap! starts inc)
+                                    (swap! (:state c) assoc :status :connected)
+                                    nil)]
+        (mock/stop-mock-server! *mock-server*)
+        (Thread/sleep 200)
+        (is (= 1 @stops))
+        (is (= 1 @starts))))))
+
+(deftest test-auto-restart-on-process-exit
+  (testing "auto-restart triggers on process exit"
+    (let [starts (atom 0)
+          stops (atom 0)
+          exit-ch (chan 1)
+          watch-exit (var client/watch-process-exit!)]
+      (with-redefs [client/stop! (fn [c]
+                                   (swap! stops inc)
+                                   (swap! (:state c) assoc :status :disconnected)
+                                   [])
+                    client/start! (fn [c]
+                                    (swap! starts inc)
+                                    (swap! (:state c) assoc :status :connected)
+                                    nil)]
+        (watch-exit *test-client* {:exit-chan exit-ch})
+        (>!! exit-ch {:exit-code 123})
+        (close! exit-ch)
+        (Thread/sleep 200)
+        (is (= 1 @stops))
+        (is (= 1 @starts))))))
+
+(deftest test-auto-restart-suppressed-when-stopping
+  (testing "auto-restart is suppressed while stopping"
+    (let [starts (atom 0)
+          stops (atom 0)]
+      (swap! (:state *test-client*) assoc :stopping? true)
+      (try
+        (with-redefs [client/stop! (fn [_] (swap! stops inc) [])
+                      client/start! (fn [_] (swap! starts inc) nil)]
+          (mock/stop-mock-server! *mock-server*)
+          (Thread/sleep 200)
+          (is (zero? @stops))
+          (is (zero? @starts)))
+        (finally
+          (swap! (:state *test-client*) assoc :stopping? false))))))
 
 (deftest test-ping
   (testing "Ping returns protocol version"

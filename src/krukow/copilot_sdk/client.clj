@@ -59,6 +59,8 @@
 ;;  :session-io {session-id -> {:event-chan :event-mult}} (IO resources)
 ;;  :actual-port nil or int
 ;;  :router-ch nil or channel
+;;  :stopping? false
+;;  :restarting? false
 ;;  :force-stopping? false}
 
 (defn- initial-state
@@ -73,6 +75,8 @@
    :session-io {}            ; session IO resources by session-id
    :actual-port port
    :router-ch nil
+   :stopping? false
+   :restarting? false
    :force-stopping? false})
 
 (defn client
@@ -117,6 +121,8 @@
   (:status @(:state client)))
 
 (declare stop!)
+(declare start!)
+(declare maybe-reconnect!)
 
 (defn- start-notification-router!
   "Route notifications to appropriate sessions."
@@ -129,14 +135,59 @@
     
     ;; Simple routing - read from notification-chan and dispatch
     (go-loop []
-      (when-let [notif (<! notif-ch)]
-        (when (= (:method notif) "session.event")
-          (let [{:keys [sessionId event]} (:params notif)]
-            (log/debug "Routing event to session " sessionId ": type=" (:type event))
-            (when-not (:destroyed? (get-in @(:state client) [:sessions sessionId]))
-              (when-let [{:keys [event-chan]} (get-in @(:state client) [:session-io sessionId])]
-                (>! event-chan event)))))
-        (recur)))))
+      (if-let [notif (<! notif-ch)]
+        (do
+          (when (= (:method notif) "session.event")
+            (let [{:keys [sessionId event]} (:params notif)]
+              (log/debug "Routing event to session " sessionId ": type=" (:type event))
+              (when-not (:destroyed? (get-in @(:state client) [:sessions sessionId]))
+                (when-let [{:keys [event-chan]} (get-in @(:state client) [:session-io sessionId])]
+                  (>! event-chan event)))))
+          (recur))
+        (do
+          (log/debug "Notification channel closed")
+          (maybe-reconnect! client "connection-closed"))))))
+
+(defn- mark-restarting!
+  "Atomically mark the client as restarting. Returns true if this caller won."
+  [client]
+  (let [state-atom (:state client)]
+    (loop []
+      (let [state @state-atom]
+        (if (or (:stopping? state) (:restarting? state))
+          false
+          (if (compare-and-set! state-atom state (assoc state :restarting? true))
+            true
+            (recur)))))))
+
+(defn- maybe-reconnect!
+  "Attempt a stop/start cycle when auto-restart is enabled."
+  [client reason]
+  (let [state @(:state client)]
+    (when (and (:auto-restart? (:options client))
+               (= :connected (:status state))
+               (not (:stopping? state)))
+      (when (mark-restarting! client)
+        (log/warn "Auto-restart triggered:" reason)
+        (async/thread
+          (try
+            (stop! client)
+            (start! client)
+            (catch Exception e
+              (log/error "Auto-restart failed: " (ex-message e)))
+            (finally
+              (swap! (:state client) assoc :restarting? false))))))))
+
+(defn- watch-process-exit!
+  "Trigger auto-restart when the managed CLI process exits."
+  [client mp]
+  (when-let [exit-ch (:exit-chan mp)]
+    (go
+      (when-let [{:keys [exit-code]} (<! exit-ch)]
+        (if (:stopping? @(:state client))
+          (log/debug "CLI process exited with code" exit-code "(expected during stop)")
+          (log/warn "CLI process exited with code" exit-code))
+        (maybe-reconnect! client (str "cli-process-exit-" exit-code))))))
 
 (defn- setup-request-handler!
   "Set up handler for incoming requests (tool calls, permission requests)."
@@ -216,6 +267,7 @@
         (let [opts (:options client)
               mp (proc/spawn-cli opts)]
           (swap! (:state client) assoc :process mp)
+          (watch-process-exit! client mp)
 
           ;; For TCP mode, wait for port announcement
           (when-not (:use-stdio? opts)
@@ -253,70 +305,77 @@
    Returns a vector of any errors encountered during cleanup."
   [client]
   (log/info "Stopping Copilot client...")
+  (swap! (:state client) assoc :stopping? true)
   (let [errors (atom [])
         {:keys [sessions session-io process connection-io socket]} @(:state client)]
-    ;; 1. Destroy all sessions
-    (doseq [[session-id _] sessions]
-      (try
-        (session/destroy! client session-id)
-        (catch Exception e
-          (swap! errors conj
-                 (ex-info (str "Failed to destroy session " session-id)
-                          {:session-id session-id} e)))))
-    (swap! (:state client) assoc :sessions {} :session-io {})
+    (try
+      ;; 1. Destroy all sessions
+      (doseq [[session-id _] sessions]
+        (try
+          (session/destroy! client session-id)
+          (catch Exception e
+            (swap! errors conj
+                   (ex-info (str "Failed to destroy session " session-id)
+                            {:session-id session-id} e)))))
+      (swap! (:state client) assoc :sessions {} :session-io {})
 
-    ;; 2. Close connection (non-blocking, may leave read thread blocked for stdio)
-    (when connection-io
-      (try
-        (proto/disconnect connection-io)
-        (catch Exception e
-          (swap! errors conj
-                 (ex-info "Failed to close connection" {} e))))
-      (swap! (:state client) assoc :connection nil :connection-io nil))
+      ;; 2. Close connection (non-blocking, may leave read thread blocked for stdio)
+      (when connection-io
+        (try
+          (proto/disconnect connection-io)
+          (catch Exception e
+            (swap! errors conj
+                   (ex-info "Failed to close connection" {} e))))
+        (swap! (:state client) assoc :connection nil :connection-io nil))
 
-    ;; 3. Close socket (TCP mode)
-    (when socket
-      (try
-        (.close ^Socket socket)
-        (catch Exception e
-          (swap! errors conj
-                 (ex-info "Failed to close socket" {} e))))
-      (swap! (:state client) assoc :socket nil))
+      ;; 3. Close socket (TCP mode)
+      (when socket
+        (try
+          (.close ^Socket socket)
+          (catch Exception e
+            (swap! errors conj
+                   (ex-info "Failed to close socket" {} e))))
+        (swap! (:state client) assoc :socket nil))
 
-    ;; 4. Kill CLI process (this also unblocks any stdio read thread)
-    (when (and (not (:external-server? client)) process)
-      (try
-        (proc/destroy! process)
-        (catch Exception e
-          (swap! errors conj
-                 (ex-info "Failed to kill CLI process" {} e))))
-      (swap! (:state client) assoc :process nil))
+      ;; 4. Kill CLI process (this also unblocks any stdio read thread)
+      (when (and (not (:external-server? client)) process)
+        (try
+          (proc/destroy! process)
+          (catch Exception e
+            (swap! errors conj
+                   (ex-info "Failed to kill CLI process" {} e))))
+        (swap! (:state client) assoc :process nil))
 
-    (swap! (:state client) assoc :status :disconnected :actual-port nil)
+      (swap! (:state client) assoc :status :disconnected :actual-port nil)
 
-    (log/info "Copilot client stopped")
-    @errors))
+      (log/info "Copilot client stopped")
+      @errors
+      (finally
+        (swap! (:state client) assoc :stopping? false)))))
 
 (defn force-stop!
   "Force stop the CLI server without graceful cleanup."
   [client]
-  (swap! (:state client) assoc :force-stopping? true)
+  (swap! (:state client) assoc :force-stopping? true :stopping? true)
   
   (let [{:keys [connection-io socket process]} @(:state client)]
-    ;; Clear sessions without destroying
-    (swap! (:state client) assoc :sessions {} :session-io {})
+    (try
+      ;; Clear sessions without destroying
+      (swap! (:state client) assoc :sessions {} :session-io {})
 
-    ;; Force close connection
-    (when connection-io
-      (try (proto/disconnect connection-io) (catch Exception _)))
+      ;; Force close connection
+      (when connection-io
+        (try (proto/disconnect connection-io) (catch Exception _)))
 
-    ;; Force close socket
-    (when socket
-      (try (.close ^Socket socket) (catch Exception _)))
+      ;; Force close socket
+      (when socket
+        (try (.close ^Socket socket) (catch Exception _)))
 
-    ;; Force kill process
-    (when (and (not (:external-server? client)) process)
-      (try (proc/destroy-forcibly! process) (catch Exception _))))
+      ;; Force kill process
+      (when (and (not (:external-server? client)) process)
+        (try (proc/destroy-forcibly! process) (catch Exception _)))
+      (finally
+        (swap! (:state client) assoc :stopping? false))))
 
   (swap! (:state client) merge
          {:status :disconnected
