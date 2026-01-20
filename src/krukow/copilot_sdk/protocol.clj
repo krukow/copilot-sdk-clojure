@@ -13,7 +13,8 @@
   (:require [cheshire.core :as json]
             [clojure.core.async :as async :refer [go go-loop <! >! >!! <!! chan close! put!]]
             [clojure.string :as str]
-            [krukow.copilot-sdk.logging :as log])
+            [krukow.copilot-sdk.logging :as log]
+            [krukow.copilot-sdk.util :as util])
   (:import [java.io InputStream OutputStream IOException]
            [java.nio ByteBuffer]
            [java.nio.channels Channels ReadableByteChannel WritableByteChannel ClosedChannelException]
@@ -136,7 +137,7 @@
           (deliver promise {:error error}))
         (do
           (log/debug "Response success for id=" id)
-          (deliver promise {:result (:result msg)}))))))
+        (deliver promise {:result (:result msg)}))))))
 
 (defn- handle-request!
   "Handle an incoming request message (e.g., tool.call). Sends response via outgoing-ch."
@@ -154,10 +155,10 @@
           (if (:error result)
             (do
               (log/debug "Request error response: " (:error result))
-              (>! outgoing-ch {:jsonrpc "2.0" :id id :error (:error result)}))
+              (>! outgoing-ch {:jsonrpc "2.0" :id id :error (util/clj->wire (:error result))}))
             (do
               (log/debug "Request success response for id=" id)
-              (>! outgoing-ch {:jsonrpc "2.0" :id id :result (:result result)}))))
+              (>! outgoing-ch {:jsonrpc "2.0" :id id :result (util/clj->wire (:result result))}))))
         (catch Exception e
           (log/error "Request handler exception: " (ex-message e))
           (>! outgoing-ch {:jsonrpc "2.0"
@@ -165,24 +166,35 @@
                           :error {:code -32603
                                   :message (str "Internal error: " (ex-message e))}}))))))
 
+(defn- normalize-incoming
+  "Convert wire-format keys to Clojure keys, preserving tool.call arguments."
+  [msg]
+  (let [method (:method msg)
+        params (:params msg)
+        converted (util/wire->clj msg)]
+    (if (and (= "tool.call" method) (map? params) (contains? params :arguments))
+      (assoc-in converted [:params :arguments] (:arguments params))
+      converted)))
+
 (defn- dispatch-message!
   "Route incoming message to appropriate handler."
   [conn msg]
-  (let [{:keys [state-atom incoming-ch outgoing-ch]} conn]
+  (let [{:keys [state-atom incoming-ch outgoing-ch]} conn
+        normalized (normalize-incoming msg)]
     (cond
       ;; Response (has id, no method) - deliver to pending promise
-      (and (:id msg) (not (:method msg)))
-      (handle-response! state-atom msg)
+      (and (:id normalized) (not (:method normalized)))
+      (handle-response! state-atom normalized)
       
       ;; Request (has id and method) - handle and respond
-      (and (:id msg) (:method msg))
-      (handle-request! state-atom outgoing-ch msg)
+      (and (:id normalized) (:method normalized))
+      (handle-request! state-atom outgoing-ch normalized)
       
       ;; Notification (has method, no id) - put to incoming-ch for routing
-      (:method msg)
+      (:method normalized)
       (do
-        (log/debug "Received notification: method=" (:method msg))
-        (put! incoming-ch msg))
+        (log/debug "Received notification: method=" (:method normalized))
+        (put! incoming-ch normalized))
       
       :else nil)))
 
@@ -357,10 +369,11 @@
         id (get-in (swap! state-atom update-in [:connection :next-request-id] inc)
                    [:connection :next-request-id])
         p (promise)
+        wire-params (when params (util/clj->wire params))
         msg {:jsonrpc "2.0"
              :id id
              :method method
-             :params params}]
+             :params wire-params}]
     (log/debug "Sending request: method=" method " id=" id)
     (swap! state-atom assoc-in [:connection :pending-requests id] {:promise p :method method})
     (put! (:outgoing-ch conn) msg)
@@ -404,9 +417,10 @@
   "Send a JSON-RPC notification (no response expected)."
   [conn method params]
   (log/debug "Sending notification: method=" method)
-  (let [msg {:jsonrpc "2.0"
+  (let [wire-params (when params (util/clj->wire params))
+        msg {:jsonrpc "2.0"
              :method method
-             :params params}]
+             :params wire-params}]
     (put! (:outgoing-ch conn) msg)))
 
 (defn set-request-handler!

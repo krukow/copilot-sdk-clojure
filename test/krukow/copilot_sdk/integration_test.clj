@@ -302,16 +302,16 @@
                  {:handler (fn [args _] args)})
           session (sdk/create-session *test-client* {:tools [tool]})
           handler (get-in @(:state *test-client*) [:connection :request-handler])
-          response (<!! (handler "tool.call" {:sessionId (sdk/session-id session)
-                                              :toolCallId "tc-1"
-                                              :toolName "echo"
+          response (<!! (handler "tool.call" {:session-id (sdk/session-id session)
+                                              :tool-call-id "tc-1"
+                                              :tool-name "echo"
                                               :arguments {:x 1}}))]
       (is (map? response))
       (is (contains? response :result))
       (is (map? (:result response)))
       (is (contains? (:result response) :result))
       (is (map? (get-in response [:result :result])))
-      (is (contains? (get-in response [:result :result]) :textResultForLlm))
+      (is (contains? (get-in response [:result :result]) :text-result-for-llm))
       (is (not (contains? (get-in response [:result :result]) :result))))))
 
 (deftest test-tool-handler-runs-on-blocking-thread
@@ -323,9 +323,9 @@
                              "ok")})
           session (sdk/create-session *test-client* {:tools [tool]})
           handler (get-in @(:state *test-client*) [:connection :request-handler])]
-      (<!! (handler "tool.call" {:sessionId (sdk/session-id session)
-                                 :toolCallId "tc-2"
-                                 :toolName "thread_check"
+      (<!! (handler "tool.call" {:session-id (sdk/session-id session)
+                                 :tool-call-id "tc-2"
+                                 :tool-name "thread_check"
                                  :arguments {}}))
       (is (string? @thread-name))
       (is (re-find #"async-(thread|mixed)" @thread-name))

@@ -148,22 +148,22 @@
 (deftest result-helpers-test
   (testing "result-success"
     (let [r (copilot/result-success "OK")]
-      (is (= "OK" (:textResultForLlm r)))
-      (is (= "success" (:resultType r)))))
+      (is (= "OK" (:text-result-for-llm r)))
+      (is (= "success" (:result-type r)))))
   
   (testing "result-failure"
     (let [r (copilot/result-failure "Failed" "error details")]
-      (is (= "Failed" (:textResultForLlm r)))
-      (is (= "failure" (:resultType r)))
+      (is (= "Failed" (:text-result-for-llm r)))
+      (is (= "failure" (:result-type r)))
       (is (= "error details" (:error r)))))
   
   (testing "result-denied"
     (let [r (copilot/result-denied "Permission denied")]
-      (is (= "denied" (:resultType r)))))
+      (is (= "denied" (:result-type r)))))
   
   (testing "result-rejected"
     (let [r (copilot/result-rejected "User rejected")]
-      (is (= "rejected" (:resultType r))))))
+      (is (= "rejected" (:result-type r))))))
 
 ;; =============================================================================
 ;; Protocol Tests (Unit)

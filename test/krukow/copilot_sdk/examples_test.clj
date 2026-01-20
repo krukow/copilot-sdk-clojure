@@ -80,8 +80,8 @@
       ;; Test lookup handler with known language
       (let [result (lookup-handler {:language "clojure"} {})]
         (is (map? result))
-        (is (= "success" (:resultType result)))
-        (is (clojure.string/includes? (:textResultForLlm result) "Clojure"))))))
+        (is (= "success" (:result-type result)))
+        (is (clojure.string/includes? (:text-result-for-llm result) "Clojure"))))))
 
 ;; -----------------------------------------------------------------------------
 ;; Agent Definition Tests - verify agent factory function works

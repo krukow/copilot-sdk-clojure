@@ -138,10 +138,10 @@
       (if-let [notif (<! notif-ch)]
         (do
           (when (= (:method notif) "session.event")
-            (let [{:keys [sessionId event]} (:params notif)]
-              (log/debug "Routing event to session " sessionId ": type=" (:type event))
-              (when-not (:destroyed? (get-in @(:state client) [:sessions sessionId]))
-                (when-let [{:keys [event-chan]} (get-in @(:state client) [:session-io sessionId])]
+            (let [{:keys [session-id event]} (:params notif)]
+              (log/debug "Routing event to session " session-id ": type=" (:type event))
+              (when-not (:destroyed? (get-in @(:state client) [:sessions session-id]))
+                (when-let [{:keys [event-chan]} (get-in @(:state client) [:session-io session-id])]
                   (>! event-chan event)))))
           (recur))
         (do
@@ -201,16 +201,16 @@
         (go
           (case method
             "tool.call"
-            (let [{:keys [sessionId toolCallId toolName arguments]} params]
-              (if-not (get-in @(:state client) [:sessions sessionId])
-                {:error {:code -32001 :message (str "Unknown session: " sessionId)}}
-                {:result (<! (session/handle-tool-call! client sessionId toolCallId toolName arguments))}))
+            (let [{:keys [session-id tool-call-id tool-name arguments]} params]
+              (if-not (get-in @(:state client) [:sessions session-id])
+                {:error {:code -32001 :message (str "Unknown session: " session-id)}}
+                {:result (<! (session/handle-tool-call! client session-id tool-call-id tool-name arguments))}))
 
             "permission.request"
-            (let [{:keys [sessionId permissionRequest]} params]
-              (if-not (get-in @(:state client) [:sessions sessionId])
+            (let [{:keys [session-id permission-request]} params]
+              (if-not (get-in @(:state client) [:sessions session-id])
                 {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}}
-                {:result (<! (session/handle-permission-request! client sessionId permissionRequest))}))
+                {:result (<! (session/handle-permission-request! client session-id permission-request))}))
 
             {:error {:code -32601 :message (str "Unknown method: " method)}}))))))
 
@@ -239,7 +239,7 @@
   [client]
   (let [{:keys [connection-io]} @(:state client)
         result (proto/send-request! connection-io "ping" {})
-        server-version (:protocolVersion result)]
+        server-version (:protocol-version result)]
     (when (nil? server-version)
       (throw (ex-info
               (str "SDK protocol version mismatch: SDK expects version "
@@ -403,11 +403,11 @@
    (ping client nil))
   ([client message]
    (ensure-connected! client)
-   (let [{:keys [connection-io]} @(:state client)
-         result (proto/send-request! connection-io "ping" {:message message})]
-     {:message (:message result)
-      :timestamp (:timestamp result)
-      :protocol-version (:protocolVersion result)})))
+  (let [{:keys [connection-io]} @(:state client)
+        result (proto/send-request! connection-io "ping" {:message message})]
+    {:message (:message result)
+     :timestamp (:timestamp result)
+     :protocol-version (:protocol-version result)})))
 
 (defn create-session
   "Create a new conversation session.
@@ -455,19 +455,19 @@
                               (mapv util/clj->wire agents))
          ;; Build request params
          params (cond-> {}
-                  (:session-id config) (assoc :sessionId (:session-id config))
+                  (:session-id config) (assoc :session-id (:session-id config))
                   (:model config) (assoc :model (:model config))
                   wire-tools (assoc :tools wire-tools)
-                  wire-sys-msg (assoc :systemMessage wire-sys-msg)
-                  (:available-tools config) (assoc :availableTools (:available-tools config))
-                  (:excluded-tools config) (assoc :excludedTools (:excluded-tools config))
+                  wire-sys-msg (assoc :system-message wire-sys-msg)
+                  (:available-tools config) (assoc :available-tools (:available-tools config))
+                  (:excluded-tools config) (assoc :excluded-tools (:excluded-tools config))
                   wire-provider (assoc :provider wire-provider)
-                  (:on-permission-request config) (assoc :requestPermission true)
+                  (:on-permission-request config) (assoc :request-permission true)
                   (:streaming? config) (assoc :streaming (:streaming? config))
-                  wire-mcp-servers (assoc :mcpServers wire-mcp-servers)
-                  wire-custom-agents (assoc :customAgents wire-custom-agents))
+                  wire-mcp-servers (assoc :mcp-servers wire-mcp-servers)
+                  wire-custom-agents (assoc :custom-agents wire-custom-agents))
          result (proto/send-request! connection-io "session.create" params)
-         session-id (:sessionId result)
+         session-id (:session-id result)
          ;; Session state is stored by session/create-session in client's atom
          session (session/create-session client session-id
                                          {:tools (:tools config)
@@ -504,15 +504,15 @@
                             (mapv util/clj->wire servers))
          wire-custom-agents (when-let [agents (:custom-agents config)]
                               (mapv util/clj->wire agents))
-         params (cond-> {:sessionId session-id}
+         params (cond-> {:session-id session-id}
                   wire-tools (assoc :tools wire-tools)
                   wire-provider (assoc :provider wire-provider)
-                  (:on-permission-request config) (assoc :requestPermission true)
+                  (:on-permission-request config) (assoc :request-permission true)
                   (:streaming? config) (assoc :streaming (:streaming? config))
-                  wire-mcp-servers (assoc :mcpServers wire-mcp-servers)
-                  wire-custom-agents (assoc :customAgents wire-custom-agents))
+                  wire-mcp-servers (assoc :mcp-servers wire-mcp-servers)
+                  wire-custom-agents (assoc :custom-agents wire-custom-agents))
          result (proto/send-request! connection-io "session.resume" params)
-         resumed-id (:sessionId result)
+         resumed-id (:session-id result)
          ;; Session state is stored by session/create-session in client's atom
          session (session/create-session client resumed-id
                                          {:tools (:tools config)
@@ -528,11 +528,11 @@
         result (proto/send-request! connection-io "session.list" {})
         sessions (:sessions result)]
     (mapv (fn [s]
-            {:session-id (:sessionId s)
-             :start-time (java.time.Instant/parse (:startTime s))
-             :modified-time (java.time.Instant/parse (:modifiedTime s))
+            {:session-id (:session-id s)
+             :start-time (java.time.Instant/parse (:start-time s))
+             :modified-time (java.time.Instant/parse (:modified-time s))
              :summary (:summary s)
-             :remote? (:isRemote s)})
+             :remote? (:is-remote s)})
           sessions)))
 
 (defn delete-session!
@@ -540,7 +540,7 @@
   [client session-id]
   (ensure-connected! client)
   (let [{:keys [connection-io]} @(:state client)
-        result (proto/send-request! connection-io "session.delete" {:sessionId session-id})]
+        result (proto/send-request! connection-io "session.delete" {:session-id session-id})]
     (when-not (:success result)
       (throw (ex-info (str "Failed to delete session: " (:error result))
                       {:session-id session-id :error (:error result)})))
@@ -557,7 +557,7 @@
   (ensure-connected! client)
   (let [{:keys [connection-io]} @(:state client)
         result (proto/send-request! connection-io "session.getLastId" {})]
-    (:sessionId result)))
+    (:session-id result)))
 
 ;; -----------------------------------------------------------------------------
 ;; Testing Utilities

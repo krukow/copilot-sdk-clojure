@@ -13,12 +13,12 @@
      - :handler     - Function (fn [args invocation] -> result)
    
    The handler receives:
-   - args       - The parsed arguments from the LLM
+   - args       - The parsed arguments from the LLM (no key conversion)
    - invocation - Map with :session-id, :tool-call-id, :tool-name, :arguments
    
    The handler should return one of:
    - A string (treated as success)
-   - A map with :textResultForLlm and :resultType
+   - A map with :text-result-for-llm and :result-type
    - Any other value (JSON-encoded as success)
    - A core.async channel that will yield one of the above
    
@@ -63,8 +63,8 @@
       :handler (fn [args _]
                  (if (s/valid? ::get-weather-args args)
                    (str \"Weather: Sunny\")
-                   {:textResultForLlm (str \"Invalid args: \" (s/explain-str ::get-weather-args args))
-                    :resultType \"failure\"}))})
+                   {:text-result-for-llm (str \"Invalid args: \" (s/explain-str ::get-weather-args args))
+                    :result-type \"failure\"}))})
    ```"
   [name {:keys [description spec handler]}]
   ;; For now, we don't auto-convert spec to JSON schema
@@ -74,8 +74,8 @@
    :tool-parameters nil  ; User should provide JSON schema if needed
    :tool-handler (fn [args invocation]
                    (if (and spec (not (s/valid? spec args)))
-                     {:textResultForLlm (str "Invalid arguments: " (s/explain-str spec args))
-                      :resultType "failure"
+                     {:text-result-for-llm (str "Invalid arguments: " (s/explain-str spec args))
+                      :result-type "failure"
                       :error "spec validation failed"}
                      (handler args invocation)))})
 
@@ -84,9 +84,9 @@
   ([text]
    (result-success text {}))
   ([text telemetry]
-   {:textResultForLlm text
-    :resultType "success"
-    :toolTelemetry telemetry}))
+   {:text-result-for-llm text
+    :result-type "success"
+    :tool-telemetry telemetry}))
 
 (defn result-failure
   "Create a failed tool result."
@@ -95,25 +95,25 @@
   ([text error]
    (result-failure text error {}))
   ([text error telemetry]
-   {:textResultForLlm text
-    :resultType "failure"
+   {:text-result-for-llm text
+    :result-type "failure"
     :error error
-    :toolTelemetry telemetry}))
+    :tool-telemetry telemetry}))
 
 (defn result-denied
   "Create a denied tool result (permission denied)."
   ([text]
    (result-denied text {}))
   ([text telemetry]
-   {:textResultForLlm text
-    :resultType "denied"
-    :toolTelemetry telemetry}))
+   {:text-result-for-llm text
+    :result-type "denied"
+    :tool-telemetry telemetry}))
 
 (defn result-rejected
   "Create a rejected tool result (user rejected)."
   ([text]
    (result-rejected text {}))
   ([text telemetry]
-   {:textResultForLlm text
-    :resultType "rejected"
-    :toolTelemetry telemetry}))
+   {:text-result-for-llm text
+    :result-type "rejected"
+    :tool-telemetry telemetry}))

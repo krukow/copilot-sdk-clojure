@@ -10,7 +10,8 @@
             [clojure.core.async.impl.channels :as channels]
             [cheshire.core :as json]
             [krukow.copilot-sdk.protocol :as proto]
-            [krukow.copilot-sdk.logging :as log]))
+            [krukow.copilot-sdk.logging :as log]
+            [krukow.copilot-sdk.util :as util]))
 
 ;; -----------------------------------------------------------------------------
 ;; State accessors - all state lives in client's atom
@@ -79,26 +80,30 @@
   [result]
   (cond
     (nil? result)
-    {:textResultForLlm "Tool returned no result"
-     :resultType "failure"
+    {:text-result-for-llm "Tool returned no result"
+     :result-type "failure"
      :error "tool returned no result"
-     :toolTelemetry {}}
+     :tool-telemetry {}}
 
     ;; Already a result object (duck-type check)
-    (and (map? result) (:textResultForLlm result) (:resultType result))
+    (and (map? result) (:text-result-for-llm result) (:result-type result))
     result
+
+    ;; Backward compatibility for camelCase result maps
+    (and (map? result) (:textResultForLlm result) (:resultType result))
+    (util/wire->clj result)
 
     ;; String result
     (string? result)
-    {:textResultForLlm result
-     :resultType "success"
-     :toolTelemetry {}}
+    {:text-result-for-llm result
+     :result-type "success"
+     :tool-telemetry {}}
 
     ;; Any other value - JSON encode
     :else
-    {:textResultForLlm (json/generate-string result)
-     :resultType "success"
-     :toolTelemetry {}}))
+    {:text-result-for-llm (json/generate-string result)
+     :result-type "success"
+     :tool-telemetry {}}))
 
 (defn- channel?
   "Check if x is a core.async channel."
@@ -111,10 +116,10 @@
   (async/thread
     (let [handler (get-in (session-state client session-id) [:tool-handlers tool-name])]
       (if-not handler
-        {:result {:textResultForLlm (str "Tool '" tool-name "' is not supported by this client instance.")
-                  :resultType "failure"
+        {:result {:text-result-for-llm (str "Tool '" tool-name "' is not supported by this client instance.")
+                  :result-type "failure"
                   :error (str "tool '" tool-name "' not supported")
-                  :toolTelemetry {}}}
+                  :tool-telemetry {}}}
         (try
           (let [invocation {:session-id session-id
                             :tool-call-id tool-call-id
@@ -127,10 +132,10 @@
                          result)]
             {:result (normalize-tool-result result)})
           (catch Exception e
-            {:result {:textResultForLlm "Invoking this tool produced an error. Detailed information is not available."
-                      :resultType "failure"
+            {:result {:text-result-for-llm "Invoking this tool produced an error. Detailed information is not available."
+                      :result-type "failure"
                       :error (ex-message e)
-                      :toolTelemetry {}}}))))))
+                      :tool-telemetry {}}})))))) 
 
 (defn handle-permission-request!
   "Handle an incoming permission request. Returns a channel with the result."
@@ -173,13 +178,13 @@
                                       :path (:path a)
                                       :displayName (:display-name a)})
                                    (:attachments opts)))
-          params (cond-> {:sessionId session-id
+          params (cond-> {:session-id session-id
                           :prompt (:prompt opts)}
                    wire-attachments (assoc :attachments wire-attachments)
                    (:mode opts) (assoc :mode (name (:mode opts))))
           result (proto/send-request! conn "session.send" params)
-          msg-id (:messageId result)]
-      (log/debug "send! completed for session " session-id " messageId=" msg-id)
+          msg-id (:message-id result)]
+      (log/debug "send! completed for session " session-id " message-id=" msg-id)
       msg-id)))
 
 (defn send-and-wait!
@@ -335,7 +340,7 @@
     (when (:destroyed? (session-state client session-id))
       (throw (ex-info "Session has been destroyed" {:session-id session-id})))
     (let [conn (connection-io client)]
-      (proto/send-request! conn "session.abort" {:sessionId session-id})
+      (proto/send-request! conn "session.abort" {:session-id session-id})
       nil)))
 
 (defn get-messages
@@ -345,7 +350,7 @@
     (when (:destroyed? (session-state client session-id))
       (throw (ex-info "Session has been destroyed" {:session-id session-id})))
     (let [conn (connection-io client)
-          result (proto/send-request! conn "session.getMessages" {:sessionId session-id})]
+          result (proto/send-request! conn "session.getMessages" {:session-id session-id})]
       (:events result))))
 
 (defn destroy!
@@ -359,7 +364,7 @@
      (let [conn (connection-io client)]
        ;; Try to notify server, but don't block forever if connection is broken
        (try
-         (proto/send-request! conn "session.destroy" {:sessionId session-id} 5000)
+         (proto/send-request! conn "session.destroy" {:session-id session-id} 5000)
          (catch Exception _
            ;; Ignore errors - we're cleaning up anyway
            nil))
