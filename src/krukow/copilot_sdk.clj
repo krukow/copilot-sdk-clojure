@@ -180,7 +180,7 @@
    Serialized per session to avoid mixing concurrent sends.
 
    Options: same as send!, plus:
-   - :timeout-ms   - Timeout in milliseconds (default: 60000)
+   - :timeout-ms   - Timeout in milliseconds (default: 180000)
 
    Example:
    ```clojure

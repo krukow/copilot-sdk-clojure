@@ -480,7 +480,7 @@ $COPILOT_CLI_PATH --version
 
 Increase the timeout for complex queries:
 ```clojure
-(copilot/send-and-wait! session {:prompt "Complex question"} 120000) ; 2 minutes
+(copilot/send-and-wait! session {:prompt "Complex question"} 300000) ; 5 minutes
 ```
 
 ### Tool not being called

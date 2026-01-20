@@ -190,9 +190,9 @@
    Options: same as send!
    
    Additional options:
-   - :timeout-ms   - Timeout in milliseconds (default: 60000)"
+   - :timeout-ms   - Timeout in milliseconds (default: 180000)"
   ([session opts]
-   (send-and-wait! session opts 60000))
+   (send-and-wait! session opts 180000))
   ([session opts timeout-ms]
    (let [{:keys [session-id client]} session]
      (log/debug "send-and-wait! called for session " session-id)
