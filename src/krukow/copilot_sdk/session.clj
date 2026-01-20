@@ -63,7 +63,7 @@
                            {:event-chan event-chan
                             :event-mult event-mult
                             :send-lock send-lock}))))
-    (log/info "Session created: " session-id)
+    (log/debug "Session created: " session-id)
     ;; Return lightweight handle
     (->CopilotSession session-id client)))
 
@@ -386,7 +386,7 @@
        ;; Close the event source channel - this propagates to all tapped channels
        (when-let [{:keys [event-chan]} (session-io client session-id)]
          (close! event-chan))
-       (log/info "Session destroyed: " session-id)
+       (log/debug "Session destroyed: " session-id)
        nil))))
 
 (defn events

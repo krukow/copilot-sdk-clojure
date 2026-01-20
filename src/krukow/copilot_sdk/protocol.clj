@@ -354,7 +354,7 @@
       (.setDaemon thread true)
       (.setName thread "jsonrpc-nio-reader")
       (.start thread)
-      (log/info "JSON-RPC connection established")
+      (log/debug "JSON-RPC connection established")
       (assoc conn :read-thread thread))))
 
 (defn disconnect
@@ -389,7 +389,7 @@
         (.join thread 1000)
         (catch Exception _)))
     
-    (log/info "JSON-RPC connection closed")))
+    (log/debug "JSON-RPC connection closed")))
 
 (defn send-request
   "Send a JSON-RPC request and return a promise for the response."
