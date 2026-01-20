@@ -6,7 +6,7 @@
    - [:session-io session-id] -> {:event-chan :event-mult}
    
    Functions take client + session-id, accessing state through the client."
-  (:require [clojure.core.async :as async :refer [go go-loop <! >! >!! chan close! put! alts!! mult tap untap]]
+  (:require [clojure.core.async :as async :refer [go go-loop <! >! >!! <!! chan close! put! alts!! mult tap untap]]
             [clojure.core.async.impl.channels :as channels]
             [cheshire.core :as json]
             [krukow.copilot-sdk.protocol :as proto]
@@ -106,7 +106,7 @@
 (defn handle-tool-call!
   "Handle an incoming tool call request. Returns a channel with the result wrapper."
   [client session-id tool-call-id tool-name arguments]
-  (go
+  (async/thread
     (let [handler (get-in (session-state client session-id) [:tool-handlers tool-name])]
       (if-not handler
         {:result {:textResultForLlm (str "Tool '" tool-name "' is not supported by this client instance.")
@@ -121,7 +121,7 @@
                 result (handler arguments invocation)
                 ;; If handler returns a channel, await it
                 result (if (channel? result)
-                         (<! result)
+                         (<!! result)
                          result)]
             {:result (normalize-tool-result result)})
           (catch Exception e
@@ -133,7 +133,7 @@
 (defn handle-permission-request!
   "Handle an incoming permission request. Returns a channel with the result."
   [client session-id request]
-  (go
+  (async/thread
     (let [handler (:permission-handler (session-state client session-id))]
       (if-not handler
         {:kind "denied-no-approval-rule-and-could-not-request-from-user"}
@@ -141,7 +141,7 @@
           (let [result (handler request {:session-id session-id})
                 ;; If handler returns a channel, await it
                 result (if (channel? result)
-                         (<! result)
+                         (<!! result)
                          result)]
             result)
           (catch Exception _
@@ -297,7 +297,13 @@
               (recur)))))
       
       ;; Send the message
-      (send! session opts)
+      (try
+        (send! session opts)
+        (catch Exception e
+          (untap event-mult event-ch)
+          (close! event-ch)
+          (close! out-ch)
+          (throw e)))
       
       out-ch)))
 

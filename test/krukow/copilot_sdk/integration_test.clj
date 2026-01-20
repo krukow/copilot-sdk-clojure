@@ -255,6 +255,25 @@
 ;; Last Session ID Tests
 ;; -----------------------------------------------------------------------------
 
+(deftest test-send-async-untaps-on-send-failure
+  (testing "send-async cleans up tap when send! throws"
+    (let [session (sdk/create-session *test-client* {})
+          taps (atom 0)
+          untaps (atom 0)
+          fake-mult (reify
+                      async/Mux
+                      (muxch* [_] (chan))
+                      async/Mult
+                      (tap* [_ _ _] (swap! taps inc) nil)
+                      (untap* [_ _] (swap! untaps inc) nil)
+                      (untap-all* [_] nil))]
+      (swap! (:state *test-client*) assoc-in [:session-io (sdk/session-id session) :event-mult] fake-mult)
+      (with-redefs [krukow.copilot-sdk.session/send! (fn [_ _]
+                                                       (throw (ex-info "forced failure" {})))]
+        (is (thrown? Exception (sdk/send-async session {:prompt "should-fail"}))))
+      (is (= 1 @taps))
+      (is (pos? @untaps)))))
+
 (deftest test-get-last-session-id
   (testing "Get last session ID"
     (let [_ (sdk/create-session *test-client* {})
