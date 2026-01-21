@@ -9,14 +9,13 @@ Clojure SDK for programmatic control of GitHub Copilot CLI via JSON-RPC.
 Add to your `deps.edn`:
 
 ```clojure
-;; Clojars (released artifacts)
-{:deps {net.clojars.krukow/copilot-sdk {:mvn/version "0.1.0"}}}
+net.clojars.krukow/copilot-sdk {:mvn/version "0.1.0-SNAPSHOT"}
 ```
 
 ```clojure
 ;; Git dependency (use a SHA)
-{:deps {io.github.krukow/copilot-sdk {:git/url "https://github.com/krukow/copilot-sdk-clojure.git"
-                                     :git/sha "16544a61a429bd8b3b8738a0624c09e52cd617d1"}}}
+io.github.krukow/copilot-sdk {:git/url "https://github.com/krukow/copilot-sdk-clojure.git"
+                              :git/sha "16544a61a429bd8b3b8738a0624c09e52cd617d1"}
 ```
 
 Update the SHA automatically:
