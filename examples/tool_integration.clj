@@ -7,7 +7,9 @@
    3. Let the LLM invoke your tool multiple times
 
    Run with: clojure -M:examples -m tool-integration"
-  (:require [krukow.copilot-sdk :as copilot]))
+  (:require [krukow.copilot-sdk :as copilot]
+            [clojure.core.async :as async :refer [go <! >! chan close!
+                                                  alts! timeout put! <!!]]))
 
 ;; Define a knowledge base for our tool
 (def ^:private knowledge-base
@@ -52,6 +54,12 @@
                                {:model "gpt-5.2"
                                 :tools [lookup-tool]}]
           (println "✅ Session created\n")
+
+          (let [ch (copilot/subscribe-events session)]
+            (async/go-loop []
+              (when-let [event (<! ch)]
+                (println "Event: " (:type event))
+                (recur))))
 
           ;; First lookup - Clojure
           (println "💬 Question 1: Tell me about Clojure")

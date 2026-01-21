@@ -470,6 +470,49 @@ For full control (removes all guardrails), use `:mode :replace`:
                     :content "You are a helpful assistant."}})
 ```
 
+### Config Directory and Skills
+
+`config-dir` overrides where the CLI reads its config and state (e.g., `~/.copilot`).
+It does not define custom agents. Custom agents are provided via `:custom-agents`.
+
+```clojure
+(def session (copilot/create-session client
+               {:model "gpt-5"
+                :config-dir "/tmp/copilot-config"
+                :skill-directories ["/path/to/skills" "/opt/team-skills"]
+                :disabled-skills ["legacy-skill" "experimental-skill"]}))
+```
+
+### Large Tool Output Handling
+
+Configure how large tool outputs are handled before being sent back to the model:
+
+```clojure
+(def session (copilot/create-session client
+               {:model "gpt-5"
+                :large-output {:enabled true
+                               :max-size-bytes 65536
+                               :output-dir "/tmp/copilot-tool-output"}}))
+```
+
+When a tool output exceeds the configured size, the CLI writes the full output to a temp file,
+and the tool result delivered to the model contains a short message with the file path and preview.
+You can see this message in `:tool.execution_complete` events:
+
+```clojure
+(let [events (copilot/subscribe-events session)]
+  (go-loop []
+    (when-let [event (<! events)]
+        (when (= :tool.execution_complete (:type event))
+          (when-let [content (get-in event [:data :result :content])]
+            (println "Tool output message:\n" content)))
+      (recur))))
+```
+
+Note: large output handling is applied by the CLI for built-in tools (like the shell tool).
+For external tools you define in the SDK, consider handling oversized outputs yourself
+(e.g., write to a file and return a short preview).
+
 ### Multiple Sessions
 
 ```clojure
@@ -519,6 +562,7 @@ See the [`examples/`](./examples/) directory for complete working examples:
 | [`tool_integration.clj`](./examples/tool_integration.clj) | Intermediate | Custom tools that the LLM can invoke |
 | [`multi_agent.clj`](./examples/multi_agent.clj) | Advanced | Multi-agent orchestration with core.async |
 | [`streaming_chat.clj`](./examples/streaming_chat.clj) | Intermediate | Streaming deltas with incremental output |
+| [`config_skill_output.clj`](./examples/config_skill_output.clj) | Intermediate | Config dir, skills, and large output settings |
 
 Run examples:
 
@@ -527,6 +571,7 @@ clojure -A:examples -M -m basic-chat
 clojure -A:examples -M -m tool-integration
 clojure -A:examples -M -m multi-agent
 clojure -A:examples -M -m streaming-chat
+clojure -A:examples -M -m config-skill-output
 ```
 
 See [`examples/README.md`](./examples/README.md) for detailed walkthroughs and explanations.

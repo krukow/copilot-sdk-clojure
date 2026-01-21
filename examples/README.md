@@ -28,6 +28,9 @@ clojure -A:examples -M -m multi-agent
 
 # Streaming responses
 clojure -A:examples -M -m streaming-chat
+
+# Config directory, skills, and large output
+clojure -A:examples -M -m config-skill-output
 ```
 
 Or with a custom CLI path:
@@ -467,6 +470,17 @@ const response = await session.sendAndWait({ prompt: "Hello" });
 
 Demonstrates how to enable streaming and render assistant output incrementally as
 `:assistant.message_delta` events arrive, then print the final message on idle.
+
+## Example 5: Config, Skills, and Large Output (`config_skill_output.clj`)
+
+**Difficulty:** Intermediate  
+**Concepts:** config-dir overrides, skill directories, disabling skills, large tool output settings
+
+Shows how to:
+- set a custom config directory
+- provide additional skill directories
+- disable specific skills by name
+ - configure large tool output handling with a custom tool
 
 ## Troubleshooting
 
