@@ -170,6 +170,28 @@
        (finally
          (destroy! ~session-sym)))))
 
+(defmacro with-client-session
+  "Create a client + session and ensure cleanup on exit.
+
+   Usage:
+   (with-client-session [s {:model \"gpt-5.2\"}]
+     ...)
+
+   (with-client-session [client s {:model \"gpt-5.2\"} {:cli-path \"copilot\"}]
+     ...)"
+  [[a b & more] & body]
+  (if (map? b)
+    `(with-client [client#]
+       (with-session [~a client# ~b]
+         ~@body))
+    (let [client-sym a
+          session-sym b
+          session-opts (first more)
+          client-opts (second more)]
+      `(with-client [~client-sym ~@(when client-opts [client-opts])]
+         (with-session [~session-sym ~client-sym ~session-opts]
+           ~@body)))))
+
 (defn resume-session
   "Resume an existing session by ID.
 

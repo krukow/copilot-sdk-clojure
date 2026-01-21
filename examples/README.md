@@ -54,29 +54,26 @@ The simplest use case—create a client, start a conversation, and get responses
 - Creating a session with a specific model
 - Sending messages with `send-and-wait!`
 - Multi-turn conversation (context is preserved)
-- Proper cleanup with `with-client` and `with-session`
+- Proper cleanup with `with-client-session`
 
 ### Code Walkthrough
 
 ```clojure
-;; 1. Create a client with configuration and start it
-(copilot/with-client [client {:cli-path "copilot"
-                              :log-level :info}]
-  ;; 2. Create a session (specifying model)
-  (copilot/with-session [session client {:model "gpt-5.2"}]
-    ;; 3. Send a message and wait for the complete response
-    (def response (copilot/send-and-wait! session
-                    {:prompt "What is the capital of France?"}))
+;; 1. Create a client and session
+(copilot/with-client-session [session {:model "gpt-5.2"}]
+  ;; 2. Send a message and wait for the complete response
+  (def response (copilot/send-and-wait! session
+                  {:prompt "What is the capital of France?"}))
 
-    ;; 4. Access the response content
-    (println (get-in response [:data :content]))
-    ;; => "The capital of France is Paris."
+  ;; 3. Access the response content
+  (println (get-in response [:data :content]))
+  ;; => "The capital of France is Paris."
 
-    ;; 5. Follow-up question (conversation context preserved)
-    (def response2 (copilot/send-and-wait! session
-                     {:prompt "What is its population?"}))
-    ;; The model knows "its" refers to Paris
-    ))
+  ;; 4. Follow-up question (conversation context preserved)
+  (def response2 (copilot/send-and-wait! session
+                   {:prompt "What is its population?"}))
+  ;; The model knows "its" refers to Paris
+  )
 ```
 
 ### Expected Output
@@ -282,17 +279,12 @@ Demonstrates a sophisticated pattern where multiple specialized agents collabora
 (defn agent-respond! [agent prompt]
   (let [out-ch (chan 1)]
     (go
-      (try
-        (let [response (copilot/send-and-wait! (:session agent)
-                         {:prompt prompt}
-                         120000)]
-          (>! out-ch {:agent (:name agent)
-                      :content (get-in response [:data :content])
-                      :success true}))
-        (catch Exception e
-          (>! out-ch {:agent (:name agent)
-                      :error (ex-message e)
-                      :success false})))
+      (let [response (copilot/send-and-wait! (:session agent)
+                       {:prompt prompt}
+                       120000)]
+        (>! out-ch {:agent (:name agent)
+                    :content (get-in response [:data :content])
+                    :success true}))
       (close! out-ch))
     out-ch))
 ```
@@ -388,7 +380,7 @@ await client.start();
 **Clojure:**
 ```clojure
 (require '[krukow.copilot-sdk :as copilot])
-(copilot/with-client [client {:log-level :info}]
+(copilot/with-client [client]
   ;; use client
   )
 ```
