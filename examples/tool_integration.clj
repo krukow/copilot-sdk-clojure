@@ -1,6 +1,8 @@
 (ns tool-integration
   (:require [krukow.copilot-sdk :as copilot]))
 
+;; See examples/README.md for usage
+
 ;; Define a knowledge base for our tool
 (def ^:private knowledge-base
   {"clojure" "Clojure is a dynamic, functional programming language that runs on the JVM. Created by Rich Hickey in 2007. It emphasizes immutability and functional programming."
@@ -26,15 +28,16 @@
                      (str "No information found for language: " lang ". Available: clojure, rust, python, javascript, haskell")
                      "language not in knowledge base"))))}))
 
-(defn -main [& _args]
+(def defaults
+  {:languages ["clojure" "python" "rust"]})
+
+(defn run
+  [{:keys [languages] :or {languages (:languages defaults)}}]
   (copilot/with-client-session [session {:model "gpt-5.2"
                                          :tools [lookup-tool]}]
-    (println (-> (copilot/send-and-wait! session
-                   {:prompt "What is Clojure? Use the lookup_language tool to find out."})
-                 (get-in [:data :content])))
-    (println (-> (copilot/send-and-wait! session
-                   {:prompt "Now tell me about Python. Use the lookup_language tool."})
-                 (get-in [:data :content])))
-    (println (-> (copilot/send-and-wait! session
-                   {:prompt "What about Rust? Look it up please."})
-                 (get-in [:data :content])))))
+    (doseq [lang languages]
+      (println (str "Looking up: " lang))
+      (println (-> (copilot/send-and-wait! session
+                     {:prompt (str "What is " lang "? Use the lookup_language tool to find out.")})
+                   (get-in [:data :content])))
+      (println))))

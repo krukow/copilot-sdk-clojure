@@ -2,6 +2,8 @@
   (:require [krukow.copilot-sdk :as copilot]
             [clojure.pprint :as pprint]))
 
+;; See examples/README.md for usage
+
 (defn- windows?
   []
   (boolean (re-find #"(?i)windows" (System/getProperty "os.name"))))
@@ -14,7 +16,8 @@
     {:tool "bash"
      :command "echo 'hello from bash'"}))
 
-(defn -main [& _args]
+(defn run
+  [_opts]
   (let [{:keys [tool command]} (shell-config)
         denied-command (str command " && echo 'denied'")
         allowed-commands #{command}]

@@ -2,7 +2,13 @@
   (:require [clojure.core.async :as async :refer [chan tap go-loop <!]]
             [krukow.copilot-sdk :as copilot]))
 
-(defn -main [& _args]
+;; See examples/README.md for usage
+
+(def defaults
+  {:prompt "Solve this: I have two coins totaling 30 cents. One is not a nickel. What are the coins? Explain your reasoning clearly."})
+
+(defn run
+  [{:keys [prompt] :or {prompt (:prompt defaults)}}]
   (copilot/with-client-session [session {:model "gpt-5.2"
                                          :streaming? true}]
     (let [events-ch (chan 256)
@@ -38,7 +44,7 @@
             nil)
           (recur)))
 
-      (copilot/send! session {:prompt "Solve this: I have two coins totaling 30 cents. One is not a nickel. What are the coins? Explain your reasoning clearly."})
+      (copilot/send! session {:prompt prompt})
       (let [result @done]
         (when (instance? Exception result)
           (throw result))))))

@@ -1,7 +1,8 @@
 (ns multi-agent
   (:require [krukow.copilot-sdk :as copilot]
-            [clojure.core.async :as async :refer [go go-loop <! >! chan close!
-                                                   alts! timeout put! <!!]]))
+            [clojure.core.async :as async :refer [go go-loop <! >! chan close! <!!]]))
+
+;; See examples/README.md for usage
 
 (defn create-agent
   "Create an agent with a specific role via system message."
@@ -48,49 +49,48 @@
         (let [result (<! result-ch)]
           (recur (conj results result) (dec remaining)))))))
 
-(defn -main [& _args]
+(def defaults
+  {:topics ["functional programming benefits"
+            "immutable data structures"
+            "concurrent programming challenges"]})
+
+(defn run
+  [{:keys [topics] :or {topics (:topics defaults)}}]
   (copilot/with-client [client]
-        ;; Create our specialized agents
+    (let [researcher (create-agent client "Researcher"
+                       "You are a research assistant. Your job is to gather factual information
+                        about topics. Be concise and focus on key facts. Respond in 2-3 sentences."
+                       "gpt-5.2")
+          
+          analyst (create-agent client "Analyst"  
+                    "You are an analytical assistant. Your job is to identify patterns,
+                     connections, and insights from information provided. Be insightful but concise."
+                    "gpt-5.2")
+          
+          writer (create-agent client "Writer"
+                   "You are a professional writer. Your job is to synthesize information
+                    into clear, engaging prose. Write in a professional but accessible style."
+                   "gpt-5.2")]
+      
+      (let [research-results (<!! (run-parallel-research! researcher topics))]
         
-        (let [researcher (create-agent client "Researcher"
-                           "You are a research assistant. Your job is to gather factual information
-                            about topics. Be concise and focus on key facts. Respond in 2-3 sentences."
-                           "gpt-5.2")
+        (let [research-summary (->> research-results
+                                    (filter :success)
+                                    (map #(str "- " (:topic %) ": " (:content %)))
+                                    (clojure.string/join "\n"))
               
-              analyst (create-agent client "Analyst"  
-                        "You are an analytical assistant. Your job is to identify patterns,
-                         connections, and insights from information provided. Be insightful but concise."
-                        "gpt-5.2")
+              analysis-prompt (str "Analyze these research findings and identify 2-3 key insights "
+                                  "or patterns:\n\n" research-summary)
               
-              writer (create-agent client "Writer"
-                       "You are a professional writer. Your job is to synthesize information
-                        into clear, engaging prose. Write in a professional but accessible style."
-                       "gpt-5.2")]
-          
-          (let [topics ["functional programming benefits"
-                        "immutable data structures"
-                        "concurrent programming challenges"]
-                
-                ;; Run research in parallel and wait for all results
-                research-results (<!! (run-parallel-research! researcher topics))]
-            
-            (let [research-summary (->> research-results
-                                        (filter :success)
-                                        (map #(str "- " (:topic %) ": " (:content %)))
-                                        (clojure.string/join "\n"))
-                  
-                  analysis-prompt (str "Analyze these research findings and identify 2-3 key insights "
-                                      "or patterns:\n\n" research-summary)
-                  
-                  analysis-response (<!! (agent-respond! analyst analysis-prompt))
-                  synthesis-prompt (str "Based on the following research and analysis, "
-                                         "write a brief (3-4 sentence) executive summary:\n\n"
-                                         "RESEARCH:\n" research-summary "\n\n"
-                                         "ANALYSIS:\n" (:content analysis-response))
-                  final-response (<!! (agent-respond! writer synthesis-prompt))]
-              (println (:content final-response))))
-          
-          ;; Clean up all agents
-          (copilot/destroy! (:session researcher))
-          (copilot/destroy! (:session analyst))
-          (copilot/destroy! (:session writer)))))
+              analysis-response (<!! (agent-respond! analyst analysis-prompt))
+              synthesis-prompt (str "Based on the following research and analysis, "
+                                     "write a brief (3-4 sentence) executive summary:\n\n"
+                                     "RESEARCH:\n" research-summary "\n\n"
+                                     "ANALYSIS:\n" (:content analysis-response))
+              final-response (<!! (agent-respond! writer synthesis-prompt))]
+          (println (:content final-response))))
+      
+      ;; Clean up all agents
+      (copilot/destroy! (:session researcher))
+      (copilot/destroy! (:session analyst))
+      (copilot/destroy! (:session writer)))))

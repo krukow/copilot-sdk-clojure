@@ -3,9 +3,12 @@
             [krukow.copilot-sdk :as copilot]
             [krukow.copilot-sdk.tools :as tools]))
 
+;; See examples/README.md for usage
+
 (declare latest-output-file large-output-text write-demo-skill!)
 
-(defn -main [& _args]
+(defn run
+  [_opts]
   (let [config-dir (or (System/getenv "COPILOT_CONFIG_DIR")
                        (str (System/getProperty "user.home") "/.copilot"))
         base-dir (str (java.nio.file.Files/createTempDirectory "copilot-demo-"
