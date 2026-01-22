@@ -27,17 +27,11 @@
                                                                       {:kind :denied-by-rules
                                                                        :rules [{:kind "shell"
                                                                                 :argument (:full-command-text request)}]}))}]
-      (let [response (copilot/send-and-wait!
-                      session
-                      {:prompt (str "Run this command with the "
-                                    tool
-                                    " tool, then reply with just DONE:\n\n"
-                                    command)})]
-        (println (get-in response [:data :content])))
-      (let [response (copilot/send-and-wait!
-                      session
-                      {:prompt (str "Run this command with the "
-                                    tool
-                                    " tool, then reply with just DONE:\n\n"
-                                    denied-command)})]
-        (println (get-in response [:data :content]))))))
+      (println (-> (copilot/send-and-wait! session
+                     {:prompt (str "Run this command with the " tool
+                                   " tool, then reply with just DONE:\n\n" command)})
+                   (get-in [:data :content])))
+      (println (-> (copilot/send-and-wait! session
+                     {:prompt (str "Run this command with the " tool
+                                   " tool, then reply with just DONE:\n\n" denied-command)})
+                   (get-in [:data :content]))))))

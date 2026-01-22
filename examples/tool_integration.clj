@@ -29,12 +29,12 @@
 (defn -main [& _args]
   (copilot/with-client-session [session {:model "gpt-5.2"
                                          :tools [lookup-tool]}]
-    (let [response (copilot/send-and-wait! session
-                                           {:prompt "What is Clojure? Use the lookup_language tool to find out."})]
-      (println (get-in response [:data :content])))
-    (let [response (copilot/send-and-wait! session
-                                           {:prompt "Now tell me about Python. Use the lookup_language tool."})]
-      (println (get-in response [:data :content])))
-    (let [response (copilot/send-and-wait! session
-                                           {:prompt "What about Rust? Look it up please."})]
-      (println (get-in response [:data :content])))))
+    (println (-> (copilot/send-and-wait! session
+                   {:prompt "What is Clojure? Use the lookup_language tool to find out."})
+                 (get-in [:data :content])))
+    (println (-> (copilot/send-and-wait! session
+                   {:prompt "Now tell me about Python. Use the lookup_language tool."})
+                 (get-in [:data :content])))
+    (println (-> (copilot/send-and-wait! session
+                   {:prompt "What about Rust? Look it up please."})
+                 (get-in [:data :content])))))
