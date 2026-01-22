@@ -24,8 +24,8 @@
 ;; Define a multimethod for handling events by type
 (defmulti handle-event :type)
 (defmethod handle-event :default [_] nil)
-(defmethod handle-event :assistant.message_delta [event]
-  (print (get-in event [:data :delta-content]))
+(defmethod handle-event :assistant.message_delta [{{:keys [delta-content]} :data}]
+  (print delta-content)
   (flush))
 (defmethod handle-event :assistant.message [_] (println))
 

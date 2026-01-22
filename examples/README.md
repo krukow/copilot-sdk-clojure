@@ -14,29 +14,55 @@ This directory contains example applications demonstrating various features of t
 
 ## Running Examples
 
+All examples use Clojure's `-X` invocation, which allows passing parameters directly.
+
 From the project root:
 
 ```bash
 # Basic Q&A conversation
-clojure -A:examples -M -m basic-chat
+clojure -A:examples -X basic-chat/run
+
+# With custom questions
+clojure -A:examples -X basic-chat/run :q1 '"What is Clojure?"' :q2 '"Who created it?"'
+
+# Simple stateless query (helpers API)
+clojure -A:examples -X helpers-query/run
+clojure -A:examples -X helpers-query/run :prompt '"Explain recursion briefly."'
+
+# Multiple independent queries
+clojure -A:examples -X helpers-query/run-multi
+clojure -A:examples -X helpers-query/run-multi :questions '["What is Rust?" "What is Go?"]'
+
+# Streaming output
+clojure -A:examples -X helpers-query/run-streaming
 
 # Custom tool integration
-clojure -A:examples -M -m tool-integration
+clojure -A:examples -X tool-integration/run
+clojure -A:examples -X tool-integration/run :languages '["clojure" "haskell"]'
 
 # Multi-agent orchestration
-clojure -A:examples -M -m multi-agent
+clojure -A:examples -X multi-agent/run
+clojure -A:examples -X multi-agent/run :topics '["AI safety" "machine learning"]'
 
 # Streaming responses
-clojure -A:examples -M -m streaming-chat
+clojure -A:examples -X streaming-chat/run
+clojure -A:examples -X streaming-chat/run :prompt '"Explain the Fibonacci sequence."'
 
 # Config directory, skills, and large output
-clojure -A:examples -M -m config-skill-output
+clojure -A:examples -X config-skill-output/run
+
+# Permission handling
+clojure -A:examples -X permission-bash/run
 ```
 
-Or with a custom CLI path:
-
+Or run all examples:
 ```bash
-COPILOT_CLI_PATH=/path/to/copilot clojure -A:examples -M -m basic-chat
+./run-all-examples.sh
+```
+
+With a custom CLI path:
+```bash
+COPILOT_CLI_PATH=/path/to/copilot clojure -A:examples -X basic-chat/run
 ```
 
 ---
@@ -55,6 +81,13 @@ The simplest use case—create a client, start a conversation, and get responses
 - Sending messages with `send-and-wait!`
 - Multi-turn conversation (context is preserved)
 - Proper cleanup with `with-client-session`
+
+### Usage
+
+```bash
+clojure -A:examples -X basic-chat/run
+clojure -A:examples -X basic-chat/run :q1 '"What is Clojure?"' :q2 '"Who created it?"'
+```
 
 ### Code Walkthrough
 
@@ -76,35 +109,69 @@ The simplest use case—create a client, start a conversation, and get responses
   )
 ```
 
-### Expected Output
+---
 
+## Example 2: Helpers Query (`helpers_query.clj`)
+
+**Difficulty:** Beginner  
+**Concepts:** Stateless queries, simple API
+
+Shows the simplified helpers API for one-shot queries without managing client/session lifecycle.
+
+### What It Demonstrates
+
+- `query` - Simple synchronous query, returns just the answer string
+- `query-seq` - Returns lazy sequence of all events  
+- `query-chan` - Returns core.async channel of events
+- Automatic client management (created on first use, reused across queries)
+- Automatic cleanup via JVM shutdown hook (no manual cleanup needed)
+
+### Usage
+
+```bash
+# Simple query
+clojure -A:examples -X helpers-query/run
+
+# With custom prompt
+clojure -A:examples -X helpers-query/run :prompt '"What is functional programming?"'
+
+# Streaming output (lazy seq)
+clojure -A:examples -X helpers-query/run-streaming
+
+# Streaming output (core.async)
+clojure -A:examples -X helpers-query/run-async
+
+# Multiple independent queries
+clojure -A:examples -X helpers-query/run-multi
+clojure -A:examples -X helpers-query/run-multi :questions '["What is Rust?" "What is Go?"]'
 ```
-🚀 Basic Chat Example
-======================
 
-📡 Starting Copilot client...
-✅ Connected!
+### Code Walkthrough
 
-📝 Creating session...
-✅ Session created: abc123-...
+```clojure
+(require '[krukow.copilot-sdk.helpers :as h])
 
-💬 Asking: What is the capital of France?
+;; Simplest possible query - just get the answer
+(h/query "What is 2+2?")
+;; => "4"
 
-🤖 Response:
-The capital of France is Paris.
+;; With options
+(h/query "What is Clojure?" :session {:model "gpt-5.2"})
 
-💬 Follow-up: What is its population?
+;; Streaming with multimethod event handling
+(defmulti handle-event :type)
+(defmethod handle-event :default [_] nil)
+(defmethod handle-event :assistant.message_delta [{{:keys [delta-content]} :data}]
+  (print delta-content)
+  (flush))
+(defmethod handle-event :assistant.message [_] (println))
 
-🤖 Response:
-Paris has a population of approximately 2.1 million in the city proper...
-
-🧹 Cleaning up session...
-✅ Done!
+(run! handle-event (h/query-seq "Tell me a joke" :session {:streaming? true}))
 ```
 
 ---
 
-## Example 2: Tool Integration (`tool_integration.clj`)
+## Example 3: Tool Integration (`tool_integration.clj`)
 
 **Difficulty:** Intermediate  
 **Concepts:** Custom tools, tool handlers, result types
@@ -117,12 +184,13 @@ Shows how to let the LLM call back into your application when it needs capabilit
 - JSON Schema parameters for type-safe tool inputs
 - Handler functions that execute when tools are invoked
 - Different result types: `result-success`, `result-failure`
-- Multiple tools in a single session
 
-### Tools Defined
+### Usage
 
-1. **`lookup_language`** - Queries a mock knowledge base for programming language info
-2. **`calculate`** - Performs arithmetic calculations
+```bash
+clojure -A:examples -X tool-integration/run
+clojure -A:examples -X tool-integration/run :languages '["clojure" "haskell"]'
+```
 
 ### Code Walkthrough
 
@@ -147,13 +215,10 @@ Shows how to let the LLM call back into your application when it needs capabilit
                       "not found"))))}))
 
 ;; Create session with tools
-(def session (copilot/create-session client
-               {:model "gpt-5.2"
-                :tools [lookup-tool calculator-tool]}))
-
-;; When you send a prompt, the LLM may invoke your tools
-(copilot/send-and-wait! session
-  {:prompt "Tell me about Clojure using the lookup tool"})
+(copilot/with-client-session [session {:model "gpt-5.2"
+                                       :tools [lookup-tool]}]
+  (copilot/send-and-wait! session
+    {:prompt "Tell me about Clojure using the lookup tool"}))
 ```
 
 ### Tool Result Types
@@ -172,37 +237,9 @@ Shows how to let the LLM call back into your application when it needs capabilit
 (copilot/result-rejected "Invalid parameters")
 ```
 
-### Expected Output
-
-```
-🔧 Tool Integration Example
-============================
-
-📡 Starting Copilot client...
-✅ Connected!
-
-📝 Creating session with custom tools...
-✅ Session created with tools: lookup_language, calculate
-
-💬 Asking about Clojure (should use lookup_language tool)...
-  [Tool called: lookup_language with {:language "clojure"}]
-
-🤖 Response:
-Clojure is a dynamic, functional programming language that runs on the JVM...
-
-💬 Asking for a calculation (should use calculate tool)...
-  [Tool called: calculate with {:expression "15 * 7 + 23"}]
-
-🤖 Response:
-The result of 15 * 7 + 23 is 128.
-
-🧹 Cleaning up...
-✅ Done!
-```
-
 ---
 
-## Example 3: Multi-Agent Orchestration (`multi_agent.clj`)
+## Example 4: Multi-Agent Orchestration (`multi_agent.clj`)
 
 **Difficulty:** Advanced  
 **Concepts:** Multiple sessions, core.async, concurrent operations, agent coordination
@@ -216,6 +253,13 @@ Demonstrates a sophisticated pattern where multiple specialized agents collabora
 - Parallel research queries with `go` blocks
 - Sequential pipeline: Research → Analysis → Synthesis
 - Coordinating results from multiple async operations
+
+### Usage
+
+```bash
+clojure -A:examples -X multi-agent/run
+clojure -A:examples -X multi-agent/run :topics '["AI safety" "machine learning" "neural networks"]'
+```
 
 ### Architecture
 
@@ -249,117 +293,58 @@ Demonstrates a sophisticated pattern where multiple specialized agents collabora
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Key Patterns
+---
 
-#### Creating Specialized Agents
+## Example 5: Streaming Chat (`streaming_chat.clj`)
 
-```clojure
-(defn create-agent [client agent-name role-description model]
-  (let [session (copilot/create-session client
-                  {:model model
-                   :system-message {:mode :append
-                                    :content role-description}})]
-    {:name agent-name
-     :session session
-     :model model}))
+**Difficulty:** Intermediate  
+**Concepts:** Streaming deltas, event handling, incremental output
 
-;; Create agents with different personas
-(def researcher (create-agent client "Researcher"
-                  "You are a research assistant. Focus on facts."
-                  "gpt-5.2"))
+Demonstrates how to enable streaming and render assistant output incrementally as
+`:assistant.message_delta` events arrive, then print the final message on idle.
 
-(def analyst (create-agent client "Analyst"
-               "You are an analyst. Identify patterns and insights."
-               "gpt-5.2"))
+### Usage
+
+```bash
+clojure -A:examples -X streaming-chat/run
+clojure -A:examples -X streaming-chat/run :prompt '"Explain the Fibonacci sequence."'
 ```
 
-#### Async Response Helper
+---
 
-```clojure
-(defn agent-respond! [agent prompt]
-  (let [out-ch (chan 1)]
-    (go
-      (let [response (copilot/send-and-wait! (:session agent)
-                       {:prompt prompt}
-                       120000)]
-        (>! out-ch {:agent (:name agent)
-                    :content (get-in response [:data :content])
-                    :success true}))
-      (close! out-ch))
-    out-ch))
+## Example 6: Config, Skills, and Large Output (`config_skill_output.clj`)
+
+**Difficulty:** Intermediate  
+**Concepts:** config-dir overrides, skill directories, disabling skills, large tool output settings
+
+Shows how to:
+- set a custom config directory
+- provide additional skill directories
+- disable specific skills by name
+- configure large tool output handling with a custom tool
+
+### Usage
+
+```bash
+clojure -A:examples -X config-skill-output/run
 ```
 
-#### Parallel Execution
+---
 
-```clojure
-(defn run-parallel-research! [researcher topics]
-  (let [result-ch (chan (count topics))]
-    ;; Launch all tasks in parallel
-    (doseq [topic topics]
-      (go
-        (let [response (<! (agent-respond! researcher
-                            (str "Research: " topic)))]
-          (>! result-ch (assoc response :topic topic)))))
-    
-    ;; Collect all results
-    (go-loop [results [] remaining (count topics)]
-      (if (zero? remaining)
-        results
-        (let [result (<! result-ch)]
-          (recur (conj results result) (dec remaining)))))))
-```
+## Example 7: Permission Handling (`permission_bash.clj`)
 
-### Expected Output
+**Difficulty:** Intermediate  
+**Concepts:** permission requests, bash tool, approval callback
 
-```
-🤖 Multi-Agent Orchestration Example
-=====================================
+Shows how to:
+- handle `permission.request` via `:on-permission-request`
+- invoke the built-in shell tool with allow/deny decisions
+- log the full permission request payload for inspection
 
-This example creates 3 specialized agents that work together:
-  1. Researcher - gathers information on topics
-  2. Analyst - identifies patterns and insights
-  3. Writer - synthesizes a final summary
+### Usage
 
-📡 Starting Copilot client...
-✅ Connected!
-
-🎭 Creating specialized agents...
-  ✓ Researcher agent ready
-  ✓ Analyst agent ready
-  ✓ Writer agent ready
-
-📖 Phase 1: Parallel Research
-   Researching multiple topics concurrently...
-
-  📚 Researching: functional programming benefits
-  📚 Researching: immutable data structures
-  📚 Researching: concurrent programming challenges
-
-   Research Results:
-   • functional programming benefits: Functional programming offers...
-   • immutable data structures: Immutable data structures provide...
-   • concurrent programming challenges: Concurrent programming faces...
-
-🔍 Phase 2: Analysis
-   Sending research findings to Analyst...
-
-   Analysis Complete:
-   The research reveals a common thread: immutability and functional...
-
-✍️  Phase 3: Synthesis
-   Writer is creating final summary...
-
-═══════════════════════════════════════════════════════════════
-📋 FINAL SUMMARY
-═══════════════════════════════════════════════════════════════
-Functional programming paradigms, combined with immutable data
-structures, offer a robust solution to the challenges of modern
-concurrent programming...
-═══════════════════════════════════════════════════════════════
-
-🧹 Cleaning up agents...
-
-✅ Multi-agent workflow complete!
+```bash
+clojure -A:examples -X permission-bash/run
 ```
 
 ---
@@ -385,6 +370,20 @@ await client.start();
   )
 ```
 
+### Simple Query (Helpers)
+
+**JavaScript:**
+```typescript
+// No direct equivalent - must create client/session
+```
+
+**Clojure:**
+```clojure
+(require '[krukow.copilot-sdk.helpers :as h])
+(h/query "What is 2+2?")
+;; => "4"
+```
+
 ### Event Handling
 
 **JavaScript:**
@@ -398,12 +397,12 @@ session.on((event) => {
 
 **Clojure:**
 ```clojure
-(let [ch (copilot/events->chan session
-                               {:xf (filter #(= "assistant.message" (:type %)))})]
-  (go-loop []
-    (when-let [event (<! ch)]
-      (println (get-in event [:data :content]))
-      (recur))))
+;; Using helpers with multimethod dispatch
+(defmulti handle-event :type)
+(defmethod handle-event :assistant.message [{{:keys [content]} :data}]
+  (println content))
+
+(run! handle-event (h/query-seq "Hello" :session {:streaming? true}))
 ```
 
 ### Tool Definition
@@ -454,35 +453,6 @@ const response = await session.sendAndWait({ prompt: "Hello" });
 ```
 
 ---
-
-## Example 4: Streaming Chat (`streaming_chat.clj`)
-
-**Difficulty:** Intermediate  
-**Concepts:** Streaming deltas, event handling, incremental output
-
-Demonstrates how to enable streaming and render assistant output incrementally as
-`:assistant.message_delta` events arrive, then print the final message on idle.
-
-## Example 5: Config, Skills, and Large Output (`config_skill_output.clj`)
-
-**Difficulty:** Intermediate  
-**Concepts:** config-dir overrides, skill directories, disabling skills, large tool output settings
-
-Shows how to:
-- set a custom config directory
-- provide additional skill directories
-- disable specific skills by name
-- configure large tool output handling with a custom tool
-
-## Example 6: Permission Handling (`permission_bash.clj`)
-
-**Difficulty:** Intermediate  
-**Concepts:** permission requests, bash tool, approval callback
-
-Shows how to:
-- handle `permission.request` via `:on-permission-request`
-- invoke the built-in shell tool with allow/deny decisions
-- log the full permission request payload for inspection
 
 ## Troubleshooting
 
