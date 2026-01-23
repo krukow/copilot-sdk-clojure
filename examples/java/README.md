@@ -26,7 +26,9 @@ mvn exec:java -Ppermission # Permission handling
 mvn exec:java -Pmulti-agent # Multi-agent collaboration
 mvn exec:java -Pparallel   # Concurrent queries
 mvn exec:java -Pevents     # Event handling patterns
-mvn exec:java -Pchat       # Interactive chat
+
+# Or run all examples:
+./run-all-examples.sh
 ```
 
 ## Examples
@@ -39,7 +41,6 @@ mvn exec:java -Pchat       # Interactive chat
 | `AsyncApiExample` | CompletableFuture and EventSubscription |
 | `ToolIntegrationExample` | Custom tools |
 | `PermissionBashExample` | Permission handling |
-| `MultiAgentExample` | Multiple agents |
+| `MultiAgentExample` | Multiple agents (parallel research) |
 | `ParallelQueriesExample` | Concurrent queries |
 | `EventHandlingExample` | Event processing patterns |
-| `InteractiveChatExample` | Interactive chat |

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run all Java examples (except interactive chat which requires user input)
+# Run all Java examples
 
 set -e
 cd "$(dirname "$0")"
@@ -34,5 +34,3 @@ echo ""
 echo "=========================================="
 echo "All examples completed!"
 echo "=========================================="
-echo ""
-echo "(Skipped: interactive chat - requires user input)"

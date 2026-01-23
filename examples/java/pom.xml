@@ -201,22 +201,6 @@
             </build>
         </profile>
 
-        <!-- Profile for running interactive chat example -->
-        <profile>
-            <id>chat</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.codehaus.mojo</groupId>
-                        <artifactId>exec-maven-plugin</artifactId>
-                        <configuration>
-                            <mainClass>InteractiveChatExample</mainClass>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-
         <!-- Profile for running tool integration example -->
         <profile>
             <id>tools</id>
