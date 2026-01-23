@@ -13,23 +13,29 @@
 (def class-dir "target/classes")
 (def aot-namespaces ['krukow.copilot-sdk.java-api])
 
+(defn- get-developer-email []
+  (or (System/getenv "DEVELOPER_EMAIL")
+      (let [f (java.io.File. (str (System/getProperty "user.home") "/.copilot-sdk-email"))]
+        (when (.exists f) (str/trim (slurp f))))))
+
 (defn- pom-template [version]
-  [[:description "Clojure SDK for GitHub Copilot CLI with Java interop support."]
-   [:url "https://github.com/krukow/copilot-sdk-clojure"]
-   [:licenses
-    [:license
-     [:name "MIT License"]
-     [:url "https://opensource.org/licenses/MIT"]]]
-   [:developers
-    [:developer
-     [:id "krukow"]
-     [:name "Karl Krukow"]
-     [:email "karl@krukow.com"]]]
-   [:scm
-    [:url "https://github.com/krukow/copilot-sdk-clojure"]
-    [:connection "scm:git:https://github.com/krukow/copilot-sdk-clojure.git"]
-    [:developerConnection "scm:git:ssh:git@github.com:krukow/copilot-sdk-clojure.git"]
-    [:tag (str "v" version)]]])
+  (let [email (get-developer-email)]
+    [[:description "Clojure SDK for GitHub Copilot CLI with Java interop support."]
+     [:url "https://github.com/krukow/copilot-sdk-clojure"]
+     [:licenses
+      [:license
+       [:name "MIT License"]
+       [:url "https://opensource.org/licenses/MIT"]]]
+     [:developers
+      (into [:developer
+             [:id "krukow"]
+             [:name "Karl Krukow"]]
+            (when email [[:email email]]))]
+     [:scm
+      [:url "https://github.com/krukow/copilot-sdk-clojure"]
+      [:connection "scm:git:https://github.com/krukow/copilot-sdk-clojure.git"]
+      [:developerConnection "scm:git:ssh:git@github.com:krukow/copilot-sdk-clojure.git"]
+      [:tag (str "v" version)]]]))
 
 (defn- jar-opts [opts]
   (assoc opts
