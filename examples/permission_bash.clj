@@ -32,9 +32,9 @@
                                                                                 :argument (:full-command-text request)}]}))}]
       (println (-> (copilot/send-and-wait! session
                      {:prompt (str "Run this command with the " tool
-                                   " tool, then reply with just DONE:\n\n" command)})
+                                   "tool, then reply with success(output from tool) if permitted or denied if not:\n\n" command)})
                    (get-in [:data :content])))
       (println (-> (copilot/send-and-wait! session
                      {:prompt (str "Run this command with the " tool
-                                   " tool, then reply with just DONE:\n\n" denied-command)})
+                                   " tool, then reply with success(output from tool) if permitted or denied if not:\n\n" denied-command)})
                    (get-in [:data :content]))))))

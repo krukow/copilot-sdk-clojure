@@ -64,7 +64,7 @@ public class PermissionBashExample {
                 System.out.println("Test 1: Running ALLOWED command");
                 System.out.println("Command: " + allowedCommand);
                 String prompt1 = "Run this command with the " + shellTool + 
-                    " tool, then reply with just DONE:\n\n" + allowedCommand;
+                    " tool, then reply with success(output from tool) if permitted or denied if not:\n\n" + allowedCommand;
                 String response1 = session.sendAndWait(prompt1, 60000);
                 System.out.println("Response: " + response1);
                 System.out.println();
@@ -73,7 +73,7 @@ public class PermissionBashExample {
                 System.out.println("Test 2: Running DENIED command");
                 System.out.println("Command: " + deniedCommand);
                 String prompt2 = "Run this command with the " + shellTool + 
-                    " tool, then reply with just DONE:\n\n" + deniedCommand;
+                    " tool, then reply with success(output from tool) if permitted or denied if not:\n\n" + deniedCommand;
                 String response2 = session.sendAndWait(prompt2, 60000);
                 System.out.println("Response: " + response2);
                 
