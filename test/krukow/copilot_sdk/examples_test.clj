@@ -51,14 +51,10 @@
 (deftest test-multi-agent-structure
   (testing "multi_agent has expected public functions"
     (let [ns-obj (find-ns 'multi-agent)]
-      (is (some? (ns-resolve ns-obj 'create-agent))
-          "Should have create-agent")
-      (is (some? (ns-resolve ns-obj 'agent-respond!))
-          "Should have agent-respond!")
-      (is (some? (ns-resolve ns-obj 'run-parallel-research!))
-          "Should have run-parallel-research!")
       (is (some? (ns-resolve ns-obj 'run))
-          "Should have run function"))))
+          "Should have run function")
+      (is (some? (ns-resolve ns-obj 'defaults))
+          "Should have defaults"))))
 
 ;; -----------------------------------------------------------------------------
 ;; Tool Definition Tests - verify tools are properly defined
@@ -90,12 +86,9 @@
 ;; Agent Definition Tests - verify agent factory function works
 ;; -----------------------------------------------------------------------------
 
-(deftest test-multi-agent-functions-defined
-  (testing "Multi-agent helper functions are callable"
+(deftest test-multi-agent-defaults
+  (testing "Multi-agent defaults are defined"
     (let [ns-obj (find-ns 'multi-agent)
-          create-agent-fn (ns-resolve ns-obj 'create-agent)
-          agent-respond-fn (ns-resolve ns-obj 'agent-respond!)
-          parallel-fn (ns-resolve ns-obj 'run-parallel-research!)]
-      (is (fn? @create-agent-fn) "create-agent should be a function")
-      (is (fn? @agent-respond-fn) "agent-respond! should be a function")
-      (is (fn? @parallel-fn) "run-parallel-research! should be a function"))))
+          defaults @(ns-resolve ns-obj 'defaults)]
+      (is (map? defaults) "defaults should be a map")
+      (is (vector? (:topics defaults)) "should have topics vector"))))
