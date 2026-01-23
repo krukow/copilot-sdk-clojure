@@ -19,7 +19,7 @@ io.github.krukow/copilot-sdk {:mvn/version "0.1.2-SNAPSHOT"}
 
 ;; Or git dependency
 io.github.krukow/copilot-sdk {:git/url "https://github.com/krukow/copilot-sdk-clojure.git"
-                              :git/sha "6efa781256cfcd53532deb71a60da4c09621e38f"}
+                              :git/sha "0d60d39646868527694861927c17bd0d28779546"}
 ```
 
 Update the SHA automatically:
