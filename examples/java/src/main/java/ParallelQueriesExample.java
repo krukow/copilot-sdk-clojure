@@ -1,86 +1,83 @@
-import krukow.copilot_sdk.Copilot;
-import krukow.copilot_sdk.SessionOptions;
-import krukow.copilot_sdk.SessionOptionsBuilder;
+import krukow.copilot_sdk.*;
+import java.util.*;
 import java.util.concurrent.*;
 
 /**
- * Parallel queries example demonstrating concurrent API usage.
+ * Parallel queries example using CompletableFuture.
  * 
- * This example shows how to run multiple independent queries in parallel
- * using Java's ExecutorService for improved throughput.
+ * Demonstrates running multiple queries concurrently with the async API.
+ * Each query uses its own session for true parallelism.
  * 
  * See examples/java/README.md for build and run instructions.
  */
 public class ParallelQueriesExample {
     
-    public static void main(String[] args) {
-        System.out.println("=== Parallel Queries ===\n");
+    public static void main(String[] args) throws Exception {
+        System.out.println("=== Parallel Queries with CompletableFuture ===\n");
         
-        Object client = Copilot.createClient(null);
-        Copilot.startClient(client);
-        
-        ExecutorService executor = Executors.newFixedThreadPool(3);
+        ICopilotClient client = Copilot.createClient();
+        client.start();
         
         try {
-            // Define independent questions to ask in parallel
             String[] questions = {
-                "What is the capital of France? One sentence.",
-                "What is the largest planet in our solar system? One sentence.",
-                "Who wrote Romeo and Juliet? One sentence.",
-                "What is the speed of light in km/s? Just the number.",
-                "What year did World War II end? Just the year."
+                "Capital of France? One word.",
+                "Largest planet? One word.",
+                "Author of Hamlet? One word.",
+                "Speed of light in km/s? Just number.",
+                "Year WWII ended? Just year."
             };
             
             System.out.println("Sending " + questions.length + " queries in parallel...\n");
             long startTime = System.currentTimeMillis();
             
-            // Submit all queries as parallel tasks
-            @SuppressWarnings("unchecked")
-            Future<String>[] futures = new Future[questions.length];
+            // Create session options
+            SessionOptionsBuilder sb = new SessionOptionsBuilder();
+            sb.model("gpt-4.1");
+            SessionOptions opts = (SessionOptions) sb.build();
+            
+            // Create sessions and futures
+            List<ICopilotSession> sessions = new ArrayList<>();
+            List<CompletableFuture<String>> futures = new ArrayList<>();
             
             for (int i = 0; i < questions.length; i++) {
-                final String question = questions[i];
-                final int index = i;
+                ICopilotSession session = client.createSession(opts);
+                sessions.add(session);
                 
-                futures[i] = executor.submit(() -> {
-                    // Each task creates its own session for true parallelism
-                    SessionOptionsBuilder builder = new SessionOptionsBuilder();
-                    builder.model("gpt-5.2");
-                    Object session = Copilot.createSession(client, (SessionOptions) builder.build());
-                    
-                    try {
-                        String answer = Copilot.sendAndWait(session, question, 30000);
-                        return "Q" + (index + 1) + ": " + question + "\n   A: " + answer.trim();
-                    } finally {
-                        Copilot.destroySession(session);
-                    }
-                });
+                String question = questions[i];
+                int idx = i + 1;
+                
+                // sendAsync returns CompletableFuture<String>
+                @SuppressWarnings("unchecked")
+                CompletableFuture<String> rawFuture = (CompletableFuture<String>) session.sendAsync(question);
+                CompletableFuture<String> future = rawFuture
+                    .thenApply(answer -> "Q" + idx + ": " + question + "\n   A: " + (answer != null ? answer.trim() : "null"));
+                
+                futures.add(future);
             }
             
-            // Collect all results
-            System.out.println("Results:");
-            System.out.println("-".repeat(60));
+            // Wait for all to complete
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
             
-            for (int i = 0; i < futures.length; i++) {
-                try {
-                    String result = futures[i].get(60, TimeUnit.SECONDS);
-                    System.out.println(result);
-                    System.out.println();
-                } catch (TimeoutException e) {
-                    System.out.println("Q" + (i + 1) + ": TIMEOUT");
-                } catch (Exception e) {
-                    System.out.println("Q" + (i + 1) + ": ERROR - " + e.getMessage());
-                }
+            // Print results
+            System.out.println("Results:");
+            System.out.println("-".repeat(50));
+            
+            for (CompletableFuture<String> f : futures) {
+                System.out.println(f.get());
+                System.out.println();
             }
             
             long elapsed = System.currentTimeMillis() - startTime;
-            System.out.println("-".repeat(60));
+            System.out.println("-".repeat(50));
             System.out.println("Completed " + questions.length + " queries in " + elapsed + "ms");
-            System.out.println("(Sequential would take ~" + (questions.length * 3000) + "ms)");
+            
+            // Cleanup sessions
+            for (ICopilotSession session : sessions) {
+                session.destroy();
+            }
             
         } finally {
-            executor.shutdown();
-            Copilot.stopClient(client);
+            client.stop();
         }
         
         System.out.println("\n=== Done ===");

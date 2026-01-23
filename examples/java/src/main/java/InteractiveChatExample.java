@@ -1,6 +1,8 @@
 import krukow.copilot_sdk.Copilot;
 import krukow.copilot_sdk.SessionOptions;
 import krukow.copilot_sdk.SessionOptionsBuilder;
+import krukow.copilot_sdk.ICopilotClient;
+import krukow.copilot_sdk.ICopilotSession;
 
 /**
  * Interactive chat example demonstrating a multi-turn conversation
@@ -13,8 +15,8 @@ public class InteractiveChatExample {
     public static void main(String[] args) {
         System.out.println("=== Interactive Streaming Chat ===\n");
         
-        Object client = Copilot.createClient(null);
-        Copilot.startClient(client);
+        ICopilotClient client = Copilot.createClient(null);
+        client.start();
         
         try {
             // Create a session with streaming enabled
@@ -26,7 +28,7 @@ public class InteractiveChatExample {
                 "Provide clear, concise answers about programming topics. " +
                 "Use examples when helpful.");
             
-            Object session = Copilot.createSession(client, (SessionOptions) builder.build());
+            ICopilotSession session = client.createSession((SessionOptions) builder.build());
             
             try {
                 // Simulate a multi-turn coding conversation
@@ -42,7 +44,7 @@ public class InteractiveChatExample {
                     System.out.print("🤖 Assistant: ");
                     
                     // Stream the response
-                    Copilot.sendStreaming(session, question, event -> {
+                    session.sendStreaming(question, event -> {
                         if (event.isMessageDelta()) {
                             String delta = event.getDeltaContent();
                             if (delta != null) {
@@ -58,11 +60,11 @@ public class InteractiveChatExample {
                 }
                 
             } finally {
-                Copilot.destroySession(session);
+                session.destroy();
             }
             
         } finally {
-            Copilot.stopClient(client);
+            client.stop();
         }
         
         System.out.println("=== Done ===");

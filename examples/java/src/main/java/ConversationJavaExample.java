@@ -3,6 +3,8 @@ import krukow.copilot_sdk.ClientOptions;
 import krukow.copilot_sdk.ClientOptionsBuilder;
 import krukow.copilot_sdk.SessionOptions;
 import krukow.copilot_sdk.SessionOptionsBuilder;
+import krukow.copilot_sdk.ICopilotClient;
+import krukow.copilot_sdk.ICopilotSession;
 
 /**
  * Multi-turn conversation example demonstrating session-based chat.
@@ -18,8 +20,8 @@ public class ConversationJavaExample {
         clientBuilder.logLevel("info");
         ClientOptions clientOpts = (ClientOptions) clientBuilder.build();
         
-        Object client = Copilot.createClient(clientOpts);
-        Copilot.startClient(client);
+        ICopilotClient client = Copilot.createClient(clientOpts);
+        client.start();
         
         try {
             // Create session
@@ -27,33 +29,33 @@ public class ConversationJavaExample {
             sessionBuilder.model("gpt-5.2");
             SessionOptions sessionOpts = (SessionOptions) sessionBuilder.build();
             
-            Object session = Copilot.createSession(client, sessionOpts);
+            ICopilotSession session = client.createSession(sessionOpts);
             
             try {
                 // First question
                 String q1 = "What is the capital of France? Answer in one sentence.";
                 System.out.println("Q1: " + q1);
-                String a1 = Copilot.sendAndWait(session, q1, 60000);
+                String a1 = session.sendAndWait(q1, 60000);
                 System.out.println("A1: " + a1);
                 
                 // Follow-up question (context preserved)
                 String q2 = "What is its population approximately?";
                 System.out.println("\nQ2: " + q2);
-                String a2 = Copilot.sendAndWait(session, q2, 60000);
+                String a2 = session.sendAndWait(q2, 60000);
                 System.out.println("A2: " + a2);
                 
                 // Another follow-up
                 String q3 = "What famous tower is located there?";
                 System.out.println("\nQ3: " + q3);
-                String a3 = Copilot.sendAndWait(session, q3, 60000);
+                String a3 = session.sendAndWait(q3, 60000);
                 System.out.println("A3: " + a3);
                 
             } finally {
-                Copilot.destroySession(session);
+                session.destroy();
             }
             
         } finally {
-            Copilot.stopClient(client);
+            client.stop();
         }
         
         System.out.println("\n=== Done ===");
