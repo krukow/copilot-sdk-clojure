@@ -122,6 +122,7 @@ Shows the simplified helpers API for one-shot queries without managing client/se
 
 - `query` - Simple synchronous query, returns just the answer string
 - `query-seq` - Returns lazy sequence of all events  
+- `query-seq!` - Returns a bounded lazy sequence (default 256 events) and guarantees session cleanup  
 - `query-chan` - Returns core.async channel of events
 - Automatic client management (created on first use, reused across queries)
 - Automatic cleanup via JVM shutdown hook (no manual cleanup needed)
@@ -166,7 +167,7 @@ clojure -A:examples -X helpers-query/run-multi :questions '["What is Rust?" "Wha
   (flush))
 (defmethod handle-event :assistant.message [_] (println))
 
-(run! handle-event (h/query-seq "Tell me a joke" :session {:streaming? true}))
+(run! handle-event (h/query-seq! "Tell me a joke" :session {:streaming? true}))
 ```
 
 ---
@@ -578,7 +579,7 @@ session.on((event) => {
 (defmethod handle-event :assistant.message [{{:keys [content]} :data}]
   (println content))
 
-(run! handle-event (h/query-seq "Hello" :session {:streaming? true}))
+(run! handle-event (h/query-seq! "Hello" :session {:streaming? true}))
 ```
 
 ### Tool Definition

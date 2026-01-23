@@ -320,19 +320,19 @@
         (is (= "cli.status" (:method notif)))
         (is (= payload (:params notif)))))))
 
-(deftest test-dispatch-event-blocks-when-full
-  (testing "dispatch-event! waits for space instead of dropping events"
+(deftest test-dispatch-event-drops-when-full
+  (testing "dispatch-event! drops events when buffer is full"
     (let [session-id "session-test"
           small-ch (chan 1)
           client {:state (atom {:sessions {session-id {:destroyed? false}}
                                 :session-io {session-id {:event-chan small-ch}}})}]
       (>!! small-ch {:type :dummy})
       (let [dispatch-future (future (session/dispatch-event! client session-id
-                                                             {:type :session.idle}))]
-        (is (= ::timeout (deref dispatch-future 50 ::timeout)))
+                                                             {:type :session.idle}))
+            dispatch-result (deref dispatch-future 50 ::timeout)]
+        (is (not= ::timeout dispatch-result))
         (is (= :dummy (:type (<!! small-ch))))
-        (is (not= ::timeout (deref dispatch-future 200 ::timeout)))
-        (is (= :session.idle (:type (<!! small-ch))))))))
+        (is (nil? (async/poll! small-ch)))))))
 
 (deftest test-protocol-notification-queue
   (testing "Protocol notifications queue without blocking reader thread"

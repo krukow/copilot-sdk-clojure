@@ -190,6 +190,9 @@
            [getLogLevel [] String]
            [getAutoStart [] Boolean]
            [getAutoRestart [] Boolean]
+           [getNotificationQueueSize [] Integer]
+           [getRouterQueueSize [] Integer]
+           [getToolTimeoutMs [] Integer]
            [getEnv [] java.util.Map]
            [toMap [] java.util.Map]])
 
@@ -201,6 +204,9 @@
 (defn client-opts-getLogLevel [this] (.get ^java.util.Map (.state this) "log-level"))
 (defn client-opts-getAutoStart [this] (.get ^java.util.Map (.state this) "auto-start?"))
 (defn client-opts-getAutoRestart [this] (.get ^java.util.Map (.state this) "auto-restart?"))
+(defn client-opts-getNotificationQueueSize [this] (.get ^java.util.Map (.state this) "notification-queue-size"))
+(defn client-opts-getRouterQueueSize [this] (.get ^java.util.Map (.state this) "router-queue-size"))
+(defn client-opts-getToolTimeoutMs [this] (.get ^java.util.Map (.state this) "tool-timeout-ms"))
 (defn client-opts-getEnv [this] (.get ^java.util.Map (.state this) "env"))
 (defn client-opts-toMap [this] (.state this))
 
@@ -219,12 +225,15 @@
            [cliUrl [String] Object]
            [cwd [String] Object]
            [port [int] Object]
-           [useStdio [boolean] Object]
-           [logLevel [String] Object]
-           [autoStart [boolean] Object]
-           [autoRestart [boolean] Object]
-           [env [java.util.Map] Object]
-           [build [] krukow.copilot_sdk.ClientOptions]])
+            [useStdio [boolean] Object]
+            [logLevel [String] Object]
+            [autoStart [boolean] Object]
+            [autoRestart [boolean] Object]
+            [notificationQueueSize [int] Object]
+            [routerQueueSize [int] Object]
+            [toolTimeoutMs [int] Object]
+            [env [java.util.Map] Object]
+            [build [] krukow.copilot_sdk.ClientOptions]])
 
 (defn client-builder-init-client-builder [] [[] (atom {})])
 (defn client-builder-cliPath [this v] (swap! (.state this) assoc "cli-path" v) this)
@@ -236,6 +245,9 @@
 (defn client-builder-logLevel [this v] (swap! (.state this) assoc "log-level" v) this)
 (defn client-builder-autoStart [this v] (swap! (.state this) assoc "auto-start?" (Boolean/valueOf v)) this)
 (defn client-builder-autoRestart [this v] (swap! (.state this) assoc "auto-restart?" (Boolean/valueOf v)) this)
+(defn client-builder-notificationQueueSize [this v] (swap! (.state this) assoc "notification-queue-size" (Integer/valueOf v)) this)
+(defn client-builder-routerQueueSize [this v] (swap! (.state this) assoc "router-queue-size" (Integer/valueOf v)) this)
+(defn client-builder-toolTimeoutMs [this v] (swap! (.state this) assoc "tool-timeout-ms" (Integer/valueOf v)) this)
 (defn client-builder-env [this v] (swap! (.state this) assoc "env" v) this)
 (defn client-builder-build [this] (krukow.copilot_sdk.ClientOptions. (java.util.HashMap. @(.state this))))
 
@@ -485,7 +497,7 @@
    (helpers/query prompt :session (convert-session-opts opts) :timeout-ms timeout-ms)))
 
 (defn copilot-queryStreaming [^String prompt ^krukow.copilot_sdk.SessionOptions opts handler]
-  (let [events (helpers/query-seq prompt :session (convert-session-opts opts))]
+  (let [events (helpers/query-seq! prompt :session (convert-session-opts opts))]
     (doseq [event events]
       (.handle handler (clj-event->java event)))))
 

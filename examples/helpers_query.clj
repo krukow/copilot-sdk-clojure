@@ -33,7 +33,7 @@
   [{:keys [prompt] :or {prompt "Explain the concept of immutability in 2-3 sentences."}}]
   (println "Query:" prompt)
   (println)
-  (run! handle-event (h/query-seq prompt :session {:streaming? true})))
+  (run! handle-event (h/query-seq! prompt :session {:streaming? true})))
 
 (defn run-async
   [{:keys [prompt] :or {prompt "Tell me a short joke."}}]

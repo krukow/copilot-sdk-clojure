@@ -20,7 +20,7 @@
            [java.nio.channels Channels ReadableByteChannel WritableByteChannel ClosedChannelException]
            [java.nio.channels AsynchronousCloseException]
            [java.nio.charset StandardCharsets]
-           [java.util.concurrent LinkedBlockingQueue]))
+            [java.util.concurrent LinkedBlockingQueue TimeUnit]))
 
 (def ^:private content-length-header "Content-Length: ")
 
@@ -181,7 +181,7 @@
 
 (defn- dispatch-message!
   "Route incoming message to appropriate handler."
-  [conn msg]
+   [conn msg]
   (let [{:keys [state-atom incoming-ch outgoing-ch]} conn
         normalized (normalize-incoming msg)]
     (cond
@@ -197,7 +197,8 @@
       (:method normalized)
       (do
         (log/debug "Received notification: method=" (:method normalized))
-        (.put ^LinkedBlockingQueue (:notification-queue conn) normalized))
+        (when-not (.offer ^LinkedBlockingQueue (:notification-queue conn) normalized)
+          (log/debug "Dropping notification due to full queue")))
       
       :else nil)))
 
@@ -315,13 +316,14 @@
    state-atom: atom containing :connection key with connection state
    
    Returns a Connection record."
-  [^InputStream in ^OutputStream out state-atom]
+   [^InputStream in ^OutputStream out state-atom]
   (log/debug "Creating JSON-RPC connection with NIO channels")
   (let [read-ch (Channels/newChannel in)
         write-ch (Channels/newChannel out)
         incoming-ch (chan 1024)
         outgoing-ch (chan 1024)
-        notification-queue (LinkedBlockingQueue.)
+        queue-size (or (get-in @state-atom [:options :notification-queue-size]) 4096)
+        notification-queue (LinkedBlockingQueue. queue-size)
         conn (map->Connection
               {:read-channel read-ch
                :write-channel write-ch
@@ -340,11 +342,12 @@
     (let [thread (Thread.
                   (fn []
                     (log/debug "Notification dispatcher started")
-                    (try
-                      (loop []
-                        (when-let [msg (.take notification-queue)]
-                          (when (>!! incoming-ch msg)
-                            (recur))))
+                     (try
+                       (loop []
+                         (when (:running? (conn-state state-atom))
+                           (when-let [msg (.poll notification-queue 100 TimeUnit/MILLISECONDS)]
+                             (>!! incoming-ch msg))
+                           (recur)))
                       (catch InterruptedException _
                         (log/debug "Notification dispatcher interrupted"))
                       (catch Exception e

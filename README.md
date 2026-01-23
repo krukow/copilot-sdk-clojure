@@ -94,6 +94,9 @@ Or use the simpler blocking API:
 | `:log-level` | keyword | `:info` | One of `:none` `:error` `:warning` `:info` `:debug` `:all` |
 | `:auto-start?` | boolean | `true` | Auto-start server on first operation |
 | `:auto-restart?` | boolean | `true` | Auto-restart on crash |
+| `:notification-queue-size` | number | `4096` | Max queued protocol notifications |
+| `:router-queue-size` | number | `4096` | Max queued non-session notifications |
+| `:tool-timeout-ms` | number | `120000` | Timeout for tool handlers returning channels |
 | `:cwd` | string | nil | Working directory for CLI process |
 | `:env` | map | nil | Environment variables |
 
@@ -298,6 +301,7 @@ Send a message to the session. Returns immediately with the message ID.
 (copilot/send-and-wait! session options timeout-ms)
 ```
 Send a message and block until the session becomes idle. Returns the final assistant message event.
+Default timeout is `300000` ms (5 minutes).
 
 ##### `send-async`
 
@@ -306,6 +310,7 @@ Send a message and block until the session becomes idle. Returns the final assis
 ```
 
 Send a message and return a core.async channel that receives all events for this message, closing when idle.
+Supports `:timeout-ms` in options (default: `300000`) to force cleanup on long-running requests.
 
 ##### `send-async-with-id`
 
@@ -314,6 +319,16 @@ Send a message and return a core.async channel that receives all events for this
 ```
 
 Send a message and return `{:message-id :events-ch}` for correlating responses.
+Supports `:timeout-ms` in options (default: `300000`).
+
+##### `<send!`
+
+```clojure
+(copilot/<send! session options)
+```
+
+Async equivalent of `send-and-wait!` for use inside `go` blocks. Returns a channel that yields the final content string.
+Supports `:timeout-ms` in options (default: `300000`).
 
 ##### `events`
 
@@ -340,6 +355,7 @@ Get the core.async `mult` for session events. Use `tap` to subscribe:
 ```
 
 Subscribe to session events with optional buffer size and transducer.
+Note: session events use a sliding buffer (4096). Slow consumers may drop events.
 
 ##### `abort!`
 

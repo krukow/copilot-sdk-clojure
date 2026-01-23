@@ -24,11 +24,16 @@
 (s/def ::log-level #{:none :error :warning :info :debug :all})
 (s/def ::auto-start? boolean?)
 (s/def ::auto-restart? boolean?)
+(s/def ::notification-queue-size pos-int?)
+(s/def ::router-queue-size pos-int?)
+(s/def ::tool-timeout-ms pos-int?)
 (s/def ::env (s/map-of string? (s/nilable string?)))
 
 (s/def ::client-options
   (s/keys :opt-un [::cli-path ::cli-args ::cli-url ::cwd ::port
-                   ::use-stdio? ::log-level ::auto-start? ::auto-restart? ::env]))
+                   ::use-stdio? ::log-level ::auto-start? ::auto-restart?
+                   ::notification-queue-size ::router-queue-size
+                   ::tool-timeout-ms ::env]))
 
 ;; -----------------------------------------------------------------------------
 ;; Tool definitions
@@ -166,7 +171,7 @@
 
 (s/def ::send-options
   (s/keys :req-un [::prompt]
-          :opt-un [::attachments ::mode]))
+          :opt-un [::attachments ::mode ::timeout-ms]))
 
 (s/def ::timeout-ms pos-int?)
 

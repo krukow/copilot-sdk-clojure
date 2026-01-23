@@ -39,15 +39,18 @@
 (defn- default-options
   "Return default client options."
   []
-  {:cli-path "copilot"
-   :cli-args []
-   :cwd (System/getProperty "user.dir")
-   :port 0
-   :use-stdio? true
-   :log-level :info
-   :auto-start? true
-   :auto-restart? true
-   :env nil})
+   {:cli-path "copilot"
+    :cli-args []
+    :cwd (System/getProperty "user.dir")
+    :port 0
+    :use-stdio? true
+    :log-level :info
+    :auto-start? true
+    :auto-restart? true
+    :notification-queue-size 4096
+    :router-queue-size 4096
+    :tool-timeout-ms 120000
+    :env nil})
 
 (defn- ensure-valid-mcp-servers!
   [servers]
@@ -100,21 +103,37 @@
    - :cli-url       - URL of existing server (e.g., \"localhost:8080\")
    - :cwd           - Working directory for CLI process
    - :port          - TCP port (default: 0 for random)
-   - :use-stdio?    - Use stdio transport (default: true)
-   - :log-level     - :none :error :warning :info :debug :all
-   - :auto-start?   - Auto-start on first use (default: true)
-   - :auto-restart? - Auto-restart on crash (default: true)
-   - :env           - Environment variables map"
+    - :use-stdio?    - Use stdio transport (default: true)
+    - :log-level     - :none :error :warning :info :debug :all
+    - :auto-start?   - Auto-start on first use (default: true)
+    - :auto-restart? - Auto-restart on crash (default: true)
+    - :notification-queue-size - Max queued protocol notifications (default: 4096)
+    - :router-queue-size - Max queued non-session notifications (default: 4096)
+    - :tool-timeout-ms - Timeout for tool calls that return a channel (default: 120000)
+    - :env           - Environment variables map"
   ([]
    (client {}))
   ([opts]
    (when (and (:cli-url opts) (= true (:use-stdio? opts)))
      (throw (ex-info "cli-url is mutually exclusive with use-stdio?" opts)))
-   (when (and (:cli-url opts) (:cli-path opts))
-     (throw (ex-info "cli-url is mutually exclusive with cli-path" opts)))
+    (when (and (:cli-url opts) (:cli-path opts))
+      (throw (ex-info "cli-url is mutually exclusive with cli-path" opts)))
+     (when-not (s/valid? ::specs/client-options opts)
+      (throw (ex-info "Invalid client options"
+                      {:options opts
+                       :explain (s/explain-data ::specs/client-options opts)})))
+    (when-let [size (:notification-queue-size opts)]
+      (when (<= size 0)
+        (throw (ex-info "notification-queue-size must be > 0" {:notification-queue-size size}))))
+    (when-let [size (:router-queue-size opts)]
+      (when (<= size 0)
+        (throw (ex-info "router-queue-size must be > 0" {:router-queue-size size}))))
+    (when-let [timeout (:tool-timeout-ms opts)]
+      (when (<= timeout 0)
+        (throw (ex-info "tool-timeout-ms must be > 0" {:tool-timeout-ms timeout}))))
 
-   (let [merged (merge (default-options) opts)
-         external? (boolean (:cli-url opts))
+    (let [merged (merge (default-options) opts)
+          external? (boolean (:cli-url opts))
          {:keys [host port]} (when (:cli-url opts)
                                (parse-cli-url (:cli-url opts)))
          final-opts (cond-> merged
@@ -122,10 +141,10 @@
                                     (assoc :host host)
                                     (assoc :port port)
                                     (assoc :external-server? true)))]
-     {:options final-opts
-      :external-server? external?
-      :actual-host (or host "localhost")
-      :state (atom (initial-state port))})))
+      {:options final-opts
+       :external-server? external?
+       :actual-host (or host "localhost")
+       :state (atom (assoc (initial-state port) :options final-opts))})))
 
 (defn state
   "Get the current connection state."
@@ -142,21 +161,22 @@
   (let [{:keys [connection-io]} @(:state client)
         notif-ch (proto/notifications connection-io)
         router-ch (chan 1024)
-        router-queue (LinkedBlockingQueue.)
+        queue-size (or (:router-queue-size (:options client)) 4096)
+        router-queue (LinkedBlockingQueue. queue-size)
         router-thread (Thread.
                        (fn []
                          (log/debug "Notification router dispatcher started")
-                         (try
-                           (loop []
-                             (when (:router-running? @(:state client))
-                               (when-let [notif (.take router-queue)]
-                                 (>!! router-ch notif)
-                                 (recur))))
-                           (catch InterruptedException _
-                             (log/debug "Notification router dispatcher interrupted"))
-                           (catch Exception e
-                             (log/error "Notification router dispatcher exception: " (ex-message e)))
-                           (finally
+                           (try
+                             (loop []
+                               (when (:router-running? @(:state client))
+                                 (when-let [notif (.poll router-queue 100 java.util.concurrent.TimeUnit/MILLISECONDS)]
+                                   (>!! router-ch notif))
+                                 (recur)))
+                          (catch InterruptedException _
+                            (log/debug "Notification router dispatcher interrupted"))
+                          (catch Exception e
+                            (log/error "Notification router dispatcher exception: " (ex-message e)))
+                          (finally
                              (log/debug "Notification router dispatcher ending")))))]
     ;; Store the router channel
     (swap! (:state client) assoc
@@ -172,16 +192,17 @@
     (go-loop []
       (if-let [notif (<! notif-ch)]
         (do
-          (if (= (:method notif) "session.event")
-            (let [{:keys [session-id event]} (:params notif)
-                  normalized-event (update event :type util/event-type->keyword)]
-              (log/debug "Routing event to session " session-id ": type=" (:type normalized-event))
-              (when-not (:destroyed? (get-in @(:state client) [:sessions session-id]))
-                (when-let [{:keys [event-chan]} (get-in @(:state client) [:session-io session-id])]
-                  (>! event-chan normalized-event))))
-            (do
-              (.put router-queue notif)))
-          (recur))
+           (if (= (:method notif) "session.event")
+             (let [{:keys [session-id event]} (:params notif)
+                   normalized-event (update event :type util/event-type->keyword)]
+               (log/debug "Routing event to session " session-id ": type=" (:type normalized-event))
+               (when-not (:destroyed? (get-in @(:state client) [:sessions session-id]))
+                 (when-let [{:keys [event-chan]} (get-in @(:state client) [:session-io session-id])]
+                   (>! event-chan normalized-event))))
+             (do
+              (when-not (.offer router-queue notif)
+                (log/debug "Dropping notification due to full router queue"))))
+           (recur))
         (do
           (log/debug "Notification channel closed")
           (maybe-reconnect! client "connection-closed"))))))

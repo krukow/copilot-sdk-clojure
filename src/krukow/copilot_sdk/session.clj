@@ -47,7 +47,7 @@
    Initializes session state in client's atom and returns a CopilotSession handle."
   [client session-id {:keys [tools on-permission-request]}]
   (log/debug "Creating session: " session-id)
-  (let [event-chan (chan 1024)
+  (let [event-chan (chan (async/sliding-buffer 4096))
         event-mult (mult event-chan)
         send-lock (java.util.concurrent.Semaphore. 1)
         tool-handlers (into {} (map (fn [t] [(:tool-name t) (:tool-handler t)]) tools))]
@@ -68,13 +68,15 @@
     (->CopilotSession session-id client)))
 
 (defn dispatch-event!
-  "Dispatch an event to all subscribers via the mult. Called by client notification router."
+  "Dispatch an event to all subscribers via the mult. Called by client notification router.
+   Events are dropped (with debug log) if the session event buffer is full."
   [client session-id event]
   (let [normalized-event (update event :type util/event-type->keyword)]
     (log/debug "Dispatching event to session " session-id ": type=" (:type normalized-event))
     (when-not (:destroyed? (session-state client session-id))
       (when-let [{:keys [event-chan]} (session-io client session-id)]
-        (>!! event-chan normalized-event)))))
+        (when-not (async/offer! event-chan normalized-event)
+          (log/debug "Dropping event for session " session-id " due to full event buffer"))))))
 
 (defn- normalize-tool-result
   "Normalize a tool result to the wire format."
@@ -111,60 +113,72 @@
   [x]
   (instance? clojure.core.async.impl.channels.ManyToManyChannel x))
 
+
+
 (defn handle-tool-call!
   "Handle an incoming tool call request. Returns a channel with the result wrapper."
   [client session-id tool-call-id tool-name arguments]
-  (async/thread
-    (let [handler (get-in (session-state client session-id) [:tool-handlers tool-name])]
-      (if-not handler
-        {:result {:text-result-for-llm (str "Tool '" tool-name "' is not supported by this client instance.")
-                  :result-type "failure"
-                  :error (str "tool '" tool-name "' not supported")
-                  :tool-telemetry {}}}
-        (try
-          (let [invocation {:session-id session-id
-                            :tool-call-id tool-call-id
-                            :tool-name tool-name
-                            :arguments arguments}
-                result (handler arguments invocation)
-                ;; If handler returns a channel, await it
-                result (if (channel? result)
-                         (<!! result)
-                         result)]
-            {:result (normalize-tool-result result)})
-          (catch Exception e
-            {:result {:text-result-for-llm "Invoking this tool produced an error. Detailed information is not available."
-                      :result-type "failure"
-                      :error (ex-message e)
-                      :tool-telemetry {}}})))))) 
+  (async/thread-call
+   (fn []
+     (let [handler (get-in (session-state client session-id) [:tool-handlers tool-name])
+           timeout-ms (or (:tool-timeout-ms (:options client)) 120000)]
+       (if-not handler
+         {:result {:text-result-for-llm (str "Tool '" tool-name "' is not supported by this client instance.")
+                   :result-type "failure"
+                   :error (str "tool '" tool-name "' not supported")
+                   :tool-telemetry {}}}
+         (try
+           (let [invocation {:session-id session-id
+                             :tool-call-id tool-call-id
+                             :tool-name tool-name
+                             :arguments arguments}
+                 result (handler arguments invocation)
+                 result (if (channel? result)
+                          (let [timeout-ch (async/timeout timeout-ms)
+                                [value ch] (alts!! [result timeout-ch])]
+                            (if (= ch timeout-ch)
+                              (throw (ex-info "Tool timeout" {:timeout-ms timeout-ms
+                                                              :tool-name tool-name
+                                                              :tool-call-id tool-call-id}))
+                              value))
+                          result)]
+             {:result (normalize-tool-result result)})
+           (catch Exception e
+             {:result {:text-result-for-llm "Invoking this tool produced an error. Detailed information is not available."
+                       :result-type "failure"
+                       :error (ex-message e)
+                       :tool-telemetry {}}})))))
+   :mixed))
 
 (defn handle-permission-request!
   "Handle an incoming permission request. Returns a channel with the result."
   [client session-id request]
-  (async/thread
-    (let [handler (:permission-handler (session-state client session-id))]
-      (if-not handler
-        {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}}
-        (try
-          (let [result (handler request {:session-id session-id})
-                ;; If handler returns a channel, await it
-                result (if (channel? result)
-                         (<!! result)
-                         result)]
-            (cond
-              (and (map? result) (contains? result :kind))
-              {:result result}
+  (async/thread-call
+   (fn []
+     (let [handler (:permission-handler (session-state client session-id))]
+       (if-not handler
+         {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}}
+         (try
+           (let [result (handler request {:session-id session-id})
+                 ;; If handler returns a channel, await it
+                 result (if (channel? result)
+                          (<!! result)
+                          result)]
+             (cond
+               (and (map? result) (contains? result :kind))
+               {:result result}
 
-              (and (map? result) (contains? result :result)
-                   (map? (:result result)) (contains? (:result result) :kind))
-              result
+               (and (map? result) (contains? result :result)
+                    (map? (:result result)) (contains? (:result result) :kind))
+               result
 
-              :else
-              (do
-                (log/warn "Invalid permission response for session " session-id ": " result)
-                {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}})))
-          (catch Exception _
-            {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}}))))))
+               :else
+               (do
+                 (log/warn "Invalid permission response for session " session-id ": " result)
+                 {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}})))
+           (catch Exception _
+             {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}})))))
+   :io))
 
 ;; -----------------------------------------------------------------------------
 ;; Public API - functions that take CopilotSession handle
@@ -207,9 +221,9 @@
    Options: same as send!
    
    Additional options:
-   - :timeout-ms   - Timeout in milliseconds (default: 180000)"
+   - :timeout-ms   - Timeout in milliseconds (default: 300000)"
   ([session opts]
-   (send-and-wait! session opts 180000))
+   (send-and-wait! session opts 300000))
   ([session opts timeout-ms]
    (let [{:keys [session-id client]} session]
      (log/debug "send-and-wait! called for session " session-id)
@@ -281,96 +295,135 @@
 
 (defn- send-async*
   "Send a message and return {:message-id :events-ch}."
-  [session opts]
-  (let [{:keys [session-id client]} session]
-    (when (:destroyed? (session-state client session-id))
-      (throw (ex-info "Session has been destroyed" {:session-id session-id})))
-    
-    (let [out-ch (chan 1024)
-          event-ch (chan 1024)
-          {:keys [event-mult send-lock]} (session-io client session-id)
-          released? (atom false)
-          release-lock! (fn []
-                          (when (compare-and-set! released? false true)
-                            (.release send-lock)))]
-      (try
-        (.acquire send-lock)
-        (catch InterruptedException e
-          (.interrupt (Thread/currentThread))
-          (throw (ex-info "Interrupted while waiting to send message" {} e))))
-      
-      ;; Tap the mult for events
-      (tap event-mult event-ch)
-      
-      ;; Send the message
-      (try
-        (let [message-id (send! session opts)]
-          (go-loop []
-            (let [event (<! event-ch)]
-              (cond
-                (nil? event)
-                (do
-                  (untap event-mult event-ch)
-                  (close! out-ch)
-                  (release-lock!))
-
-                (= :session.idle (:type event))
-                (do
-                  (>! out-ch event)
-                  (untap event-mult event-ch)
-                  (close! event-ch)
-                  (close! out-ch)
-                  (release-lock!))
-
-                (= :session.error (:type event))
-                (do
-                  (>! out-ch event)
-                  (untap event-mult event-ch)
-                  (close! event-ch)
-                  (close! out-ch)
-                  (release-lock!))
-
-                :else
-                (do
-                  (>! out-ch event)
-                  (recur)))))
-          {:message-id message-id
-           :events-ch out-ch})
-        (catch Exception e
-          (untap event-mult event-ch)
-          (close! event-ch)
-          (close! out-ch)
-          (release-lock!)
-          (throw e))))))
+  ([session opts]
+   (send-async* session opts nil))
+  ([session opts timeout-ms]
+   (let [{:keys [session-id client]} session]
+     (when (:destroyed? (session-state client session-id))
+       (throw (ex-info "Session has been destroyed" {:session-id session-id})))
+     
+     (let [out-ch (chan 1024)
+           event-ch (chan 1024)
+           {:keys [event-mult send-lock]} (session-io client session-id)
+           released? (atom false)
+           release-lock! (fn []
+                           (when (compare-and-set! released? false true)
+                             (.release send-lock)))
+           deadline-ch (when timeout-ms (async/timeout timeout-ms))
+           timeout-event {:type :session.error
+                          :data {:message (str "Timeout after " timeout-ms "ms waiting for session.idle")
+                                 :timeout-ms timeout-ms}}
+           emit! (fn [event]
+                   (when-not (async/offer! out-ch event)
+                     (log/debug "Dropping event for session " session-id " due to full async buffer")))]
+       (try
+         (.acquire send-lock)
+         (catch InterruptedException e
+           (.interrupt (Thread/currentThread))
+           (throw (ex-info "Interrupted while waiting to send message" {} e))))
+       
+       ;; Tap the mult for events
+       (tap event-mult event-ch)
+       
+       ;; Send the message
+       (try
+         (let [message-id (send! session opts)]
+           (go-loop []
+             (let [[event ch] (if deadline-ch
+                                (async/alts! [event-ch deadline-ch])
+                                [(<! event-ch) event-ch])]
+               (cond
+                 (and deadline-ch (= ch deadline-ch))
+                 (do
+                   (emit! timeout-event)
+                   (untap event-mult event-ch)
+                   (close! event-ch)
+                   (close! out-ch)
+                   (release-lock!))
+ 
+                 (nil? event)
+                 (do
+                   (untap event-mult event-ch)
+                   (close! out-ch)
+                   (release-lock!))
+ 
+                 (= :session.idle (:type event))
+                 (do
+                   (emit! event)
+                   (untap event-mult event-ch)
+                   (close! event-ch)
+                   (close! out-ch)
+                   (release-lock!))
+ 
+                 (= :session.error (:type event))
+                 (do
+                   (emit! event)
+                   (untap event-mult event-ch)
+                   (close! event-ch)
+                   (close! out-ch)
+                   (release-lock!))
+ 
+                 :else
+                 (do
+                   (emit! event)
+                   (recur)))))
+           {:message-id message-id
+            :events-ch out-ch})
+         (catch Exception e
+           (untap event-mult event-ch)
+           (close! event-ch)
+           (close! out-ch)
+           (release-lock!)
+           (throw e)))))))
 
 (defn send-async
   "Send a message and return a channel that receives events until session.idle.
    The channel closes after session.idle or session.error.
-   Serialized per session to avoid mixing concurrent sends."
+   Serialized per session to avoid mixing concurrent sends.
+   
+   Options:
+   - :timeout-ms   - Timeout in milliseconds (default: 300000, set to nil to disable)"
   [session opts]
-  (:events-ch (send-async* session opts)))
+  (let [timeout-ms (if (contains? opts :timeout-ms) (:timeout-ms opts) 300000)
+        opts (dissoc opts :timeout-ms)]
+    (:events-ch (send-async* session opts timeout-ms))))
 
 (defn <send!
   "Send a message and return a channel that delivers the final content string.
    This is the async equivalent of send-and-wait! - use inside go blocks.
    
+   Options:
+   - :timeout-ms   - Timeout in milliseconds (default: 300000, set to nil to disable)
+   
    The returned channel delivers a single value (the response content) then closes."
   [session opts]
-  (let [events-ch (send-async session opts)
-        out-ch (chan 1)]
+  (let [timeout-ms (if (contains? opts :timeout-ms) (:timeout-ms opts) 300000)
+        events-ch (send-async session (assoc opts :timeout-ms timeout-ms))
+        out-ch (chan (async/sliding-buffer 1))]
     (go
-      (loop []
+      (loop [delivered? false]
         (when-let [event (<! events-ch)]
-          (case (:type event)
-            :assistant.message (>! out-ch (get-in event [:data :content]))
-            (recur))))
+          (cond
+            (= :assistant.message (:type event))
+            (do
+              (when-not delivered?
+                (async/offer! out-ch (get-in event [:data :content])))
+              (recur true))
+ 
+            (#{:session.idle :session.error} (:type event))
+            nil
+ 
+            :else
+            (recur delivered?))))
       (close! out-ch))
     out-ch))
 
 (defn send-async-with-id
   "Send a message and return {:message-id :events-ch}."
   [session opts]
-  (send-async* session opts))
+  (let [timeout-ms (if (contains? opts :timeout-ms) (:timeout-ms opts) 300000)
+        opts (dissoc opts :timeout-ms)]
+    (send-async* session opts timeout-ms)))
 
 (defn abort!
   "Abort the currently processing message in this session."
@@ -437,6 +490,9 @@
   "Subscribe to session events. Returns a channel that receives events.
    Call unsubscribe-events when done.
    
+   Note: session events are delivered via a sliding buffer (4096). If a
+   subscriber is slow, events may be dropped.
+   
    This is a convenience wrapper around (tap (events session) ch)."
   [session]
   (let [ch (chan 1024)
@@ -450,7 +506,10 @@
 
    Options:
    - :buffer - Channel buffer size (default 1024)
-   - :xf     - Transducer applied to events"
+   - :xf     - Transducer applied to events
+
+   Note: session events use a sliding buffer (4096). If consumers are slow,
+   events may be dropped upstream."
   ([session]
    (events->chan session {}))
   ([session {:keys [buffer xf] :or {buffer 1024}}]

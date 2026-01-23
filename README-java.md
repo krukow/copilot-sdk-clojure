@@ -223,6 +223,9 @@ ClientOptions opts = (ClientOptions) cb.build();
 | `logLevel(level)` | String | `"none"`, `"error"`, `"warning"`, `"info"`, `"debug"`, `"all"` |
 | `autoStart(bool)` | boolean | Auto-start on first use (default: true) |
 | `autoRestart(bool)` | boolean | Auto-restart on crash (default: true) |
+| `notificationQueueSize(size)` | int | Max queued protocol notifications (default: 4096) |
+| `routerQueueSize(size)` | int | Max queued non-session notifications (default: 4096) |
+| `toolTimeoutMs(ms)` | int | Timeout for tool handlers returning channels (default: 120000) |
 | `env(map)` | Map | Environment variables |
 
 ### SessionOptionsBuilder

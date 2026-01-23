@@ -212,11 +212,11 @@
           first)
      
      ;; Stream deltas
-     (->> (query-seq \"Tell me a story\" :session {:streaming? true})
-          (filter #(= :assistant.message_delta (:type %)))
-          (map #(get-in % [:data :delta-content]))
-          (run! print))
-   "
+      (->> (query-seq \"Tell me a story\" :session {:streaming? true})
+           (filter #(= :assistant.message_delta (:type %)))
+           (map #(get-in % [:data :delta-content]))
+           (run! print))
+    "
   [prompt & {:keys [client session]}]
   (let [c (ensure-client! client)
         session-config (build-session-config session)
@@ -246,6 +246,46 @@
                      :else
                      (cons event (event-seq)))))))]
       (event-seq))))
+
+(defn query-seq!
+  "Execute a query and return a lazy sequence of events with guaranteed cleanup.
+   
+   This variant limits consumption and ensures the session is destroyed even if
+   the consumer stops early.
+   
+   Keyword options:
+     :client - Client options map
+     :session - Session options map
+     :max-events - Maximum number of events to emit (default: 256)
+   
+   Returns a lazy sequence of at most :max-events events."
+  [prompt & {:keys [client session max-events] :or {max-events 256}}]
+  (let [c (ensure-client! client)
+        session-config (build-session-config session)
+        sess (copilot/create-session c session-config)
+        events-ch (copilot/subscribe-events sess)
+        done? (atom false)]
+    (copilot/send! sess {:prompt prompt})
+    (letfn [(finish! []
+              (when-not @done?
+                (reset! done? true)
+                (copilot/destroy! sess)))
+            (event-seq [remaining]
+              (lazy-seq
+               (when (pos? remaining)
+                 (let [event (async/<!! events-ch)]
+                   (cond
+                     (nil? event)
+                     (do (finish!) nil)
+
+                     (#{:session.idle :session.error} (:type event))
+                     (do (finish!) (cons event nil))
+
+                     :else
+                     (cons event (event-seq (dec remaining))))))))]
+      (let [events (event-seq max-events)]
+        (when (zero? max-events) (finish!))
+        events))))
 
 (defn query-chan
   "Execute a query and return a core.async channel of events.
