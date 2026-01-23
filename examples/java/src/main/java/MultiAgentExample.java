@@ -1,88 +1,39 @@
-import krukow.copilot_sdk.Copilot;
-import krukow.copilot_sdk.SessionOptions;
-import krukow.copilot_sdk.SessionOptionsBuilder;
-import krukow.copilot_sdk.ICopilotClient;
-import krukow.copilot_sdk.ICopilotSession;
+import krukow.copilot_sdk.*;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.stream.*;
 
 /**
  * Multi-agent example demonstrating parallel AI assistants with different roles.
  * 
- * This example creates three specialized agents (Researcher, Analyst, Writer)
- * that work together to produce a synthesized output.
- * 
- * See examples/java/README.md for build and run instructions.
+ * Three phases: Research (parallel), Analysis, Synthesis.
  */
 public class MultiAgentExample {
     
-    public static void main(String[] args) {
+    private static final String[] TOPICS = {
+        "functional programming benefits",
+        "immutable data structures", 
+        "concurrent programming challenges"
+    };
+    
+    public static void main(String[] args) throws Exception {
         System.out.println("=== Multi-Agent Collaboration ===\n");
         
-        ICopilotClient client = Copilot.createClient(null);
+        ICopilotClient client = Copilot.createClient();
         client.start();
         
+        List<ICopilotSession> sessions = new ArrayList<>();
         try {
-            // Create three specialized agents with different system prompts
-            ICopilotSession researcher = null;
-            ICopilotSession analyst = null;
-            ICopilotSession writer = null;
+            String research = researchPhase(client, sessions);
+            String analysis = analysisPhase(client, sessions, research);
+            String summary = synthesisPhase(client, sessions, research, analysis);
             
-            try {
-                researcher = createAgent(client, 
-                    "You are a research assistant. Gather factual information concisely. " +
-                    "Respond in 2-3 sentences with key facts only.");
-                
-                analyst = createAgent(client,
-                    "You are an analytical assistant. Identify patterns and insights " +
-                    "from information provided. Be insightful but concise.");
-                
-                writer = createAgent(client,
-                    "You are a professional writer. Synthesize information into clear, " +
-                    "engaging prose. Write in a professional but accessible style.");
-                
-                // Step 1: Research phase - gather information on topics
-                String[] topics = {
-                    "functional programming benefits",
-                    "immutable data structures", 
-                    "concurrent programming challenges"
-                };
-                
-                System.out.println("📚 Research Phase:");
-                StringBuilder researchResults = new StringBuilder();
-                for (String topic : topics) {
-                    String research = researcher.sendAndWait(
-                        "Briefly research and summarize key points about: " + topic + 
-                        ". Keep it to 2-3 sentences.", 60000);
-                    System.out.println("  • " + topic + ": " + truncate(research, 100));
-                    researchResults.append("- ").append(topic).append(": ").append(research).append("\n");
-                }
-                
-                // Step 2: Analysis phase - identify patterns
-                System.out.println("\n🔍 Analysis Phase:");
-                String analysis = analyst.sendAndWait(
-                    "Analyze these research findings and identify 2-3 key insights or patterns:\n\n" +
-                    researchResults.toString(), 60000);
-                System.out.println("  " + truncate(analysis, 200));
-                
-                // Step 3: Synthesis phase - create final output
-                System.out.println("\n✍️ Synthesis Phase:");
-                String synthesis = writer.sendAndWait(
-                    "Based on the following research and analysis, write a brief (3-4 sentence) " +
-                    "executive summary:\n\nRESEARCH:\n" + researchResults.toString() +
-                    "\n\nANALYSIS:\n" + analysis, 60000);
-                
-                System.out.println("\n" + "=".repeat(50));
-                System.out.println("📋 FINAL SUMMARY:");
-                System.out.println("=".repeat(50));
-                System.out.println(synthesis);
-                
-            } finally {
-                // Clean up all sessions (null-safe)
-                if (writer != null) writer.destroy();
-                if (analyst != null) analyst.destroy();
-                if (researcher != null) researcher.destroy();
-            }
-            
+            System.out.println("\n" + "=".repeat(50));
+            System.out.println("📋 FINAL SUMMARY:");
+            System.out.println("=".repeat(50));
+            System.out.println(summary);
         } finally {
+            sessions.forEach(ICopilotSession::destroy);
             client.stop();
         }
         
@@ -90,17 +41,81 @@ public class MultiAgentExample {
         System.exit(0);
     }
     
+    /** Research phase: query topics in parallel */
+    private static String researchPhase(ICopilotClient client, List<ICopilotSession> sessions) {
+        System.out.println("📚 Research Phase (parallel):");
+        long start = System.currentTimeMillis();
+        
+        // Launch all research queries in parallel
+        Map<String, CompletableFuture<String>> futures = Arrays.stream(TOPICS)
+            .collect(LinkedHashMap::new,
+                (map, topic) -> {
+                    ICopilotSession session = createAgent(client,
+                        "You are a research assistant. Respond in 2-3 sentences with key facts only.");
+                    sessions.add(session);
+                    @SuppressWarnings("unchecked")
+                    CompletableFuture<String> f = (CompletableFuture<String>)
+                        session.sendAsync("Briefly summarize key points about: " + topic);
+                    map.put(topic, f);
+                },
+                Map::putAll);
+        
+        // Collect results
+        String results = futures.entrySet().stream()
+            .map(e -> {
+                try {
+                    String result = e.getValue().get(60, TimeUnit.SECONDS);
+                    System.out.println("  • " + e.getKey() + ": " + truncate(result, 100));
+                    return "- " + e.getKey() + ": " + result;
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+            })
+            .collect(Collectors.joining("\n", "", "\n"));
+        
+        System.out.println("  (completed in " + (System.currentTimeMillis() - start) + "ms)");
+        return results;
+    }
+    
+    /** Analysis phase: identify patterns */
+    private static String analysisPhase(ICopilotClient client, List<ICopilotSession> sessions, 
+            String research) {
+        System.out.println("\n🔍 Analysis Phase:");
+        
+        ICopilotSession analyst = createAgent(client,
+            "You are an analytical assistant. Identify patterns and insights. Be concise.");
+        sessions.add(analyst);
+        
+        String analysis = analyst.sendAndWait(
+            "Analyze these research findings and identify 2-3 key insights:\n\n" + research, 60000);
+        System.out.println("  " + truncate(analysis, 200));
+        return analysis;
+    }
+    
+    /** Synthesis phase: create final summary */
+    private static String synthesisPhase(ICopilotClient client, List<ICopilotSession> sessions,
+            String research, String analysis) {
+        System.out.println("\n✍️ Synthesis Phase:");
+        
+        ICopilotSession writer = createAgent(client,
+            "You are a professional writer. Write clear, engaging prose.");
+        sessions.add(writer);
+        
+        return writer.sendAndWait(
+            "Write a brief (3-4 sentence) executive summary:\n\n" +
+            "RESEARCH:\n" + research + "\nANALYSIS:\n" + analysis, 60000);
+    }
+    
     private static ICopilotSession createAgent(ICopilotClient client, String systemPrompt) {
-        SessionOptionsBuilder builder = new SessionOptionsBuilder();
-        builder.model("gpt-5.2");
-        builder.systemPrompt(systemPrompt);
-        return client.createSession((SessionOptions) builder.build());
+        SessionOptionsBuilder sb = new SessionOptionsBuilder();
+        sb.model("gpt-4.1");
+        sb.systemPrompt(systemPrompt);
+        return client.createSession((SessionOptions) sb.build());
     }
     
     private static String truncate(String s, int maxLen) {
         if (s == null) return "";
         String clean = s.replace("\n", " ").trim();
-        if (clean.length() <= maxLen) return clean;
-        return clean.substring(0, maxLen) + "...";
+        return clean.length() <= maxLen ? clean : clean.substring(0, maxLen) + "...";
     }
 }
