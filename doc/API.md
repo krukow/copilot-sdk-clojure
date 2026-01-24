@@ -1,6 +1,103 @@
 # API Reference
 
+## Helpers API
+
+The helpers namespace provides simple, stateless query functions with automatic client management.
+
+```clojure
+(require '[krukow.copilot-sdk.helpers :as h])
+```
+
+### `query`
+
+```clojure
+(h/query prompt & {:keys [client session timeout-ms]})
+```
+
+Execute a one-shot query and return the response text. Manages a shared client internally.
+
+**Options:**
+- `:client` - Client options map (cli-path, log-level, cwd, env)
+- `:session` - Session options map (model, system-prompt, tools, streaming?, etc.)
+- `:timeout-ms` - Timeout in milliseconds (default: 180000)
+
+```clojure
+(h/query "What is 2+2?")
+;; => "4"
+
+(h/query "Explain monads" :session {:model "claude-sonnet-4.5"})
+
+(h/query "Hello" :session {:system-prompt "Be concise."})
+```
+
+### `query-with-client`
+
+```clojure
+(h/query-with-client client prompt & {:keys [session timeout-ms]})
+```
+
+Execute a one-shot query using an existing client. Useful for multi-agent patterns where queries need to share a client lifecycle.
+
+```clojure
+(copilot/with-client [client {}]
+  (h/query-with-client client "What is Clojure?" :session {:system-prompt "Be brief."}))
+```
+
+### `query-seq`
+
+```clojure
+(h/query-seq prompt & {:keys [client session]})
+```
+
+Execute a query and return a lazy sequence of events.
+
+```clojure
+(->> (h/query-seq "Tell me a story" :session {:streaming? true})
+     (filter #(= :assistant.message_delta (:type %)))
+     (map #(get-in % [:data :delta-content]))
+     (run! print))
+```
+
+### `query-seq!`
+
+```clojure
+(h/query-seq! prompt & {:keys [client session max-events]})
+```
+
+Like `query-seq` but with guaranteed cleanup and bounded consumption (default: 256 events).
+
+### `query-chan`
+
+```clojure
+(h/query-chan prompt & {:keys [client session buffer]})
+```
+
+Execute a query and return a core.async channel of events.
+
+```clojure
+(let [ch (h/query-chan "Tell me a story" :session {:streaming? true})]
+  (go-loop []
+    (when-let [event (<! ch)]
+      (when (= :assistant.message_delta (:type event))
+        (print (get-in event [:data :delta-content])))
+      (recur))))
+```
+
+### `shutdown!`
+
+```clojure
+(h/shutdown!)
+```
+
+Explicitly shutdown the shared client. Safe to call multiple times.
+
+---
+
 ## CopilotClient
+
+```clojure
+(require '[krukow.copilot-sdk :as copilot])
+```
 
 ### Constructor
 
@@ -79,6 +176,22 @@ Create a new conversation session.
 ```
 
 Create a session and ensure `destroy!` runs on exit.
+
+#### `with-client-session`
+
+```clojure
+;; Simple form - just session binding
+(copilot/with-client-session [session {:model "gpt-5.2"}]
+  ;; use session
+  )
+
+;; Full form - both client and session bindings
+(copilot/with-client-session [client session {:model "gpt-5.2"} {:log-level :info}]
+  ;; use client and session
+  )
+```
+
+Create a client and session together, ensuring both are cleaned up on exit.
 
 **Config:**
 
@@ -196,6 +309,14 @@ List all available sessions. Returns vector of session metadata with
 
 Delete a session and its data from disk.
 
+#### `get-last-session-id`
+
+```clojure
+(copilot/get-last-session-id client)
+```
+
+Get the ID of the most recently updated session.
+
 ---
 
 ## CopilotSession
@@ -282,6 +403,23 @@ Get the core.async `mult` for session events. Use `tap` to subscribe:
 
 Subscribe to session events with optional buffer size and transducer.
 Note: session events use a sliding buffer (4096). Slow consumers may drop events.
+
+#### `subscribe-events`
+
+```clojure
+(copilot/subscribe-events session)
+```
+
+Subscribe to session events. Returns a channel that receives events.
+This is a convenience wrapper around `(tap (copilot/events session) ch)`.
+
+#### `unsubscribe-events`
+
+```clojure
+(copilot/unsubscribe-events session ch)
+```
+
+Unsubscribe a channel from session events.
 
 #### `abort!`
 
