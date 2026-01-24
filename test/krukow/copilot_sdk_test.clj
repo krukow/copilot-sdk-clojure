@@ -20,7 +20,7 @@
     (is (s/valid? ::specs/client-options {:cli-path "copilot"}))
     (is (s/valid? ::specs/client-options {:log-level :debug}))
     (is (s/valid? ::specs/client-options {:use-stdio? true :port 8080})))
-  
+
   (testing "invalid client options"
     (is (not (s/valid? ::specs/client-options {:log-level :invalid})))))
 
@@ -28,7 +28,7 @@
   (testing "valid send options"
     (is (s/valid? ::specs/send-options {:prompt "Hello"}))
     (is (s/valid? ::specs/send-options {:prompt "Hi" :message-mode :enqueue})))
-  
+
   (testing "invalid send options"
     (is (not (s/valid? ::specs/send-options {})))
     (is (not (s/valid? ::specs/send-options {:prompt ""})))))
@@ -39,7 +39,7 @@
     (is (s/valid? ::specs/connection-state :connecting))
     (is (s/valid? ::specs/connection-state :connected))
     (is (s/valid? ::specs/connection-state :error)))
-  
+
   (testing "invalid states"
     (is (not (s/valid? ::specs/connection-state :invalid)))))
 
@@ -52,16 +52,16 @@
     (let [c (copilot/client)]
       (is (some? c))
       (is (= :disconnected (copilot/state c)))))
-  
+
   (testing "create client with custom options"
     (let [c (copilot/client {:log-level :debug :auto-start? false})]
       (is (some? c))
       (is (= :disconnected (copilot/state c)))))
-  
+
   (testing "cli-url mutual exclusion with use-stdio?"
     (is (thrown? Exception
                  (copilot/client {:cli-url "localhost:8080" :use-stdio? true}))))
-  
+
   (testing "cli-url mutual exclusion with cli-path"
     (is (thrown? Exception
                  (copilot/client {:cli-url "localhost:8080" :cli-path "/path/to/cli"})))))
@@ -76,45 +76,45 @@
       (is (= 8080 (:port (:options c))))
       (is (= "localhost" (:host (:options c))))
       (is (true? (:external-server? (:options c))))))
-  
+
   (testing "parse host:port URL format"
     (let [c (copilot/client {:cli-url "127.0.0.1:9000" :auto-start? false})]
       (is (= 9000 (:port (:options c))))
       (is (= "127.0.0.1" (:host (:options c))))
       (is (true? (:external-server? (:options c))))))
-  
+
   (testing "parse http://host:port URL format"
     (let [c (copilot/client {:cli-url "http://localhost:7000" :auto-start? false})]
       (is (= 7000 (:port (:options c))))
       (is (= "localhost" (:host (:options c))))
       (is (true? (:external-server? (:options c))))))
-  
+
   (testing "parse https://host:port URL format"
     (let [c (copilot/client {:cli-url "https://example.com:443" :auto-start? false})]
       (is (= 443 (:port (:options c))))
       (is (= "example.com" (:host (:options c))))
       (is (true? (:external-server? (:options c))))))
-  
+
   (testing "invalid URL format throws"
     (is (thrown-with-msg? Exception #"Invalid cli-url format"
-          (copilot/client {:cli-url "invalid-url" :auto-start? false}))))
-  
+                          (copilot/client {:cli-url "invalid-url" :auto-start? false}))))
+
   (testing "invalid port (too high) throws"
     (is (thrown-with-msg? Exception #"Invalid port"
-          (copilot/client {:cli-url "localhost:99999" :auto-start? false}))))
-  
+                          (copilot/client {:cli-url "localhost:99999" :auto-start? false}))))
+
   (testing "invalid port (zero) throws"
     (is (thrown-with-msg? Exception #"Invalid port"
-          (copilot/client {:cli-url "localhost:0" :auto-start? false}))))
-  
+                          (copilot/client {:cli-url "localhost:0" :auto-start? false}))))
+
   (testing "invalid port (negative) throws"
     (is (thrown-with-msg? Exception #"Invalid port"
-          (copilot/client {:cli-url "localhost:-1" :auto-start? false}))))
-  
+                          (copilot/client {:cli-url "localhost:-1" :auto-start? false}))))
+
   (testing "cli-url sets use-stdio? to false"
     (let [c (copilot/client {:cli-url "8080" :auto-start? false})]
       (is (false? (:use-stdio? (:options c))))))
-  
+
   (testing "cli-url marks client as external server"
     (let [c (copilot/client {:cli-url "localhost:8080" :auto-start? false})]
       (is (true? (:external-server? (:options c)))))))
@@ -133,7 +133,7 @@
       (is (= "test_tool" (:tool-name tool)))
       (is (= "A test tool" (:tool-description tool)))
       (is (fn? (:tool-handler tool)))))
-  
+
   (testing "tool handler execution"
     (let [handler (fn [args _] (str "Hello " (:name args)))
           tool (copilot/define-tool "greet"
@@ -150,17 +150,17 @@
     (let [r (copilot/result-success "OK")]
       (is (= "OK" (:text-result-for-llm r)))
       (is (= "success" (:result-type r)))))
-  
+
   (testing "result-failure"
     (let [r (copilot/result-failure "Failed" "error details")]
       (is (= "Failed" (:text-result-for-llm r)))
       (is (= "failure" (:result-type r)))
       (is (= "error details" (:error r)))))
-  
+
   (testing "result-denied"
     (let [r (copilot/result-denied "Permission denied")]
       (is (= "denied" (:result-type r)))))
-  
+
   (testing "result-rejected"
     (let [r (copilot/result-rejected "User rejected")]
       (is (= "rejected" (:result-type r))))))

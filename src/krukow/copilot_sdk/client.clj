@@ -39,18 +39,18 @@
 (defn- default-options
   "Return default client options."
   []
-   {:cli-path "copilot"
-    :cli-args []
-    :cwd (System/getProperty "user.dir")
-    :port 0
-    :use-stdio? true
-    :log-level :info
-    :auto-start? true
-    :auto-restart? true
-    :notification-queue-size 4096
-    :router-queue-size 4096
-    :tool-timeout-ms 120000
-    :env nil})
+  {:cli-path "copilot"
+   :cli-args []
+   :cwd (System/getProperty "user.dir")
+   :port 0
+   :use-stdio? true
+   :log-level :info
+   :auto-start? true
+   :auto-restart? true
+   :notification-queue-size 4096
+   :router-queue-size 4096
+   :tool-timeout-ms 120000
+   :env nil})
 
 (defn- ensure-valid-mcp-servers!
   [servers]
@@ -116,24 +116,24 @@
   ([opts]
    (when (and (:cli-url opts) (= true (:use-stdio? opts)))
      (throw (ex-info "cli-url is mutually exclusive with use-stdio?" opts)))
-    (when (and (:cli-url opts) (:cli-path opts))
-      (throw (ex-info "cli-url is mutually exclusive with cli-path" opts)))
-     (when-not (s/valid? ::specs/client-options opts)
-      (throw (ex-info "Invalid client options"
-                      {:options opts
-                       :explain (s/explain-data ::specs/client-options opts)})))
-    (when-let [size (:notification-queue-size opts)]
-      (when (<= size 0)
-        (throw (ex-info "notification-queue-size must be > 0" {:notification-queue-size size}))))
-    (when-let [size (:router-queue-size opts)]
-      (when (<= size 0)
-        (throw (ex-info "router-queue-size must be > 0" {:router-queue-size size}))))
-    (when-let [timeout (:tool-timeout-ms opts)]
-      (when (<= timeout 0)
-        (throw (ex-info "tool-timeout-ms must be > 0" {:tool-timeout-ms timeout}))))
+   (when (and (:cli-url opts) (:cli-path opts))
+     (throw (ex-info "cli-url is mutually exclusive with cli-path" opts)))
+   (when-not (s/valid? ::specs/client-options opts)
+     (throw (ex-info "Invalid client options"
+                     {:options opts
+                      :explain (s/explain-data ::specs/client-options opts)})))
+   (when-let [size (:notification-queue-size opts)]
+     (when (<= size 0)
+       (throw (ex-info "notification-queue-size must be > 0" {:notification-queue-size size}))))
+   (when-let [size (:router-queue-size opts)]
+     (when (<= size 0)
+       (throw (ex-info "router-queue-size must be > 0" {:router-queue-size size}))))
+   (when-let [timeout (:tool-timeout-ms opts)]
+     (when (<= timeout 0)
+       (throw (ex-info "tool-timeout-ms must be > 0" {:tool-timeout-ms timeout}))))
 
-    (let [merged (merge (default-options) opts)
-          external? (boolean (:cli-url opts))
+   (let [merged (merge (default-options) opts)
+         external? (boolean (:cli-url opts))
          {:keys [host port]} (when (:cli-url opts)
                                (parse-cli-url (:cli-url opts)))
          final-opts (cond-> merged
@@ -141,10 +141,10 @@
                                     (assoc :host host)
                                     (assoc :port port)
                                     (assoc :external-server? true)))]
-      {:options final-opts
-       :external-server? external?
-       :actual-host (or host "localhost")
-       :state (atom (assoc (initial-state port) :options final-opts))})))
+     {:options final-opts
+      :external-server? external?
+      :actual-host (or host "localhost")
+      :state (atom (assoc (initial-state port) :options final-opts))})))
 
 (defn state
   "Get the current connection state."
@@ -166,17 +166,17 @@
         router-thread (Thread.
                        (fn []
                          (log/debug "Notification router dispatcher started")
-                           (try
-                             (loop []
-                               (when (:router-running? @(:state client))
-                                 (when-let [notif (.poll router-queue 100 java.util.concurrent.TimeUnit/MILLISECONDS)]
-                                   (>!! router-ch notif))
-                                 (recur)))
-                          (catch InterruptedException _
-                            (log/debug "Notification router dispatcher interrupted"))
-                          (catch Exception e
-                            (log/error "Notification router dispatcher exception: " (ex-message e)))
-                          (finally
+                         (try
+                           (loop []
+                             (when (:router-running? @(:state client))
+                               (when-let [notif (.poll router-queue 100 java.util.concurrent.TimeUnit/MILLISECONDS)]
+                                 (>!! router-ch notif))
+                               (recur)))
+                           (catch InterruptedException _
+                             (log/debug "Notification router dispatcher interrupted"))
+                           (catch Exception e
+                             (log/error "Notification router dispatcher exception: " (ex-message e)))
+                           (finally
                              (log/debug "Notification router dispatcher ending")))))]
     ;; Store the router channel
     (swap! (:state client) assoc
@@ -187,22 +187,22 @@
     (.setDaemon router-thread true)
     (.setName router-thread "notification-router-dispatcher")
     (.start router-thread)
-    
+
     ;; Simple routing - read from notification-chan and dispatch
     (go-loop []
       (if-let [notif (<! notif-ch)]
         (do
-           (if (= (:method notif) "session.event")
-             (let [{:keys [session-id event]} (:params notif)
-                   normalized-event (update event :type util/event-type->keyword)]
-               (log/debug "Routing event to session " session-id ": type=" (:type normalized-event))
-               (when-not (:destroyed? (get-in @(:state client) [:sessions session-id]))
-                 (when-let [{:keys [event-chan]} (get-in @(:state client) [:session-io session-id])]
-                   (>! event-chan normalized-event))))
-             (do
+          (if (= (:method notif) "session.event")
+            (let [{:keys [session-id event]} (:params notif)
+                  normalized-event (update event :type util/event-type->keyword)]
+              (log/debug "Routing event to session " session-id ": type=" (:type normalized-event))
+              (when-not (:destroyed? (get-in @(:state client) [:sessions session-id]))
+                (when-let [{:keys [event-chan]} (get-in @(:state client) [:session-io session-id])]
+                  (>! event-chan normalized-event))))
+            (do
               (when-not (.offer router-queue notif)
                 (log/debug "Dropping notification due to full router queue"))))
-           (recur))
+          (recur))
         (do
           (log/debug "Notification channel closed")
           (maybe-reconnect! client "connection-closed"))))))
@@ -262,24 +262,24 @@
   [client]
   (let [{:keys [connection-io]} @(:state client)]
     (proto/set-request-handler! connection-io
-      (fn [method params]
-        (go
-          (case method
-            "tool.call"
-            (let [{:keys [session-id tool-call-id tool-name arguments]} params]
-              (if-not (get-in @(:state client) [:sessions session-id])
-                {:error {:code -32001 :message (str "Unknown session: " session-id)}}
-                {:result (<! (session/handle-tool-call! client session-id tool-call-id tool-name arguments))}))
+                                (fn [method params]
+                                  (go
+                                    (case method
+                                      "tool.call"
+                                      (let [{:keys [session-id tool-call-id tool-name arguments]} params]
+                                        (if-not (get-in @(:state client) [:sessions session-id])
+                                          {:error {:code -32001 :message (str "Unknown session: " session-id)}}
+                                          {:result (<! (session/handle-tool-call! client session-id tool-call-id tool-name arguments))}))
 
-            "permission.request"
-            (let [{:keys [session-id permission-request]} params]
-              (if-not (get-in @(:state client) [:sessions session-id])
-                {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}}
-                (let [result (<! (session/handle-permission-request! client session-id permission-request))]
-                  (log/debug "Permission response for session " session-id ": " result)
-                  {:result result})))
+                                      "permission.request"
+                                      (let [{:keys [session-id permission-request]} params]
+                                        (if-not (get-in @(:state client) [:sessions session-id])
+                                          {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}}
+                                          (let [result (<! (session/handle-permission-request! client session-id permission-request))]
+                                            (log/debug "Permission response for session " session-id ": " result)
+                                            {:result result})))
 
-            {:error {:code -32601 :message (str "Unknown method: " method)}}))))))
+                                      {:error {:code -32601 :message (str "Unknown method: " method)}}))))))
 
 (defn- connect-stdio!
   "Connect via stdio to the CLI process."
@@ -434,7 +434,7 @@
   "Force stop the CLI server without graceful cleanup."
   [client]
   (swap! (:state client) assoc :force-stopping? true :stopping? true)
-  
+
   (let [{:keys [connection-io socket process]} @(:state client)]
     (try
       ;; Clear sessions without destroying
@@ -492,11 +492,11 @@
    (ping client nil))
   ([client message]
    (ensure-connected! client)
-  (let [{:keys [connection-io]} @(:state client)
-        result (proto/send-request! connection-io "ping" {:message message})]
-    {:message (:message result)
-     :timestamp (:timestamp result)
-     :protocol-version (:protocol-version result)})))
+   (let [{:keys [connection-io]} @(:state client)
+         result (proto/send-request! connection-io "ping" {:message message})]
+     {:message (:message result)
+      :timestamp (:timestamp result)
+      :protocol-version (:protocol-version result)})))
 
 (defn get-status
   "Get CLI status including version and protocol information.
@@ -592,7 +592,7 @@
                         (cond
                           (= :replace (:mode sm))
                           {:mode "replace" :content (:content sm)}
-                          
+
                           :else
                           {:mode "append" :content (:content sm)}))
          wire-provider (when-let [provider (:provider config)]

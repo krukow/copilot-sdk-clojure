@@ -7,11 +7,11 @@
            [java.net Socket]))
 
 (defrecord ManagedProcess
-    [^Process process
-     stdin
-     stdout
-     stderr
-     exit-chan])
+           [^Process process
+            stdin
+            stdout
+            stderr
+            exit-chan])
 
 (defn- build-cli-args
   "Build CLI arguments based on options."

@@ -35,8 +35,8 @@
 ;; -----------------------------------------------------------------------------
 
 (defrecord CopilotSession
-    [session-id
-     client])     ; reference to owning client
+           [session-id
+            client])     ; reference to owning client
 
 ;; -----------------------------------------------------------------------------
 ;; Internal functions
@@ -52,10 +52,10 @@
         send-lock (java.util.concurrent.Semaphore. 1)
         tool-handlers (into {} (map (fn [t] [(:tool-name t) (:tool-handler t)]) tools))]
     ;; Store session state and IO in client's atom
-    (swap! (:state client) 
+    (swap! (:state client)
            (fn [state]
              (-> state
-                 (assoc-in [:sessions session-id] 
+                 (assoc-in [:sessions session-id]
                            {:tool-handlers tool-handlers
                             :permission-handler on-permission-request
                             :destroyed? false})
@@ -112,8 +112,6 @@
   "Check if x is a core.async channel."
   [x]
   (instance? clojure.core.async.impl.channels.ManyToManyChannel x))
-
-
 
 (defn handle-tool-call!
   "Handle an incoming tool call request. Returns a channel with the result wrapper."
@@ -229,7 +227,7 @@
      (log/debug "send-and-wait! called for session " session-id)
      (when (:destroyed? (session-state client session-id))
        (throw (ex-info "Session has been destroyed" {:session-id session-id})))
-     
+
      (let [event-ch (chan 1024)
            last-assistant-msg (atom nil)
            {:keys [event-mult send-lock]} (session-io client session-id)]
@@ -238,16 +236,16 @@
          (catch InterruptedException e
            (.interrupt (Thread/currentThread))
            (throw (ex-info "Interrupted while waiting to send message" {} e))))
-       
+
        ;; Tap the mult BEFORE sending - ensures we don't miss events
        (log/debug "send-and-wait! tapping event mult for session " session-id)
        (tap event-mult event-ch)
-       
+
        (try
          ;; Send the message
          (log/debug "send-and-wait! sending message")
          (send! session opts)
-         
+
          ;; Wait for events with single deadline timeout
          (log/debug "send-and-wait! waiting for result with timeout " timeout-ms "ms")
          (let [deadline-ch (async/timeout timeout-ms)]
@@ -259,34 +257,34 @@
                    (log/error "send-and-wait! timeout after " timeout-ms "ms for session " session-id)
                    (throw (ex-info (str "Timeout after " timeout-ms "ms waiting for session.idle")
                                    {:timeout-ms timeout-ms})))
-                 
+
                  (nil? event)
                  (do
                    (log/debug "send-and-wait! event channel closed for session " session-id)
                    (throw (ex-info "Event channel closed unexpectedly" {})))
-                 
+
                  (= :assistant.message (:type event))
                  (do
                    (log/debug "send-and-wait! got assistant.message, continuing to wait for idle")
                    (reset! last-assistant-msg event)
                    (recur))
-                 
+
                  (= :session.idle (:type event))
                  (do
                    (log/debug "send-and-wait! got session.idle, returning result for session " session-id)
                    @last-assistant-msg)
-                 
+
                  (= :session.error (:type event))
                  (do
                    (log/error "send-and-wait! got session.error for session " session-id)
                    (throw (ex-info (get-in event [:data :message] "Session error")
                                    {:event event})))
-                 
+
                  :else
                  (do
                    (log/debug "send-and-wait! ignoring event type: " (:type event))
                    (recur))))))
-         
+
          (finally
            (log/debug "send-and-wait! cleaning up subscription")
            (untap event-mult event-ch)
@@ -301,7 +299,7 @@
    (let [{:keys [session-id client]} session]
      (when (:destroyed? (session-state client session-id))
        (throw (ex-info "Session has been destroyed" {:session-id session-id})))
-     
+
      (let [out-ch (chan 1024)
            event-ch (chan 1024)
            {:keys [event-mult send-lock]} (session-io client session-id)
@@ -321,10 +319,10 @@
          (catch InterruptedException e
            (.interrupt (Thread/currentThread))
            (throw (ex-info "Interrupted while waiting to send message" {} e))))
-       
+
        ;; Tap the mult for events
        (tap event-mult event-ch)
-       
+
        ;; Send the message
        (try
          (let [message-id (send! session opts)]
@@ -340,13 +338,13 @@
                    (close! event-ch)
                    (close! out-ch)
                    (release-lock!))
- 
+
                  (nil? event)
                  (do
                    (untap event-mult event-ch)
                    (close! out-ch)
                    (release-lock!))
- 
+
                  (= :session.idle (:type event))
                  (do
                    (emit! event)
@@ -354,7 +352,7 @@
                    (close! event-ch)
                    (close! out-ch)
                    (release-lock!))
- 
+
                  (= :session.error (:type event))
                  (do
                    (emit! event)
@@ -362,7 +360,7 @@
                    (close! event-ch)
                    (close! out-ch)
                    (release-lock!))
- 
+
                  :else
                  (do
                    (emit! event)
@@ -409,10 +407,10 @@
               (when-not delivered?
                 (async/offer! out-ch (get-in event [:data :content])))
               (recur true))
- 
+
             (#{:session.idle :session.error} (:type event))
             nil
- 
+
             :else
             (recur delivered?))))
       (close! out-ch))

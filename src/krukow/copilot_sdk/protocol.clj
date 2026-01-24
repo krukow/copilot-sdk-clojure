@@ -20,7 +20,7 @@
            [java.nio.channels Channels ReadableByteChannel WritableByteChannel ClosedChannelException]
            [java.nio.channels AsynchronousCloseException]
            [java.nio.charset StandardCharsets]
-            [java.util.concurrent LinkedBlockingQueue TimeUnit]))
+           [java.util.concurrent LinkedBlockingQueue TimeUnit]))
 
 (def ^:private content-length-header "Content-Length: ")
 
@@ -70,10 +70,10 @@
       (cond
         (nil? line)
         nil  ;; Connection closed - return nil instead of throwing
-        
+
         (str/blank? line)
         headers
-        
+
         :else
         (let [[k v] (str/split line #": " 2)]
           (recur (assoc headers (str/lower-case (str/trim k)) (str/trim (or v "")))))))))
@@ -108,15 +108,15 @@
 ;; -----------------------------------------------------------------------------
 
 (defrecord Connection
-    [^ReadableByteChannel read-channel
-     ^WritableByteChannel write-channel
-     ^OutputStream output-stream   ; Keep reference for flushing
-     state-atom                    ; atom owned by client, contains :connection key
-     incoming-ch                   ; channel for incoming messages (responses + notifications)
-     outgoing-ch                   ; channel for outgoing messages
-     notification-queue            ; queue for notifications to avoid blocking reader
-     notification-thread           ; Thread
-     read-thread])                 ; Thread
+           [^ReadableByteChannel read-channel
+            ^WritableByteChannel write-channel
+            ^OutputStream output-stream   ; Keep reference for flushing
+            state-atom                    ; atom owned by client, contains :connection key
+            incoming-ch                   ; channel for incoming messages (responses + notifications)
+            outgoing-ch                   ; channel for outgoing messages
+            notification-queue            ; queue for notifications to avoid blocking reader
+            notification-thread           ; Thread
+            read-thread])                 ; Thread
 
 ;; State path helpers
 (defn- conn-state [state-atom] (get @state-atom :connection))
@@ -140,7 +140,7 @@
           (deliver promise {:error error}))
         (do
           (log/debug "Response success for id=" id)
-        (deliver promise {:result (:result msg)}))))))
+          (deliver promise {:result (:result msg)}))))))
 
 (defn- handle-request!
   "Handle an incoming request message (e.g., tool.call). Sends response via outgoing-ch."
@@ -165,9 +165,9 @@
         (catch Exception e
           (log/error "Request handler exception: " (ex-message e))
           (>! outgoing-ch {:jsonrpc "2.0"
-                          :id id
-                          :error {:code -32603
-                                  :message (str "Internal error: " (ex-message e))}}))))))
+                           :id id
+                           :error {:code -32603
+                                   :message (str "Internal error: " (ex-message e))}}))))))
 
 (defn- normalize-incoming
   "Convert wire-format keys to Clojure keys, preserving tool.call arguments."
@@ -181,25 +181,25 @@
 
 (defn- dispatch-message!
   "Route incoming message to appropriate handler."
-   [conn msg]
+  [conn msg]
   (let [{:keys [state-atom incoming-ch outgoing-ch]} conn
         normalized (normalize-incoming msg)]
     (cond
       ;; Response (has id, no method) - deliver to pending promise
       (and (:id normalized) (not (:method normalized)))
       (handle-response! state-atom normalized)
-      
+
       ;; Request (has id and method) - handle and respond
       (and (:id normalized) (:method normalized))
       (handle-request! state-atom outgoing-ch normalized)
-      
+
       ;; Notification (has method, no id) - put to incoming-ch for routing
       (:method normalized)
       (do
         (log/debug "Received notification: method=" (:method normalized))
         (when-not (.offer ^LinkedBlockingQueue (:notification-queue conn) normalized)
           (log/debug "Dropping notification due to full queue")))
-      
+
       :else nil)))
 
 ;; -----------------------------------------------------------------------------
@@ -233,7 +233,7 @@
          (catch AsynchronousCloseException _
            (log/debug "Read loop: channel closed asynchronously"))
          (catch ClosedChannelException _
-            (log/debug "Read loop: channel already closed"))
+           (log/debug "Read loop: channel already closed"))
          (catch IOException e
            ;; "Pipe closed" is normal during shutdown when other end closes
            (if (= "Pipe closed" (ex-message e))
@@ -259,32 +259,32 @@
   (let [{:keys [write-channel output-stream outgoing-ch state-atom]} conn
         write-queue (java.util.concurrent.LinkedBlockingQueue.)
         writer-thread (Thread.
-                        (fn []
-                          (try
-                            (while (:running? (conn-state state-atom))
-                              (when-let [msg (.poll write-queue 100 java.util.concurrent.TimeUnit/MILLISECONDS)]
-                                (when (and (:running? (conn-state state-atom)) (.isOpen write-channel))
-                                  (try
-                                    (when (and (:id msg)
-                                               (not (:method msg))
-                                               (map? (:result msg))
-                                               (or (contains? (:result msg) :kind)
-                                                   (and (map? (:result (:result msg)))
-                                                        (contains? (:result (:result msg)) :kind))))
-                                      (log/debug "Sending permission response: " (json/generate-string msg)))
-                                    (log/debug "Writing message: " (if (:id msg) (str "id=" (:id msg)) "notification"))
-                                    (write-message! write-channel msg)
-                                    (.flush output-stream)
-                                    (log/debug "Message written and flushed")
-                                    (catch java.nio.channels.ClosedChannelException _
-                                      (log/debug "Write channel closed"))
-                                    (catch java.io.IOException _
-                                      (log/debug "Write stream closed"))
-                                    (catch Exception e
-                                      (when (:running? (conn-state state-atom))
-                                        (log/error "Write error: " (ex-message e))))))))
-                            (catch InterruptedException _
-                              (log/debug "Writer thread interrupted")))))]
+                       (fn []
+                         (try
+                           (while (:running? (conn-state state-atom))
+                             (when-let [msg (.poll write-queue 100 java.util.concurrent.TimeUnit/MILLISECONDS)]
+                               (when (and (:running? (conn-state state-atom)) (.isOpen write-channel))
+                                 (try
+                                   (when (and (:id msg)
+                                              (not (:method msg))
+                                              (map? (:result msg))
+                                              (or (contains? (:result msg) :kind)
+                                                  (and (map? (:result (:result msg)))
+                                                       (contains? (:result (:result msg)) :kind))))
+                                     (log/debug "Sending permission response: " (json/generate-string msg)))
+                                   (log/debug "Writing message: " (if (:id msg) (str "id=" (:id msg)) "notification"))
+                                   (write-message! write-channel msg)
+                                   (.flush output-stream)
+                                   (log/debug "Message written and flushed")
+                                   (catch java.nio.channels.ClosedChannelException _
+                                     (log/debug "Write channel closed"))
+                                   (catch java.io.IOException _
+                                     (log/debug "Write stream closed"))
+                                   (catch Exception e
+                                     (when (:running? (conn-state state-atom))
+                                       (log/error "Write error: " (ex-message e))))))))
+                           (catch InterruptedException _
+                             (log/debug "Writer thread interrupted")))))]
     (.setDaemon writer-thread true)
     (.setName writer-thread "jsonrpc-nio-writer")
     (.start writer-thread)
@@ -316,7 +316,7 @@
    state-atom: atom containing :connection key with connection state
    
    Returns a Connection record."
-   [^InputStream in ^OutputStream out state-atom]
+  [^InputStream in ^OutputStream out state-atom]
   (log/debug "Creating JSON-RPC connection with NIO channels")
   (let [read-ch (Channels/newChannel in)
         write-ch (Channels/newChannel out)
@@ -334,20 +334,20 @@
                :notification-queue notification-queue
                :notification-thread nil
                :read-thread nil})]
-    
+
     ;; Start writer loop
     (start-write-loop! conn)
-    
+
     ;; Start notification dispatcher thread
     (let [thread (Thread.
                   (fn []
                     (log/debug "Notification dispatcher started")
-                     (try
-                       (loop []
-                         (when (:running? (conn-state state-atom))
-                           (when-let [msg (.poll notification-queue 100 TimeUnit/MILLISECONDS)]
-                             (>!! incoming-ch msg))
-                           (recur)))
+                    (try
+                      (loop []
+                        (when (:running? (conn-state state-atom))
+                          (when-let [msg (.poll notification-queue 100 TimeUnit/MILLISECONDS)]
+                            (>!! incoming-ch msg))
+                          (recur)))
                       (catch InterruptedException _
                         (log/debug "Notification dispatcher interrupted"))
                       (catch Exception e
@@ -358,7 +358,7 @@
       (.setName thread "jsonrpc-notification-dispatcher")
       (.start thread)
       (update-conn! state-atom assoc :notification-thread thread))
-    
+
     ;; Start reader thread
     (let [thread (start-read-loop! conn)]
       (.setDaemon thread true)
@@ -375,15 +375,15 @@
   (let [state-atom (:state-atom conn)]
     ;; Signal loops to stop
     (update-conn! state-atom assoc :running? false)
-    
+
     ;; Close outgoing channel first to stop write go-loop
     (close! (:outgoing-ch conn))
-    
+
     ;; Interrupt writer thread if it exists
     (when-let [^Thread writer (:writer-thread (conn-state state-atom))]
       (.interrupt writer)
       (try (.join writer 500) (catch Exception _)))
-    
+
     ;; Interrupt notification dispatcher thread
     (when-let [^Thread thread (:notification-thread (conn-state state-atom))]
       (.interrupt thread)
@@ -392,13 +392,13 @@
     ;; Close NIO channels - this unblocks any blocked reads
     (try (.close ^ReadableByteChannel (:read-channel conn)) (catch Exception _))
     (try (.close ^WritableByteChannel (:write-channel conn)) (catch Exception _))
-    
+
     ;; Wait for read thread to exit
     (when-let [^Thread thread (:read-thread conn)]
       (try
         (.join thread 1000)
         (catch Exception _)))
-    
+
     (log/debug "JSON-RPC connection closed")))
 
 (defn send-request
@@ -443,11 +443,11 @@
        (do
          (remove-pending-by-promise! state-atom p)
          (throw (ex-info "Request timeout" {:method method :timeout-ms timeout-ms})))
-       
+
        (:error result)
        (throw (ex-info (get-in result [:error :message] "RPC error")
                        {:error (:error result) :method method}))
-       
+
        :else
        (:result result)))))
 

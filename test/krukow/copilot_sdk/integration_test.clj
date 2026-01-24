@@ -137,7 +137,7 @@
 (deftest test-create-session
   (testing "Create new session"
     (let [session (sdk/create-session *test-client*
-                                       {:model "gpt-4"})]
+                                      {:model "gpt-4"})]
       (is (some? session))
       (is (string? (sdk/session-id session)))
       (is (clojure.string/starts-with? (sdk/session-id session) "session-")))))
@@ -369,11 +369,11 @@
 (deftest test-tool-registration
   (testing "Register tool handler"
     (let [session (sdk/create-session *test-client*
-                                       {:tools [(sdk/define-tool "test_tool"
-                                                  {:description "A test tool"
-                                                   :parameters {:type "object"
-                                                                :properties {"value" {:type "string"}}}})]
-                                        :on-tool-call (fn [_] "result")})]
+                                      {:tools [(sdk/define-tool "test_tool"
+                                                 {:description "A test tool"
+                                                  :parameters {:type "object"
+                                                               :properties {"value" {:type "string"}}}})]
+                                       :on-tool-call (fn [_] "result")})]
       (is (some? session)))))
 
 (deftest test-tool-call-response-shape
@@ -501,7 +501,7 @@
 (deftest test-resume-nonexistent-session
   (testing "Resume nonexistent session throws error"
     (is (thrown-with-msg? Exception #"Session not found"
-          (sdk/resume-session *test-client* "nonexistent-session-id" {})))))
+                          (sdk/resume-session *test-client* "nonexistent-session-id" {})))))
 
 (deftest test-tool-handler-errors
   (testing "Tool handler that throws returns failure result"
@@ -512,7 +512,7 @@
                         :handler (fn [_ _]
                                    (throw (ex-info "Tool error" {:cause "test"})))})
           session (sdk/create-session *test-client*
-                                       {:tools [error-tool]})]
+                                      {:tools [error-tool]})]
       ;; Session should still be usable after tool error
       (is (some? session)))))
 
@@ -523,16 +523,16 @@
 (deftest test-session-with-append-system-message
   (testing "Create session with appended system message"
     (let [session (sdk/create-session *test-client*
-                                       {:system-message {:mode :append
-                                                         :content "Always end with 'DONE'"}})]
+                                      {:system-message {:mode :append
+                                                        :content "Always end with 'DONE'"}})]
       (is (some? session))
       (is (string? (sdk/session-id session))))))
 
 (deftest test-session-with-replace-system-message
   (testing "Create session with replaced system message"
     (let [session (sdk/create-session *test-client*
-                                       {:system-message {:mode :replace
-                                                         :content "You are a test assistant."}})]
+                                      {:system-message {:mode :replace
+                                                        :content "You are a test assistant."}})]
       (is (some? session))
       (is (string? (sdk/session-id session))))))
 
@@ -543,7 +543,7 @@
 (deftest test-session-with-streaming
   (testing "Create session with streaming enabled"
     (let [session (sdk/create-session *test-client*
-                                       {:streaming? true})]
+                                      {:streaming? true})]
       (is (some? session))
       ;; Should still work normally
       (let [result (sdk/send-and-wait! session {:prompt "Test"})]

@@ -50,21 +50,21 @@
         (json/parse-string content true)))))
 
 (defrecord MockServer
-    [;; Pipes for communication
-     client-in          ; PipedInputStream - client reads from this
-     client-out         ; PipedOutputStream - client writes to this  
-     server-in          ; PipedInputStream - server reads from this (connected to client-out)
-     server-out         ; PipedOutputStream - server writes to this (connected to client-in)
+           [;; Pipes for communication
+            client-in          ; PipedInputStream - client reads from this
+            client-out         ; PipedOutputStream - client writes to this  
+            server-in          ; PipedInputStream - server reads from this (connected to client-out)
+            server-out         ; PipedOutputStream - server writes to this (connected to client-in)
      ;; Server I/O
-     reader             ; BufferedReader for server
-     writer             ; BufferedWriter for server
+            reader             ; BufferedReader for server
+            writer             ; BufferedWriter for server
      ;; State
-     running?           ; atom boolean
-     sessions           ; atom {session-id -> session-state}
-     message-id         ; AtomicLong for generating IDs
+            running?           ; atom boolean
+            sessions           ; atom {session-id -> session-state}
+            message-id         ; AtomicLong for generating IDs
      ;; Hooks for testing
-     on-request         ; atom fn - called for each request
-     pending-events])   ; atom - events to send on next opportunity
+            on-request         ; atom fn - called for each request
+            pending-events])   ; atom - events to send on next opportunity
 
 (defn- generate-id [^AtomicLong counter]
   (str "evt-" (.incrementAndGet counter)))
