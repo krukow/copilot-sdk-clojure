@@ -14,6 +14,12 @@
   test:all {:doc "Run the test suite with both Clojure and Babashka."
             :depends [test test:bb]}
 
+  fmt {:doc "Format all Clojure files."
+       :task (clojure "-M:fmt" "fix" "src" "test" "examples")}
+
+  fmt:check {:doc "Check formatting without modifying files."
+             :task (clojure "-M:fmt" "check" "src" "test" "examples")}
+
   docs {:doc "Generate API documentation with codox."
         :task (clojure "-X:codox")}
 
