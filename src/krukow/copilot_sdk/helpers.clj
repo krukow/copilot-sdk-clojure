@@ -134,6 +134,16 @@
       skill-directories (assoc :skill-directories skill-directories)
       disabled-skills (assoc :disabled-skills disabled-skills))))
 
+(defn- client-instance?
+  "Check if x is a CopilotClient instance (has :state atom)."
+  [x]
+  (and (map? x) (contains? x :state) (instance? clojure.lang.Atom (:state x))))
+
+(defn- session-instance?
+  "Check if x is a CopilotSession instance (has :session-id and :client)."
+  [x]
+  (and (record? x) (contains? x :session-id) (contains? x :client)))
+
 ;; =============================================================================
 ;; Public API
 ;; =============================================================================
@@ -157,56 +167,64 @@
     {:client-opts client-opts
      :connected? (= :connected (copilot/state client))}))
 
-(defn query-with-client
-  "Execute a one-shot query using an existing client.
-
-   Like `query` but uses the provided client instead of the shared one.
-   Useful when you need multiple queries to share a client lifecycle.
-
-   Arguments:
-     client - An existing CopilotClient
-     prompt - The prompt string to send
-
-   Keyword options:
-     :session - Session options map (model, system-prompt, tools, streaming?, etc.)
-     :timeout-ms - Timeout in milliseconds (default: 180000)
-
-   Returns the assistant's response text as a string."
-  [client prompt & {:keys [session timeout-ms] :or {timeout-ms 180000}}]
-  (copilot/with-session [sess client (build-session-config session)]
-    (-> (copilot/send-and-wait! sess {:prompt prompt} timeout-ms)
-        (get-in [:data :content]))))
-
 (defn query
-  "Execute a one-shot query and return the response text.
-   
-   This is a blocking call that creates a fresh session, sends the prompt,
-   waits for the response, and cleans up the session.
-   
+  "Execute a query and return the response text.
+
    Arguments:
      prompt - The prompt string to send
-   
+
    Keyword options:
-     :client - Client options map (cli-path, log-level, cwd, env)
-     :session - Session options map (model, tools, streaming?, etc.)
+     :client - Client options map OR a CopilotClient instance
+     :session - Session options map OR a CopilotSession instance
      :timeout-ms - Timeout in milliseconds (default: 180000)
-   
+
+   When :session is a CopilotSession instance, the query uses that session
+   directly (enabling multi-turn conversations). Otherwise creates a fresh session.
+
+   When :client is a CopilotClient instance, uses it directly.
+   When :client is a map, uses/creates a shared client with those options.
+
    Returns the assistant's response text as a string.
-   
+
    Examples:
+     ;; Simple query (shared client, fresh session)
      (query \"What is 2+2?\")
+
+     ;; With session options
      (query \"Explain monads\" :session {:model \"claude-sonnet-4.5\"})
-     (query \"Hello\" :client {:log-level :debug} :session {:model \"gpt-5.2\"})
+
+     ;; With explicit client
+     (copilot/with-client [c {}]
+       (query \"Hello\" :client c))
+
+     ;; With explicit session (multi-turn)
+     (copilot/with-session [s client {:model \"gpt-5.2\"}]
+       (query \"What is 2+2?\" :session s)
+       (query \"And 3+3?\" :session s))  ;; context preserved
    "
   [prompt & {:keys [client session timeout-ms] :or {timeout-ms 180000}}]
-  (let [c (ensure-client! client)
-        session-config (build-session-config session)
-        sess (copilot/create-session c session-config)]
-    (try
-      (let [response (copilot/send-and-wait! sess {:prompt prompt} timeout-ms)]
-        (get-in response [:data :content]))
-      (finally
-        (copilot/destroy! sess)))))
+  (cond
+    ;; Session instance provided - use directly
+    (session-instance? session)
+    (-> (copilot/send-and-wait! session {:prompt prompt} timeout-ms)
+        (get-in [:data :content]))
+
+    ;; Client instance provided - create temp session
+    (client-instance? client)
+    (copilot/with-session [sess client (build-session-config session)]
+      (-> (copilot/send-and-wait! sess {:prompt prompt} timeout-ms)
+          (get-in [:data :content])))
+
+    ;; Default - use shared client
+    :else
+    (let [c (ensure-client! client)
+          session-config (build-session-config session)
+          sess (copilot/create-session c session-config)]
+      (try
+        (let [response (copilot/send-and-wait! sess {:prompt prompt} timeout-ms)]
+          (get-in response [:data :content]))
+        (finally
+          (copilot/destroy! sess))))))
 
 (defn query-seq
   "Execute a query and return a lazy sequence of events.
