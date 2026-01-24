@@ -14,33 +14,35 @@ The helpers namespace provides simple, stateless query functions with automatic 
 (h/query prompt & {:keys [client session timeout-ms]})
 ```
 
-Execute a one-shot query and return the response text. Manages a shared client internally.
+Execute a query and return the response text.
 
 **Options:**
-- `:client` - Client options map (cli-path, log-level, cwd, env)
-- `:session` - Session options map (model, system-prompt, tools, streaming?, etc.)
+- `:client` - Client options map (cli-path, log-level, cwd, env) OR a CopilotClient instance
+- `:session` - Session options map (model, system-prompt, tools, etc.) OR a CopilotSession instance
 - `:timeout-ms` - Timeout in milliseconds (default: 180000)
 
+When `:session` is a CopilotSession instance, the query uses that session directly (enabling multi-turn conversations). When `:client` is a CopilotClient instance, it uses that client directly.
+
 ```clojure
+;; Simple query (shared client, fresh session)
 (h/query "What is 2+2?")
 ;; => "4"
 
+;; With session options
 (h/query "Explain monads" :session {:model "claude-sonnet-4.5"})
 
+;; With system prompt
 (h/query "Hello" :session {:system-prompt "Be concise."})
-```
 
-### `query-with-client`
-
-```clojure
-(h/query-with-client client prompt & {:keys [session timeout-ms]})
-```
-
-Execute a one-shot query using an existing client. Useful for multi-agent patterns where queries need to share a client lifecycle.
-
-```clojure
+;; With explicit client
 (copilot/with-client [client {}]
-  (h/query-with-client client "What is Clojure?" :session {:system-prompt "Be brief."}))
+  (h/query "What is Clojure?" :client client))
+
+;; With explicit session (multi-turn conversation)
+(copilot/with-client [client {}]
+  (copilot/with-session [session client {}]
+    (h/query "My name is Alice." :session session)
+    (h/query "What is my name?" :session session))) ;; context preserved!
 ```
 
 ### `query-seq`
