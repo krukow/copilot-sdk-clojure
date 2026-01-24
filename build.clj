@@ -9,7 +9,7 @@
 
 (def lib 'io.github.krukow/copilot-sdk)
 (def clojars-lib 'net.clojars.krukow/copilot-sdk)
-(def version "0.1.4-SNAPSHOT")
+(def version "0.1.5-SNAPSHOT")
 (def class-dir "target/classes")
 (def aot-namespaces ['krukow.copilot-sdk.java-api])
 
@@ -229,3 +229,43 @@
     (when (= readme updated) (throw (ex-info "Pattern not found in README.md" {})))
     (spit "README.md" updated)
     (println "Updated README.md SHA to" sha)))
+
+(defn bump-version
+  "Bump the version number. 
+   Usage: clj -T:build bump-version              ; 0.1.4 -> 0.1.5-SNAPSHOT (default)
+          clj -T:build bump-version :type :minor ; 0.1.4 -> 0.2.0-SNAPSHOT
+          clj -T:build bump-version :type :major ; 0.1.4 -> 1.0.0-SNAPSHOT
+          clj -T:build bump-version :version '\"0.2.0\"'  ; explicit version
+          clj -T:build bump-version :snapshot false      ; release (no -SNAPSHOT)"
+  [{:keys [type version snapshot] :or {type :patch snapshot true}}]
+  (let [current-version (re-find #"^[\d.]+" build/version)
+        [major minor patch] (map parse-long (str/split current-version #"\."))
+        new-base (cond
+                   version version
+                   (= type :major) (format "%d.0.0" (inc major))
+                   (= type :minor) (format "%d.%d.0" major (inc minor))
+                   (= type :patch) (format "%d.%d.%d" major minor (inc patch))
+                   :else (throw (ex-info "Specify :type (:major, :minor, :patch) or :version" {})))
+        new-version (if snapshot (str new-base "-SNAPSHOT") new-base)
+        build-clj (slurp "build.clj")
+        updated (str/replace build-clj
+                             #"\(def version \"[^\"]+\"\)"
+                             (str "(def version \"" new-version "\")"))]
+    (when (= build-clj updated)
+      (throw (ex-info "Failed to update version in build.clj" {})))
+    (spit "build.clj" updated)
+    ;; Update README.md version
+    (let [readme (slurp "README.md")
+          updated-readme (-> readme
+                             (str/replace #"\{:mvn/version \"[^\"]+\"\}"
+                                          (str "{:mvn/version \"" new-version "\"}")))]
+      (spit "README.md" updated-readme))
+    ;; Update examples/java/pom.xml version
+    (let [pom (slurp "examples/java/pom.xml")
+          updated-pom (str/replace pom
+                                   #"<copilot-sdk\.version>[^<]+</copilot-sdk\.version>"
+                                   (str "<copilot-sdk.version>" new-version "</copilot-sdk.version>"))]
+      (spit "examples/java/pom.xml" updated-pom))
+    (println (str "Bumped version: " build/version " -> " new-version))
+    (println "Updated: build.clj, README.md, examples/java/pom.xml")
+    new-version))
