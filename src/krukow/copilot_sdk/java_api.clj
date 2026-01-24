@@ -225,15 +225,15 @@
            [cliUrl [String] Object]
            [cwd [String] Object]
            [port [int] Object]
-            [useStdio [boolean] Object]
-            [logLevel [String] Object]
-            [autoStart [boolean] Object]
-            [autoRestart [boolean] Object]
-            [notificationQueueSize [int] Object]
-            [routerQueueSize [int] Object]
-            [toolTimeoutMs [int] Object]
-            [env [java.util.Map] Object]
-            [build [] krukow.copilot_sdk.ClientOptions]])
+           [useStdio [boolean] Object]
+           [logLevel [String] Object]
+           [autoStart [boolean] Object]
+           [autoRestart [boolean] Object]
+           [notificationQueueSize [int] Object]
+           [routerQueueSize [int] Object]
+           [toolTimeoutMs [int] Object]
+           [env [java.util.Map] Object]
+           [build [] krukow.copilot_sdk.ClientOptions]])
 
 (defn client-builder-init-client-builder [] [[] (atom {})])
 (defn client-builder-cliPath [this v] (swap! (.state this) assoc "cli-path" v) this)
@@ -475,10 +475,10 @@
                 (.complete future content)
                 :session.error
                 (.completeExceptionally future
-                  (ex-info "Session error" {:event (clj-event->java event)}))
+                                        (ex-info "Session error" {:event (clj-event->java event)}))
                 (recur content))
               (.completeExceptionally future
-                (ex-info "Event channel closed unexpectedly" {})))))
+                                      (ex-info "Event channel closed unexpectedly" {})))))
         future))
     (subscribeEvents [_]
       (let [ch (copilot/subscribe-events clj-session)]
