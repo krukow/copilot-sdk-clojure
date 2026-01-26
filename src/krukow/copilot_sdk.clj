@@ -408,6 +408,11 @@
   [session]
   (session/session-id session))
 
+(defn workspace-path
+  "Get the session workspace path when provided by the CLI."
+  [session]
+  (session/workspace-path session))
+
 ;; =============================================================================
 ;; Tool Helpers
 ;; =============================================================================

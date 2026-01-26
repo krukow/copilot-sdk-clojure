@@ -631,12 +631,14 @@
                   wire-infinite-sessions (assoc :infinite-sessions wire-infinite-sessions))
          result (proto/send-request! connection-io "session.create" params)
          session-id (:session-id result)
+         workspace-path (:workspace-path result)
          ;; Session state is stored by session/create-session in client's atom
          session (session/create-session client session-id
                                          {:tools (:tools config)
-                                          :on-permission-request (:on-permission-request config)})]
-     (log/info "Session created: " session-id)
-     session)))
+                                          :on-permission-request (:on-permission-request config)
+                                          :workspace-path workspace-path})]
+      (log/info "Session created: " session-id)
+      session)))
 
 (defn resume-session
   "Resume an existing session by ID.
@@ -686,11 +688,13 @@
                   (:disabled-skills config) (assoc :disabled-skills (:disabled-skills config)))
          result (proto/send-request! connection-io "session.resume" params)
          resumed-id (:session-id result)
+         workspace-path (:workspace-path result)
          ;; Session state is stored by session/create-session in client's atom
          session (session/create-session client resumed-id
                                          {:tools (:tools config)
-                                          :on-permission-request (:on-permission-request config)})]
-     session)))
+                                          :on-permission-request (:on-permission-request config)
+                                          :workspace-path workspace-path})]
+      session)))
 
 (defn list-sessions
   "List all available sessions.

@@ -5,6 +5,7 @@ import krukow.copilot_sdk.SessionOptions;
 import krukow.copilot_sdk.SessionOptionsBuilder;
 import krukow.copilot_sdk.ICopilotClient;
 import krukow.copilot_sdk.ICopilotSession;
+import java.util.Map;
 
 /**
  * Multi-turn conversation example demonstrating session-based chat.
@@ -27,11 +28,21 @@ public class ConversationJavaExample {
             // Create session
             SessionOptionsBuilder sessionBuilder = new SessionOptionsBuilder();
             sessionBuilder.model("gpt-5.2");
+            sessionBuilder.infiniteSessions(Map.of(
+                "enabled", true,
+                "background-compaction-threshold", 0.80,
+                "buffer-exhaustion-threshold", 0.95
+            ));
             SessionOptions sessionOpts = (SessionOptions) sessionBuilder.build();
             
             ICopilotSession session = client.createSession(sessionOpts);
             
             try {
+                String workspacePath = session.getWorkspacePath();
+                if (workspacePath != null) {
+                    System.out.println("Workspace: " + workspacePath);
+                }
+
                 // First question
                 String q1 = "What is the capital of France? Answer in one sentence.";
                 System.out.println("Q1: " + q1);

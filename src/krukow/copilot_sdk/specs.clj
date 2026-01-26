@@ -9,6 +9,7 @@
 (s/def ::non-blank-string (s/and string? (complement clojure.string/blank?)))
 (s/def ::timestamp string?)
 (s/def ::session-id ::non-blank-string)
+(s/def ::workspace-path (s/nilable ::non-blank-string))
 (s/def ::instant #(instance? java.time.Instant %))
 
 ;; -----------------------------------------------------------------------------
@@ -328,7 +329,8 @@
 ;; -----------------------------------------------------------------------------
 
 (s/def ::session
-  (s/keys :req-un [::session-id ::client]))
+  (s/keys :req-un [::session-id ::client]
+          :opt-un [::workspace-path]))
 
 ;; -----------------------------------------------------------------------------
 ;; API response specs

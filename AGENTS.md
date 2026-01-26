@@ -25,6 +25,7 @@ When porting features or investigating behavior:
 
 1. **Primary reference**: [nodejs implementation](https://github.com/github/copilot-sdk/tree/main/nodejs) (JavaScript/TypeScript)
 2. **Secondary reference**: [python implementation](https://github.com/github/copilot-sdk/tree/main/python) for additional clarity
+3. **Local upstream checkout**: The upstream repo is available at `../copilot-sdk` (relative to this repo).
 
 ## Syncing with Upstream
 
@@ -155,7 +156,7 @@ This project emphasizes **rigor and correctness**, particularly for:
 src/krukow/copilot_sdk/
 ├── client.clj       # Main client API (create-client, create-session, etc.)
 ├── session.clj      # Session operations (send!, send-and-wait!, etc.)
-├── helpers.clj      # Convenience functions (query, query-seq, etc.)
+├── helpers.clj      # Convenience functions (query, query-seq!, query-chan, etc.)
 ├── specs.clj        # clojure.spec definitions
 ├── instrument.clj   # Function specs and instrumentation
 ├── java_api.clj     # Java interop classes

@@ -2,7 +2,7 @@
   "CopilotSession - session operations using centralized client state.
    
    All session state is stored in the client's :state atom under:
-   - [:sessions session-id] -> {:tool-handlers {} :permission-handler nil :destroyed? false}
+   - [:sessions session-id] -> {:tool-handlers {} :permission-handler nil :destroyed? false :workspace-path nil}
    - [:session-io session-id] -> {:event-chan :event-mult}
    
    Functions take client + session-id, accessing state through the client."
@@ -38,6 +38,7 @@
 
 (defrecord CopilotSession
            [session-id
+            workspace-path
             client])     ; reference to owning client
 
 ;; -----------------------------------------------------------------------------
@@ -47,7 +48,7 @@
 (defn create-session
   "Create a new session. Internal use - called by client.
    Initializes session state in client's atom and returns a CopilotSession handle."
-  [client session-id {:keys [tools on-permission-request]}]
+  [client session-id {:keys [tools on-permission-request workspace-path]}]
   (log/debug "Creating session: " session-id)
   (let [event-chan (chan (async/sliding-buffer 4096))
         event-mult (mult event-chan)
@@ -57,17 +58,18 @@
     (swap! (:state client)
            (fn [state]
              (-> state
-                 (assoc-in [:sessions session-id]
-                           {:tool-handlers tool-handlers
-                            :permission-handler on-permission-request
-                            :destroyed? false})
+                  (assoc-in [:sessions session-id]
+                            {:tool-handlers tool-handlers
+                             :permission-handler on-permission-request
+                             :destroyed? false
+                             :workspace-path workspace-path})
                  (assoc-in [:session-io session-id]
                            {:event-chan event-chan
                             :event-mult event-mult
                             :send-lock send-lock}))))
     (log/debug "Session created: " session-id)
     ;; Return lightweight handle
-    (->CopilotSession session-id client)))
+    (->CopilotSession session-id workspace-path client)))
 
 (defn dispatch-event!
   "Dispatch an event to all subscribers via the mult. Called by client notification router.
@@ -176,9 +178,10 @@
                (do
                  (log/warn "Invalid permission response for session " session-id ": " result)
                  {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}})))
-           (catch Exception _
-             {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}})))))
-   :io))
+            (catch Exception e
+              (log/error "Permission handler error for session " session-id ": " (ex-message e))
+              {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}})))))
+    :io))
 
 ;; -----------------------------------------------------------------------------
 ;; Public API - functions that take CopilotSession handle
@@ -533,3 +536,8 @@
   "Get the session ID."
   [session]
   (:session-id session))
+
+(defn workspace-path
+  "Get the session workspace path when provided by the CLI."
+  [session]
+  (:workspace-path session))

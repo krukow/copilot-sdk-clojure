@@ -35,6 +35,7 @@
 (gen-interface
  :name krukow.copilot_sdk.ICopilotSession
  :methods [[getSessionId [] String]
+           [getWorkspacePath [] String]
            [send [String] String]
            [sendAndWait [String long] String]
            [sendStreaming [String krukow.copilot_sdk.IEventHandler] void]
@@ -270,6 +271,7 @@
            [getConfigDir [] String]
            [getSkillDirectories [] java.util.List]
            [getDisabledSkills [] java.util.List]
+           [getInfiniteSessions [] java.util.Map]
            [toMap [] java.util.Map]])
 
 (defn session-opts-init-session-opts [opts] [[] opts])
@@ -282,6 +284,7 @@
 (defn session-opts-getConfigDir [this] (.get ^java.util.Map (.state this) "config-dir"))
 (defn session-opts-getSkillDirectories [this] (.get ^java.util.Map (.state this) "skill-directories"))
 (defn session-opts-getDisabledSkills [this] (.get ^java.util.Map (.state this) "disabled-skills"))
+(defn session-opts-getInfiniteSessions [this] (.get ^java.util.Map (.state this) "infinite-sessions"))
 (defn session-opts-toMap [this] (.state this))
 
 ;; =============================================================================
@@ -315,6 +318,7 @@
            [disabledSkills [java.util.List] Object]
            [disabledSkill [String] Object]
            [largeOutput [java.util.Map] Object]
+           [infiniteSessions [java.util.Map] Object]
            [build [] krukow.copilot_sdk.SessionOptions]])
 
 (defn session-builder-init-session-builder [] [[] (atom {})])
@@ -349,6 +353,7 @@
   (swap! (.state this) update "disabled-skills" (fn [lst] (let [l (or lst (java.util.ArrayList.))] (.add ^java.util.List l v) l)))
   this)
 (defn session-builder-largeOutput [this v] (swap! (.state this) assoc "large-output" v) this)
+(defn session-builder-infiniteSessions [this v] (swap! (.state this) assoc "infinite-sessions" v) this)
 (defn session-builder-build [this] (krukow.copilot_sdk.SessionOptions. (java.util.HashMap. @(.state this))))
 
 ;; =============================================================================
@@ -447,6 +452,7 @@
 (defn- wrap-session [clj-session]
   (reify krukow.copilot_sdk.ICopilotSession
     (getSessionId [_] (copilot/session-id clj-session))
+    (getWorkspacePath [_] (copilot/workspace-path clj-session))
     (send [_ prompt] (copilot/send! clj-session {:prompt prompt}))
     (sendAndWait [_ prompt timeout-ms]
       (let [response (copilot/send-and-wait! clj-session {:prompt prompt} timeout-ms)]

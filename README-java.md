@@ -165,6 +165,7 @@ Represents a conversation session with context preservation.
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `getSessionId()` | String | Session identifier |
+| `getWorkspacePath()` | String | Workspace path when provided by CLI (nullable) |
 | `send(prompt)` | String | Send message (fire-and-forget), returns message ID |
 | `sendAndWait(prompt, timeoutMs)` | String | Send and block until response |
 | `sendStreaming(prompt, handler)` | void | Send with callback for each event |
@@ -234,6 +235,11 @@ ClientOptions opts = (ClientOptions) cb.build();
 SessionOptionsBuilder sb = new SessionOptionsBuilder();
 sb.model("gpt-5.2");
 sb.systemPrompt("You are a helpful assistant.");
+sb.infiniteSessions(Map.of(
+    "enabled", true,
+    "background-compaction-threshold", 0.80,
+    "buffer-exhaustion-threshold", 0.95
+));
 SessionOptions opts = (SessionOptions) sb.build();
 ```
 
@@ -260,6 +266,32 @@ SessionOptions opts = (SessionOptions) sb.build();
 | `disabledSkill(name)` | String | Disable a skill |
 | `disabledSkills(list)` | List | Set disabled skills |
 | `largeOutput(config)` | Map | Large output handling config |
+| `infiniteSessions(config)` | Map | Infinite session config |
+
+### Workspace Path
+
+Sessions may include the CLI-reported workspace path:
+
+```java
+String workspacePath = session.getWorkspacePath();
+if (workspacePath != null) {
+    System.out.println("Workspace: " + workspacePath);
+}
+```
+
+### Infinite Sessions
+
+Configure compaction thresholds via `SessionOptionsBuilder`:
+
+```java
+SessionOptionsBuilder sb = new SessionOptionsBuilder();
+sb.model("gpt-5.2");
+sb.infiniteSessions(Map.of(
+    "enabled", true,
+    "background-compaction-threshold", 0.80,
+    "buffer-exhaustion-threshold", 0.95
+));
+```
 
 ## Async Patterns
 
