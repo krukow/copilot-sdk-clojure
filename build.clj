@@ -9,7 +9,7 @@
 
 (def lib 'io.github.krukow/copilot-sdk)
 (def clojars-lib 'net.clojars.krukow/copilot-sdk)
-(def version "0.1.5-SNAPSHOT")
+(def version "0.1.6-SNAPSHOT")
 (def class-dir "target/classes")
 (def aot-namespaces ['krukow.copilot-sdk.java-api])
 

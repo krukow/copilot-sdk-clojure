@@ -270,6 +270,49 @@
               (when (some? v)
                 (recur)))))))))
 
+(deftest test-<send!-returns-last-assistant-message
+  (testing "<send! returns the last assistant.message content, not the first"
+    (let [session (sdk/create-session *test-client* {})
+          session-id (sdk/session-id session)
+          client (:client session)]
+      ;; Bypass actual send to control event flow
+      (with-redefs [session/send! (fn [_ _] "msg-id")]
+        (let [result-ch (sdk/<send! session {:prompt "Test agentic flow"})]
+          ;; Simulate agentic flow: multiple assistant messages with tool calls between
+          ;; First assistant.message (often empty in agentic flows)
+          (session/dispatch-event! client session-id
+                                   {:type :assistant.message
+                                    :data {:content "" :message-id "msg-1"}})
+          ;; Tool execution
+          (session/dispatch-event! client session-id
+                                   {:type :tool.execution_start
+                                    :data {:tool-call-id "tc-1" :tool-name "view"}})
+          (session/dispatch-event! client session-id
+                                   {:type :tool.execution_complete
+                                    :data {:tool-call-id "tc-1" :success? true}})
+          ;; Second assistant.message (intermediate, may also be empty)
+          (session/dispatch-event! client session-id
+                                   {:type :assistant.message
+                                    :data {:content "Analyzing..." :message-id "msg-2"}})
+          ;; More tool execution
+          (session/dispatch-event! client session-id
+                                   {:type :tool.execution_start
+                                    :data {:tool-call-id "tc-2" :tool-name "grep"}})
+          (session/dispatch-event! client session-id
+                                   {:type :tool.execution_complete
+                                    :data {:tool-call-id "tc-2" :success? true}})
+          ;; Final assistant.message with actual content
+          (session/dispatch-event! client session-id
+                                   {:type :assistant.message
+                                    :data {:content "Here is the final answer with all the details." :message-id "msg-3"}})
+          ;; Session idle
+          (session/dispatch-event! client session-id {:type :session.idle :data {}})
+          
+          ;; Verify <send! returns the LAST message content, not the first empty one
+          (let [[result _] (alts!! [result-ch (timeout 2000)])]
+            (is (= "Here is the final answer with all the details." result)
+                "<send! should return the last assistant.message content, not the first")))))))
+
 ;; -----------------------------------------------------------------------------
 ;; Session Operations Tests
 ;; -----------------------------------------------------------------------------
