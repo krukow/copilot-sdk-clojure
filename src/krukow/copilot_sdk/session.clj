@@ -8,9 +8,11 @@
    Functions take client + session-id, accessing state through the client."
   (:require [clojure.core.async :as async :refer [go go-loop <! >! >!! <!! chan close! put! alts!! mult tap untap]]
             [clojure.core.async.impl.channels :as channels]
+            [clojure.spec.alpha :as s]
             [cheshire.core :as json]
             [krukow.copilot-sdk.protocol :as proto]
             [krukow.copilot-sdk.logging :as log]
+            [krukow.copilot-sdk.specs :as specs]
             [krukow.copilot-sdk.util :as util]))
 
 ;; -----------------------------------------------------------------------------
@@ -191,6 +193,10 @@
    - :attachments  - Vector of {:type :path :display-name}
    - :mode         - :enqueue (default) or :immediate"
   [session opts]
+  (when-not (s/valid? ::specs/send-options opts)
+    (throw (ex-info "Invalid send options"
+                    {:opts opts
+                     :explain (s/explain-data ::specs/send-options opts)})))
   (let [{:keys [session-id client]} session]
     (log/debug "send! called for session " session-id " with prompt: " (subs (str (:prompt opts)) 0 (min 50 (count (str (:prompt opts))))) "...")
     (when (:destroyed? (session-state client session-id))

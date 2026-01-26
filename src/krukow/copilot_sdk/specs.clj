@@ -40,9 +40,9 @@
 ;; -----------------------------------------------------------------------------
 
 (s/def ::tool-name ::non-blank-string)
-(s/def ::tool-description string?)
+(s/def ::tool-description (s/nilable string?))
 (s/def ::json-schema map?)
-(s/def ::tool-parameters ::json-schema)
+(s/def ::tool-parameters (s/nilable ::json-schema))
 (s/def ::tool-handler fn?)
 
 (s/def ::tool
@@ -57,11 +57,12 @@
 
 (s/def ::system-message-mode #{:append :replace})
 (s/def ::system-message-content string?)
-(s/def ::mode ::system-message-mode)
-(s/def ::content ::system-message-content)
 
+;; System message uses :mode and :content keys directly
 (s/def ::system-message
-  (s/keys :opt-un [::mode ::content]))
+  (s/and map?
+         #(if-let [m (:mode %)] (#{:append :replace} m) true)
+         #(if-let [c (:content %)] (string? c) true)))
 
 ;; -----------------------------------------------------------------------------
 ;; MCP Server configuration
@@ -328,3 +329,36 @@
 
 (s/def ::session
   (s/keys :req-un [::session-id ::client]))
+
+;; -----------------------------------------------------------------------------
+;; API response specs
+;; -----------------------------------------------------------------------------
+
+(s/def ::version string?)
+(s/def ::protocol-version int?)
+(s/def ::authenticated? boolean?)
+(s/def ::auth-type keyword?)
+(s/def ::host string?)
+(s/def ::login string?)
+(s/def ::status-message string?)
+
+;; Model info
+(s/def ::id string?)
+(s/def ::name string?)
+(s/def ::vendor string?)
+(s/def ::family string?)
+(s/def ::max-input-tokens int?)
+(s/def ::max-output-tokens int?)
+(s/def ::preview? boolean?)
+(s/def ::model-info
+  (s/keys :req-un [::id ::name]
+          :opt-un [::vendor ::family ::version ::max-input-tokens ::max-output-tokens
+                   ::preview? ::default-temperature ::model-picker-priority
+                   ::model-policy ::vision-limits]))
+
+;; Misc specs for instrument.clj
+(s/def ::message-id string?)
+(s/def ::events-ch any?)  ; core.async channel
+(s/def ::buffer pos-int?)
+(s/def ::xf fn?)
+(s/def ::max-events pos-int?)

@@ -372,8 +372,8 @@
                                       {:tools [(sdk/define-tool "test_tool"
                                                  {:description "A test tool"
                                                   :parameters {:type "object"
-                                                               :properties {"value" {:type "string"}}}})]
-                                       :on-tool-call (fn [_] "result")})]
+                                                               :properties {"value" {:type "string"}}}
+                                                  :handler (fn [_args _invocation] "result")})]})]
       (is (some? session)))))
 
 (deftest test-tool-call-response-shape
@@ -424,15 +424,17 @@
                                                         :mcp-url "https://mcp.test"
                                                         :mcp-tools ["*"]
                                                         :mcp-timeout 1000}}
-                                 :custom-agents [{:agent-id "agent-1"
-                                                  :display-name "Agent One"}]})
+                                 :custom-agents [{:agent-name "agent-1"
+                                                  :agent-prompt "You are agent 1"
+                                                  :agent-display-name "Agent One"}]})
           session-id (sdk/get-last-session-id *test-client*)
           _ (sdk/resume-session *test-client* session-id
                                 {:provider {:base-url "https://resume.test"}
                                  :mcp-servers {"srv-2" {:mcp-server-type :sse
                                                         :mcp-url "https://mcp.resume.test"
                                                         :mcp-tools ["*"]}}
-                                 :custom-agents [{:agent-id "agent-2"}]})
+                                 :custom-agents [{:agent-name "agent-2"
+                                                  :agent-prompt "You are agent 2"}]})
           create-params (get @seen "session.create")
           resume-params (get @seen "session.resume")]
       (is (= "https://example.test" (get-in create-params [:provider :baseUrl])))
@@ -441,13 +443,13 @@
       (is (= "https://mcp.test" (get-in create-params [:mcpServers :srv-1 :mcpUrl])))
       (is (= ["*"] (get-in create-params [:mcpServers :srv-1 :mcpTools])))
       (is (= 1000 (get-in create-params [:mcpServers :srv-1 :mcpTimeout])))
-      (is (= "agent-1" (get-in create-params [:customAgents 0 :agentId])))
-      (is (= "Agent One" (get-in create-params [:customAgents 0 :displayName])))
+      (is (= "agent-1" (get-in create-params [:customAgents 0 :agentName])))
+      (is (= "Agent One" (get-in create-params [:customAgents 0 :agentDisplayName])))
       (is (= "https://resume.test" (get-in resume-params [:provider :baseUrl])))
       (is (= "sse" (get-in resume-params [:mcpServers :srv-2 :mcpServerType])))
       (is (= "https://mcp.resume.test" (get-in resume-params [:mcpServers :srv-2 :mcpUrl])))
       (is (= ["*"] (get-in resume-params [:mcpServers :srv-2 :mcpTools])))
-      (is (= "agent-2" (get-in resume-params [:customAgents 0 :agentId]))))))
+      (is (= "agent-2" (get-in resume-params [:customAgents 0 :agentName]))))))
 
 ;; -----------------------------------------------------------------------------
 ;; Last Session ID Tests

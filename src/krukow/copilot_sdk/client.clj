@@ -580,6 +580,10 @@
    (create-session client {}))
   ([client config]
    (log/debug "Creating session with config: " (select-keys config [:model :session-id]))
+   (when-not (s/valid? ::specs/session-config config)
+     (throw (ex-info "Invalid session config"
+                     {:config config
+                      :explain (s/explain-data ::specs/session-config config)})))
    (ensure-connected! client)
    (let [{:keys [connection-io]} @(:state client)
          _ (when-let [servers (:mcp-servers config)]
@@ -651,6 +655,10 @@
   ([client session-id]
    (resume-session client session-id {}))
   ([client session-id config]
+   (when-not (s/valid? ::specs/resume-session-config config)
+     (throw (ex-info "Invalid resume session config"
+                     {:config config
+                      :explain (s/explain-data ::specs/resume-session-config config)})))
    (ensure-connected! client)
    (let [{:keys [connection-io]} @(:state client)
          _ (when-let [servers (:mcp-servers config)]
