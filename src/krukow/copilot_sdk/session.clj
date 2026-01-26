@@ -405,20 +405,18 @@
         events-ch (send-async session (assoc opts :timeout-ms timeout-ms))
         out-ch (chan (async/sliding-buffer 1))]
     (go
-      (loop [delivered? false]
+      (loop [last-content nil]
         (when-let [event (<! events-ch)]
           (cond
             (= :assistant.message (:type event))
-            (do
-              (when-not delivered?
-                (async/offer! out-ch (get-in event [:data :content])))
-              (recur true))
+            (recur (get-in event [:data :content]))
 
             (#{:session.idle :session.error} (:type event))
-            nil
+            (when last-content
+              (async/offer! out-ch last-content))
 
             :else
-            (recur delivered?))))
+            (recur last-content))))
       (close! out-ch))
     out-ch))
 
