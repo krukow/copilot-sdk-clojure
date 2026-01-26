@@ -178,3 +178,4 @@ All these must be updated as appropriate when making changes:
 - `doc/API.md` - Detailed API reference - read this to understand the current API design
 - `CHANGELOG.md` - Version history and changes
 - `README-java.md` - Java-specific documentation
+- `AGENTS.md` - update this file when significant changes happen (e.g.Project Structure)
