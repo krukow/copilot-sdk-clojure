@@ -10,12 +10,14 @@ This is a **Clojure port of the GitHub Copilot SDK**. The upstream repository is
 
 We do **NOT** blindly copy the upstream implementation. Instead, we create an idiomatic Clojure library that:
 
-- Leverages Clojure language features and idioms
+- Leverages Clojure language features and idioms (immutability, functional programming, state-mangement and
+   concurrency features)
 - Would be natural to integrate in Clojure projects
 - Would make sense to expert Clojure programmers
 - Uses Clojure libraries appropriately, particularly:
   - **core.async** for asynchronous operations
   - **clojure.spec** for data validation and documentation
+  - other high-quality libraries as needed.
 
 ### Upstream References
 
