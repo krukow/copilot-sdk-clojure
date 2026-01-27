@@ -9,7 +9,7 @@
 
 (def lib 'io.github.krukow/copilot-sdk)
 (def clojars-lib 'net.clojars.krukow/copilot-sdk)
-(def version "0.1.7-SNAPSHOT")
+(def version "0.1.8-SNAPSHOT")
 (def class-dir "target/classes")
 (def aot-namespaces ['krukow.copilot-sdk.java-api])
 
@@ -80,6 +80,26 @@
   (aot-jar opts)
   (b/install (jar-opts opts))
   opts)
+
+(defn compile-java-api
+  "AOT compile the Java API for REPL development.
+   After running this, start your REPL with the :dev alias,
+   then you can require krukow.copilot-sdk.java-api.
+
+   Usage: clj -T:build compile-java-api
+          clj -A:dev  # start REPL with AOT classes
+
+   The :dev alias in deps.edn already includes target/classes."
+  [_opts]
+  (let [basis (b/create-basis {})]
+    (println "AOT compiling Java API for REPL development...")
+    (b/compile-clj {:basis basis
+                    :ns-compile aot-namespaces
+                    :class-dir class-dir
+                    :compiler-options {:direct-linking true}})
+    (println "\nDone. To use in REPL:")
+    (println "  1. Start REPL with :dev alias: clj -A:dev")
+    (println "  2. (require 'krukow.copilot-sdk.java-api)")))
 
 (defn deploy "Deploy JAR to Clojars (net.clojars.krukow/copilot-sdk)." [opts]
   (aot-jar opts)

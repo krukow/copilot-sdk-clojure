@@ -1,4 +1,17 @@
 (ns krukow.copilot-sdk.java-api
+  "Java API for the Copilot SDK.
+
+   This namespace provides Java-friendly classes and interfaces for using
+   the Copilot SDK from Java code.
+
+   REPL Development:
+   This namespace uses gen-class and gen-interface which require AOT compilation.
+   To use in a REPL:
+   1. Run: clj -T:build compile-java-api
+   2. Add target/classes to your classpath (e.g., :extra-paths in deps.edn)
+   3. Then: (require 'krukow.copilot-sdk.java-api)
+
+   For production use, the published JAR includes AOT-compiled classes."
   (:require [clojure.core.async :as async]
             [clojure.walk :as walk]
             [krukow.copilot-sdk :as copilot]
