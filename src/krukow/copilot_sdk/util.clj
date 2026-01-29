@@ -49,10 +49,13 @@
 ;; -----------------------------------------------------------------------------
 
 (defn event-type->keyword
-  "Normalize event :type values to keywords.
-   Example: \"assistant.message_delta\" -> :assistant.message_delta."
+  "Normalize event :type values to namespaced keywords.
+   Example: \"assistant.message_delta\" -> :copilot/assistant.message_delta."
   [event-type]
   (cond
-    (keyword? event-type) event-type
-    (string? event-type) (keyword event-type)
+    (keyword? event-type)
+    (if (namespace event-type)
+      event-type
+      (keyword "copilot" (name event-type)))
+    (string? event-type) (keyword "copilot" event-type)
     :else event-type))

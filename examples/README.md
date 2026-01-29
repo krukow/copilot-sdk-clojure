@@ -53,6 +53,9 @@ clojure -A:examples -X config-skill-output/run
 
 # Permission handling
 clojure -A:examples -X permission-bash/run
+
+# Session state events monitoring
+clojure -A:examples -X session-events/run
 ```
 
 Or run all examples:
@@ -158,10 +161,10 @@ clojure -A:examples -X helpers-query/run-multi :questions '["What is Rust?" "Wha
 ;; Streaming with multimethod event handling
 (defmulti handle-event :type)
 (defmethod handle-event :default [_] nil)
-(defmethod handle-event :assistant.message_delta [{{:keys [delta-content]} :data}]
+(defmethod handle-event :copilot/assistant.message_delta [{{:keys [delta-content]} :data}]
   (print delta-content)
   (flush))
-(defmethod handle-event :assistant.message [_] (println))
+(defmethod handle-event :copilot/assistant.message [_] (println))
 
 (run! handle-event (h/query-seq! "Tell me a joke" :session {:streaming? true}))
 ```
@@ -300,7 +303,7 @@ clojure -A:examples -X multi-agent/run :topics '["AI safety" "machine learning" 
 **Concepts:** Streaming deltas, event handling, incremental output
 
 Demonstrates how to enable streaming and render assistant output incrementally as
-`:assistant.message_delta` events arrive, then print the final message on idle.
+`:copilot/assistant.message_delta` events arrive, then print the final message on idle.
 
 ### Usage
 
@@ -348,7 +351,74 @@ clojure -A:examples -X permission-bash/run
 
 ---
 
-## Example 8: Java Integration (`JavaExample.java`)
+## Example 8: Session Events Monitoring (`session_events.clj`)
+
+**Difficulty:** Intermediate  
+**Concepts:** Event handling, session lifecycle, state management
+
+Demonstrates how to monitor and handle session state events for debugging, logging, or building custom UIs.
+
+### What It Demonstrates
+
+- Monitoring session lifecycle events (start, resume, idle, error)
+- Tracking context management events (truncation, compaction)
+- Observing usage metrics (token counts, limits)
+- Handling `session.snapshot_rewind` events (state rollback)
+- Formatting events for human-readable display
+
+### Session State Events
+
+| Event | Description |
+|-------|-------------|
+| `session.start` | Session created (note: fires before you can subscribe) |
+| `session.resume` | Existing session resumed |
+| `session.idle` | Session ready for input |
+| `session.error` | Error occurred |
+| `session.usage_info` | Token usage metrics |
+| `session.truncation` | Context window truncated |
+| `session.compaction_start/complete` | Infinite sessions compaction |
+| `session.snapshot_rewind` | Session state rolled back |
+| `session.model_change` | Model switched |
+| `session.handoff` | Session handed off |
+
+### Usage
+
+```bash
+clojure -A:examples -X session-events/run
+clojure -A:examples -X session-events/run :prompt '"Explain recursion."'
+```
+
+### Code Walkthrough
+
+```clojure
+(require '[clojure.core.async :refer [chan tap go-loop <!]])
+(require '[krukow.copilot-sdk :as copilot])
+
+(def session-state-events
+  #{:copilot/session.idle :copilot/session.usage_info :copilot/session.error
+    :copilot/session.truncation :copilot/session.snapshot_rewind
+    :copilot/session.compaction_start :copilot/session.compaction_complete})
+
+(copilot/with-client-session [session {:streaming? true}]
+  (let [events-ch (chan 256)
+        done (promise)]
+    (tap (copilot/events session) events-ch)
+    (go-loop []
+      (when-let [event (<! events-ch)]
+        ;; Log session state events
+        (when (session-state-events (:type event))
+          (println "Session event:" (:type event) (:data event)))
+        ;; Handle completion
+        (when (= :copilot/session.idle (:type event))
+          (deliver done true))
+        (recur)))
+    (copilot/send! session {:prompt "Hello"})
+    @done))
+```
+
+---
+
+## Example 9: Java Integration (`JavaExample.java`)
 
 **Difficulty:** Intermediate  
 **Concepts:** Java interop, AOT compilation, static API
@@ -574,7 +644,7 @@ session.on((event) => {
 ```clojure
 ;; Using helpers with multimethod dispatch
 (defmulti handle-event :type)
-(defmethod handle-event :assistant.message [{{:keys [content]} :data}]
+(defmethod handle-event :copilot/assistant.message [{{:keys [content]} :data}]
   (println content))
 
 (run! handle-event (h/query-seq! "Hello" :session {:streaming? true}))

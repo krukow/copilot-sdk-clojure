@@ -55,7 +55,7 @@ Execute a query and return a bounded lazy sequence of events with guaranteed cle
 
 ```clojure
 (->> (h/query-seq! "Tell me a story" :session {:streaming? true})
-     (filter #(= :assistant.message_delta (:type %)))
+     (filter #(= :copilot/assistant.message_delta (:type %)))
      (map #(get-in % [:data :delta-content]))
      (run! print))
 ```
@@ -73,7 +73,7 @@ or want to stop reading early without leaking session resources.
 (let [ch (h/query-chan "Tell me a story" :session {:streaming? true})]
   (go-loop []
     (when-let [event (<! ch)]
-      (when (= :assistant.message_delta (:type event))
+      (when (= :copilot/assistant.message_delta (:type event))
         (print (get-in event [:data :delta-content])))
       (recur))))
 ```
@@ -394,7 +394,7 @@ Get the core.async `mult` for session events. Use `tap` to subscribe:
 
 ```clojure
 (copilot/events->chan session {:buffer 256
-                               :xf (filter #(= :assistant.message (:type %)))})
+                               :xf (filter #(= :copilot/assistant.message (:type %)))})
 ```
 
 Subscribe to session events with optional buffer size and transducer.
@@ -469,25 +469,76 @@ Get the client that owns this session.
 
 ## Event Types
 
-Sessions emit various events during processing:
+Sessions emit various events during processing. All event types are namespaced keywords prefixed with `copilot/`.
+
+### Exported Constants
+
+```clojure
+;; All event types
+copilot/event-types
+;; => #{:copilot/session.idle :copilot/assistant.message ...}
+
+;; Session lifecycle events
+copilot/session-events
+;; => #{:copilot/session.start :copilot/session.idle ...}
+
+;; Assistant response events  
+copilot/assistant-events
+;; => #{:copilot/assistant.message :copilot/assistant.message_delta ...}
+
+;; Tool execution events
+copilot/tool-events
+;; => #{:copilot/tool.execution_start :copilot/tool.execution_complete ...}
+```
+
+### Event Reference
 
 | Event Type | Description |
 |------------|-------------|
-| `:user.message` | User message added |
-| `:assistant.message` | Complete assistant response |
-| `:assistant.message_delta` | Streaming response chunk |
-| `:assistant.reasoning` | Model reasoning (if supported) |
-| `:assistant.reasoning_delta` | Streaming reasoning chunk |
-| `:tool.execution_start` | Tool execution started |
-| `:tool.execution_progress` | Tool execution progress update |
-| `:tool.execution_partial_result` | Tool execution partial result |
-| `:tool.execution_complete` | Tool execution completed |
-| `:session.idle` | Session finished processing |
-| `:session.compaction_start` | Context compaction started (infinite sessions) |
-| `:session.compaction_complete` | Context compaction completed (infinite sessions) |
+| `:copilot/session.start` | Session created |
+| `:copilot/session.resume` | Session resumed |
+| `:copilot/session.idle` | Session finished processing |
+| `:copilot/session.error` | Session error occurred |
+| `:copilot/session.usage_info` | Token usage information |
+| `:copilot/session.truncation` | Context window truncated |
+| `:copilot/session.snapshot_rewind` | Session state rolled back |
+| `:copilot/session.compaction_start` | Context compaction started (infinite sessions) |
+| `:copilot/session.compaction_complete` | Context compaction completed (infinite sessions) |
+| `:copilot/user.message` | User message added |
+| `:copilot/assistant.turn_start` | Assistant turn started |
+| `:copilot/assistant.message` | Complete assistant response |
+| `:copilot/assistant.message_delta` | Streaming response chunk |
+| `:copilot/assistant.reasoning` | Model reasoning (if supported) |
+| `:copilot/assistant.reasoning_delta` | Streaming reasoning chunk |
+| `:copilot/assistant.turn_end` | Assistant turn completed |
+| `:copilot/assistant.usage` | Token usage for this turn |
+| `:copilot/tool.execution_start` | Tool execution started |
+| `:copilot/tool.execution_progress` | Tool execution progress update |
+| `:copilot/tool.execution_partial_result` | Tool execution partial result |
+| `:copilot/tool.execution_complete` | Tool execution completed |
 
-Event `:type` values are keywords derived from the wire strings, e.g.
-`"assistant.message_delta"` becomes `:assistant.message_delta`.
+### Example: Handling Events
+
+```clojure
+(copilot/with-client-session [session {:streaming? true}]
+  (let [ch (chan 256)]
+    (tap (copilot/events session) ch)
+    (go-loop []
+      (when-let [event (<! ch)]
+        (case (:type event)
+          :copilot/assistant.message_delta
+          (print (get-in event [:data :delta-content]))
+          
+          :copilot/session.usage_info
+          (println "Tokens:" (get-in event [:data :current-tokens]))
+          
+          :copilot/session.idle
+          (println "\nDone!")
+          
+          nil)
+        (recur)))
+    (copilot/send! session {:prompt "Hello"})))
+```
 
 ---
 
@@ -505,7 +556,7 @@ Enable streaming to receive assistant response chunks as they're generated:
   (go-loop []
     (when-let [event (<! ch)]
       (case (:type event)
-        :assistant.message_delta
+        :copilot/assistant.message_delta
           ;; Streaming chunk - print incrementally
           (print (get-in event [:data :delta-content]))
 
@@ -519,7 +570,7 @@ Enable streaming to receive assistant response chunks as they're generated:
             (println "\n--- Final Reasoning ---")
             (println (get-in event [:data :content])))
 
-        :assistant.message
+        :copilot/assistant.message
           ;; Final complete message
           (println "\n--- Final ---")
           (println (get-in event [:data :content]))
@@ -531,10 +582,10 @@ Enable streaming to receive assistant response chunks as they're generated:
 ```
 
 When `:streaming? true`:
-- `:assistant.message_delta` events contain incremental text in `:delta-content`
+- `:copilot/assistant.message_delta` events contain incremental text in `:delta-content`
 - `:assistant.reasoning_delta` events contain incremental reasoning in `:delta-content` (model-dependent)
 - Accumulate delta values to build the full response progressively
-- The final `:assistant.message` event always contains the complete content
+- The final `:copilot/assistant.message` event always contains the complete content
 
 ---
 

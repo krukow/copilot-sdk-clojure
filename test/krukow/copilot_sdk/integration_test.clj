@@ -181,7 +181,7 @@
           result (sdk/send-and-wait! session {:prompt "Test message"})]
       ;; Returns the last assistant message event (map)
       (is (map? result))
-      (is (= :assistant.message (:type result)))
+      (is (= :copilot/assistant.message (:type result)))
       (is (string? (get-in result [:data :content]))))))
 
 (deftest test-send-and-wait-serializes
@@ -198,16 +198,16 @@
           (Thread/sleep 50)
           (is (= 1 @send-calls))
           (session/dispatch-event! client session-id
-                                   {:type :assistant.message
+                                   {:type :copilot/assistant.message
                                     :data {:content "first"}})
-          (session/dispatch-event! client session-id {:type :session.idle :data {}})
+          (session/dispatch-event! client session-id {:type :copilot/session.idle :data {}})
           (is (map? (deref first-f 1000 ::timeout)))
           (Thread/sleep 50)
           (is (= 2 @send-calls))
           (session/dispatch-event! client session-id
-                                   {:type :assistant.message
+                                   {:type :copilot/assistant.message
                                     :data {:content "second"}})
-          (session/dispatch-event! client session-id {:type :session.idle :data {}})
+          (session/dispatch-event! client session-id {:type :copilot/session.idle :data {}})
           (is (map? (deref second-f 1000 ::timeout))))))))
 
 (deftest test-send-async
@@ -224,7 +224,7 @@
       ;; Should have received events
       (is (pos? (count @events)))
       ;; Should include idle event
-      (is (some #(= :session.idle (:type %)) @events)))))
+      (is (some #(= :copilot/session.idle (:type %)) @events)))))
 
 (deftest test-send-async-with-id
   (testing "send-async-with-id returns message-id and matching events"
@@ -236,7 +236,7 @@
                         (let [[event _] (alts!! [events-ch (timeout 1000)])]
                           (cond
                             (nil? event) nil
-                            (and (= :assistant.message (:type event))
+                            (and (= :copilot/assistant.message (:type event))
                                  (= message-id (get-in event [:data :message-id])))
                             event
                             :else (recur (inc count))))))]
@@ -256,15 +256,15 @@
           (Thread/sleep 50)
           (is (= 1 @send-calls))
           (session/dispatch-event! client session-id
-                                   {:type :assistant.message
+                                   {:type :copilot/assistant.message
                                     :data {:content "first"}})
-          (session/dispatch-event! client session-id {:type :session.idle :data {}})
+          (session/dispatch-event! client session-id {:type :copilot/session.idle :data {}})
           (is (not= ::timeout (deref ch2-f 1000 ::timeout)))
           (is (= 2 @send-calls))
           (session/dispatch-event! client session-id
-                                   {:type :assistant.message
+                                   {:type :copilot/assistant.message
                                     :data {:content "second"}})
-          (session/dispatch-event! client session-id {:type :session.idle :data {}})
+          (session/dispatch-event! client session-id {:type :copilot/session.idle :data {}})
           (loop []
             (let [[v _] (alts!! [ch1 (timeout 1000)])]
               (when (some? v)
@@ -281,32 +281,32 @@
           ;; Simulate agentic flow: multiple assistant messages with tool calls between
           ;; First assistant.message (often empty in agentic flows)
           (session/dispatch-event! client session-id
-                                   {:type :assistant.message
+                                   {:type :copilot/assistant.message
                                     :data {:content "" :message-id "msg-1"}})
           ;; Tool execution
           (session/dispatch-event! client session-id
-                                   {:type :tool.execution_start
+                                   {:type :copilot/tool.execution_start
                                     :data {:tool-call-id "tc-1" :tool-name "view"}})
           (session/dispatch-event! client session-id
-                                   {:type :tool.execution_complete
+                                   {:type :copilot/tool.execution_complete
                                     :data {:tool-call-id "tc-1" :success? true}})
           ;; Second assistant.message (intermediate, may also be empty)
           (session/dispatch-event! client session-id
-                                   {:type :assistant.message
+                                   {:type :copilot/assistant.message
                                     :data {:content "Analyzing..." :message-id "msg-2"}})
           ;; More tool execution
           (session/dispatch-event! client session-id
-                                   {:type :tool.execution_start
+                                   {:type :copilot/tool.execution_start
                                     :data {:tool-call-id "tc-2" :tool-name "grep"}})
           (session/dispatch-event! client session-id
-                                   {:type :tool.execution_complete
+                                   {:type :copilot/tool.execution_complete
                                     :data {:tool-call-id "tc-2" :success? true}})
           ;; Final assistant.message with actual content
           (session/dispatch-event! client session-id
-                                   {:type :assistant.message
+                                   {:type :copilot/assistant.message
                                     :data {:content "Here is the final answer with all the details." :message-id "msg-3"}})
           ;; Session idle
-          (session/dispatch-event! client session-id {:type :session.idle :data {}})
+          (session/dispatch-event! client session-id {:type :copilot/session.idle :data {}})
           
           ;; Verify <send! returns the LAST message content, not the first empty one
           (let [[result _] (alts!! [result-ch (timeout 2000)])]
@@ -371,7 +371,7 @@
                                 :session-io {session-id {:event-chan small-ch}}})}]
       (>!! small-ch {:type :dummy})
       (let [dispatch-future (future (session/dispatch-event! client session-id
-                                                             {:type :session.idle}))
+                                                             {:type :copilot/session.idle}))
             dispatch-result (deref dispatch-future 50 ::timeout)]
         (is (not= ::timeout dispatch-result))
         (is (= :dummy (:type (<!! small-ch))))
@@ -388,7 +388,7 @@
           msg {:jsonrpc "2.0"
                :method "session.event"
                :params {:sessionId "s-1"
-                        :event {:type :session.idle}}}]
+                        :event {:type :copilot/session.idle}}}]
       (try
         (dotimes [i 1024]
           (>!! incoming {:i i}))
@@ -608,3 +608,35 @@
       ;; Should be able to continue conversation
       (let [result (sdk/send-and-wait! session2 {:prompt "Follow up"})]
         (is (some? result))))))
+
+;; -----------------------------------------------------------------------------
+;; Session State Event Tests
+;; -----------------------------------------------------------------------------
+
+(deftest test-session-snapshot-rewind-event
+  (testing "session.snapshot_rewind event is received and parsed correctly"
+    (let [session (sdk/create-session *test-client* {})
+          session-id (sdk/session-id session)
+          events-ch (sdk/subscribe-events session)
+          rewind-events (atom [])]
+      ;; Send snapshot_rewind event from mock server
+      (mock/send-session-event! *mock-server* session-id
+                                :copilot/session.snapshot_rewind
+                                {:upToEventId "evt-42"
+                                 :eventsRemoved 5}
+                                :ephemeral? true)
+      ;; Collect events
+      (Thread/sleep 100)
+      (loop []
+        (let [[v _] (alts!! [events-ch (timeout 100)])]
+          (when (some? v)
+            (when (= :copilot/session.snapshot_rewind (:type v))
+              (swap! rewind-events conj v))
+            (recur))))
+      ;; Verify event was received
+      (is (= 1 (count @rewind-events)))
+      (let [event (first @rewind-events)]
+        (is (= :copilot/session.snapshot_rewind (:type event)))
+        (is (= "evt-42" (get-in event [:data :up-to-event-id])))
+        (is (= 5 (get-in event [:data :events-removed]))))
+      (sdk/unsubscribe-events session events-ch))))

@@ -25,6 +25,82 @@
             [krukow.copilot-sdk.tools :as tools]))
 
 ;; =============================================================================
+;; Event Types
+;; =============================================================================
+
+(def event-types
+  "All valid session event types as namespaced keywords."
+  #{:copilot/session.start
+    :copilot/session.resume
+    :copilot/session.error
+    :copilot/session.idle
+    :copilot/session.info
+    :copilot/session.model_change
+    :copilot/session.handoff
+    :copilot/session.truncation
+    :copilot/session.snapshot_rewind
+    :copilot/session.usage_info
+    :copilot/session.compaction_start
+    :copilot/session.compaction_complete
+    :copilot/user.message
+    :copilot/pending_messages.modified
+    :copilot/assistant.turn_start
+    :copilot/assistant.intent
+    :copilot/assistant.reasoning
+    :copilot/assistant.reasoning_delta
+    :copilot/assistant.message
+    :copilot/assistant.message_delta
+    :copilot/assistant.turn_end
+    :copilot/assistant.usage
+    :copilot/abort
+    :copilot/tool.user_requested
+    :copilot/tool.execution_start
+    :copilot/tool.execution_partial_result
+    :copilot/tool.execution_progress
+    :copilot/tool.execution_complete
+    :copilot/subagent.started
+    :copilot/subagent.completed
+    :copilot/subagent.failed
+    :copilot/subagent.selected
+    :copilot/hook.start
+    :copilot/hook.end
+    :copilot/system.message})
+
+(def session-events
+  "Session lifecycle and state management events."
+  #{:copilot/session.start
+    :copilot/session.resume
+    :copilot/session.error
+    :copilot/session.idle
+    :copilot/session.info
+    :copilot/session.model_change
+    :copilot/session.handoff
+    :copilot/session.truncation
+    :copilot/session.snapshot_rewind
+    :copilot/session.usage_info
+    :copilot/session.compaction_start
+    :copilot/session.compaction_complete})
+
+(def assistant-events
+  "Assistant response events."
+  #{:copilot/assistant.turn_start
+    :copilot/assistant.intent
+    :copilot/assistant.reasoning
+    :copilot/assistant.reasoning_delta
+    :copilot/assistant.message
+    :copilot/assistant.message_delta
+    :copilot/assistant.turn_end
+    :copilot/assistant.usage})
+
+(def tool-events
+  "Tool execution events."
+  #{:copilot/tool.user_requested
+    :copilot/tool.execution_start
+    :copilot/tool.execution_partial_result
+    :copilot/tool.execution_progress
+    :copilot/tool.execution_complete})
+
+;; =============================================================================
 ;; Client API
 ;; =============================================================================
 

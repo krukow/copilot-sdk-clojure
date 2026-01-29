@@ -272,18 +272,18 @@
                    (log/debug "send-and-wait! event channel closed for session " session-id)
                    (throw (ex-info "Event channel closed unexpectedly" {})))
 
-                 (= :assistant.message (:type event))
+                 (= :copilot/assistant.message (:type event))
                  (do
                    (log/debug "send-and-wait! got assistant.message, continuing to wait for idle")
                    (reset! last-assistant-msg event)
                    (recur))
 
-                 (= :session.idle (:type event))
+                 (= :copilot/session.idle (:type event))
                  (do
                    (log/debug "send-and-wait! got session.idle, returning result for session " session-id)
                    @last-assistant-msg)
 
-                 (= :session.error (:type event))
+                 (= :copilot/session.error (:type event))
                  (do
                    (log/error "send-and-wait! got session.error for session " session-id)
                    (throw (ex-info (get-in event [:data :message] "Session error")
@@ -317,7 +317,7 @@
                            (when (compare-and-set! released? false true)
                              (.release send-lock)))
            deadline-ch (when timeout-ms (async/timeout timeout-ms))
-           timeout-event {:type :session.error
+           timeout-event {:type :copilot/session.error
                           :data {:message (str "Timeout after " timeout-ms "ms waiting for session.idle")
                                  :timeout-ms timeout-ms}}
            emit! (fn [event]
@@ -354,7 +354,7 @@
                    (close! out-ch)
                    (release-lock!))
 
-                 (= :session.idle (:type event))
+                 (= :copilot/session.idle (:type event))
                  (do
                    (emit! event)
                    (untap event-mult event-ch)
@@ -362,7 +362,7 @@
                    (close! out-ch)
                    (release-lock!))
 
-                 (= :session.error (:type event))
+                 (= :copilot/session.error (:type event))
                  (do
                    (emit! event)
                    (untap event-mult event-ch)
@@ -411,10 +411,10 @@
       (loop [last-content nil]
         (when-let [event (<! events-ch)]
           (cond
-            (= :assistant.message (:type event))
+            (= :copilot/assistant.message (:type event))
             (recur (get-in event [:data :content]))
 
-            (#{:session.idle :session.error} (:type event))
+            (#{:copilot/session.idle :copilot/session.error} (:type event))
             (when last-content
               (async/offer! out-ch last-content))
 

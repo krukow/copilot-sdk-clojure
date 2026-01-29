@@ -17,28 +17,28 @@
       (go-loop []
         (when-let [event (<! events-ch)]
           (case (:type event)
-            :assistant.message_delta
+            :copilot/assistant.message_delta
             (do
               (print (get-in event [:data :delta-content]))
               (flush))
 
-            :assistant.reasoning_delta
+            :copilot/assistant.reasoning_delta
             (do
               (binding [*out* *err*]
                 (print (get-in event [:data :delta-content]))
                 (flush)))
 
-            :assistant.reasoning
+            :copilot/assistant.reasoning
             (binding [*out* *err*]
               (println (get-in event [:data :content])))
 
-            :assistant.message
+            :copilot/assistant.message
             (println (get-in event [:data :content]))
 
-            :session.idle
+            :copilot/session.idle
             (deliver done true)
 
-            :session.error
+            :copilot/session.error
             (deliver done (ex-info "Session error" {:event event}))
 
             nil)

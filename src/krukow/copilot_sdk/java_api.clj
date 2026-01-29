@@ -92,10 +92,10 @@
 (defn event-getId [this] (:id (.state this)))
 (defn event-getTimestamp [this] (:timestamp (.state this)))
 (defn event-isType [this expected] (= expected (:type (.state this))))
-(defn event-isMessage [this] (= "assistant.message" (:type (.state this))))
-(defn event-isMessageDelta [this] (= "assistant.message_delta" (:type (.state this))))
-(defn event-isIdle [this] (= "session.idle" (:type (.state this))))
-(defn event-isError [this] (= "session.error" (:type (.state this))))
+(defn event-isMessage [this] (= "copilot/assistant.message" (:type (.state this))))
+(defn event-isMessageDelta [this] (= "copilot/assistant.message_delta" (:type (.state this))))
+(defn event-isIdle [this] (= "copilot/session.idle" (:type (.state this))))
+(defn event-isError [this] (= "copilot/session.error" (:type (.state this))))
 (defn event-toString [this]
   (let [s (.state this)]
     (str "Event{type='" (:type s) "', id='" (:id s) "', data=" (:data s) "}")))
@@ -439,10 +439,14 @@
         (string? (:log-level m)) (update :log-level keyword)))))
 
 (defn- clj-event->java [event]
-  (krukow.copilot_sdk.Event. (name (:type event))
-                             (walk/stringify-keys (:data event))
-                             (:id event)
-                             (:timestamp event)))
+  (let [kw (:type event)
+        type-str (if (namespace kw)
+                   (str (namespace kw) "/" (name kw))
+                   (name kw))]
+    (krukow.copilot_sdk.Event. type-str
+                               (walk/stringify-keys (:data event))
+                               (:id event)
+                               (:timestamp event))))
 
 ;; =============================================================================
 ;; Client/Session wrappers
@@ -477,7 +481,7 @@
           (loop []
             (when-let [event (async/<!! events-ch)]
               (.handle handler (clj-event->java event))
-              (when-not (#{:session.idle :session.error} (:type event))
+              (when-not (#{:copilot/session.idle :copilot/session.error} (:type event))
                 (recur))))
           (finally
             (copilot/unsubscribe-events clj-session events-ch)))))
@@ -488,11 +492,11 @@
           (loop [content nil]
             (if-let [event (async/<! events-ch)]
               (case (:type event)
-                :assistant.message
+                :copilot/assistant.message
                 (recur (get-in event [:data :content]))
-                :session.idle
+                :copilot/session.idle
                 (.complete future content)
-                :session.error
+                :copilot/session.error
                 (.completeExceptionally future
                                         (ex-info "Session error" {:event (clj-event->java event)}))
                 (recur content))

@@ -87,7 +87,7 @@
                                       {:prompt "What is 2 + 2? Reply with just the number."}
                                       30000)] ; 30 second timeout
        (is (some? result))
-       (is (= :assistant.message (:type result)))
+       (is (= :copilot/assistant.message (:type result)))
        (is (string? (get-in result [:data :content])))
         ;; Clean up
        (sdk/destroy! session)))))
@@ -157,8 +157,8 @@
         ;; Should have received some events
        (is (pos? (count @events)))
         ;; Should include assistant.message or idle
-       (is (or (some #(= :assistant.message (:type %)) @events)
-               (some #(= :session.idle (:type %)) @events)))
+       (is (or (some #(= :copilot/assistant.message (:type %)) @events)
+               (some #(= :copilot/session.idle (:type %)) @events)))
         ;; Clean up
        (sdk/destroy! session)))))
 
@@ -174,9 +174,9 @@
                (when (< count 200)
                  (let [[v _] (alts!! [events-ch (timeout 30000)])]
                    (when (some? v)
-                     (when (= :assistant.message_delta (:type v))
+                     (when (= :copilot/assistant.message_delta (:type v))
                        (swap! deltas conj (get-in v [:data :delta-content])))
-                     (when (not= :session.idle (:type v))
+                     (when (not= :copilot/session.idle (:type v))
                        (recur (inc count)))))))]
         ;; May or may not have deltas depending on model
        (is (>= (count @deltas) 0))

@@ -344,3 +344,10 @@
                  {:jsonrpc "2.0"
                   :method method
                   :params params}))
+
+(defn send-session-event!
+  "Send a session event to the client.
+   Event should be a map with :type and :data keys."
+  [server session-id event-type event-data & {:keys [ephemeral?]}]
+  (send-session-event server session-id
+                      (make-event server (name event-type) event-data :ephemeral? ephemeral?)))

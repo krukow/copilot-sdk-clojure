@@ -8,14 +8,23 @@ All notable changes to this project will be documented in this file. This change
   - `get-status` - Get CLI version and protocol information
   - `get-auth-status` - Get current authentication status
   - `list-models` - List available models with metadata
-- New event type `:tool.execution_progress` for progress updates during long-running tool executions
+- New event type `:copilot/tool.execution_progress` for progress updates during long-running tool executions
 - Infinite sessions support (upstream PR #76):
   - `:infinite-sessions` config option for `create-session`
   - Automatic context compaction when approaching context window limits
-  - New event types: `:session.compaction_start`, `:session.compaction_complete`
+  - New event types: `:copilot/session.compaction_start`, `:copilot/session.compaction_complete`
 - Session workspace path accessors for Clojure and Java APIs
+- New event type `:copilot/session.snapshot_rewind` for session state rollback (upstream PR #208)
+- Exported event type constants:
+  - `event-types` - All valid event types
+  - `session-events` - Session lifecycle and state events
+  - `assistant-events` - Assistant response events
+  - `tool-events` - Tool execution events
+- New example: `session_events.clj` - demonstrates monitoring session state events
 
 ### Changed
+- **BREAKING**: Event types are now namespaced keywords (e.g., `:copilot/session.idle` instead of `:session.idle`)
+  - Migration: Add `copilot/` prefix to all event type keywords in your code
 - Protocol version bumped from 1 to 2 (requires CLI 0.0.389+)
 - Removed `helpers/query-seq` in favor of `helpers/query-seq!` and `helpers/query-chan`
 

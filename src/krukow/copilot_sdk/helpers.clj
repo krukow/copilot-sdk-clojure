@@ -257,7 +257,7 @@
                      (nil? event)
                      (do (finish!) nil)
 
-                     (#{:session.idle :session.error} (:type event))
+                     (#{:copilot/session.idle :copilot/session.error} (:type event))
                      (do (finish!) (cons event nil))
 
                      :else
@@ -287,7 +287,7 @@
      (let [ch (query-chan \"Tell me a story\" :session {:streaming? true})]
        (go-loop []
          (when-let [event (<! ch)]
-           (when (= :assistant.message_delta (:type event))
+           (when (= :copilot/assistant.message_delta (:type event))
              (print (get-in event [:data :delta-content])))
            (recur))))
    "
@@ -306,7 +306,7 @@
       (if-let [event (<! events-ch)]
         (do
           (>! out-ch event)
-          (if (#{:session.idle :session.error} (:type event))
+          (if (#{:copilot/session.idle :copilot/session.error} (:type event))
             (do
               (copilot/destroy! sess)
               (close! out-ch))

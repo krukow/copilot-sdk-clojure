@@ -215,20 +215,22 @@
   (s/keys :req-un [::event-id ::event-timestamp ::parent-id]
           :opt-un [::ephemeral?]))
 
-;; Event type enum
+;; Event type enum (namespaced under :copilot/)
 (s/def ::event-type
-  #{:session.start :session.resume :session.error :session.idle :session.info
-    :session.model_change :session.handoff :session.truncation :session.usage_info
-    :session.compaction_start :session.compaction_complete
-    :user.message :pending_messages.modified
-    :assistant.turn_start :assistant.intent :assistant.reasoning :assistant.reasoning_delta
-    :assistant.message :assistant.message_delta :assistant.turn_end :assistant.usage
-    :abort
-    :tool.user_requested :tool.execution_start :tool.execution_partial_result
-    :tool.execution_progress :tool.execution_complete
-    :subagent.started :subagent.completed :subagent.failed :subagent.selected
-    :hook.start :hook.end
-    :system.message})
+  #{:copilot/session.start :copilot/session.resume :copilot/session.error :copilot/session.idle
+    :copilot/session.info :copilot/session.model_change :copilot/session.handoff
+    :copilot/session.truncation :copilot/session.snapshot_rewind :copilot/session.usage_info
+    :copilot/session.compaction_start :copilot/session.compaction_complete
+    :copilot/user.message :copilot/pending_messages.modified
+    :copilot/assistant.turn_start :copilot/assistant.intent :copilot/assistant.reasoning
+    :copilot/assistant.reasoning_delta :copilot/assistant.message :copilot/assistant.message_delta
+    :copilot/assistant.turn_end :copilot/assistant.usage
+    :copilot/abort
+    :copilot/tool.user_requested :copilot/tool.execution_start :copilot/tool.execution_partial_result
+    :copilot/tool.execution_progress :copilot/tool.execution_complete
+    :copilot/subagent.started :copilot/subagent.completed :copilot/subagent.failed :copilot/subagent.selected
+    :copilot/hook.start :copilot/hook.end
+    :copilot/system.message})
 
 ;; Session events
 (s/def ::session.start-data

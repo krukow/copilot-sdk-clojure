@@ -33,3 +33,7 @@ clojure -A:examples -X config-skill-output/run
 echo ""
 echo "=== permission-bash ==="
 clojure -A:examples -X permission-bash/run
+
+echo ""
+echo "=== session-events ==="
+clojure -A:examples -X session-events/run
