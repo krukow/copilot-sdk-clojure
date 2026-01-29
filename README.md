@@ -30,7 +30,7 @@ io.github.krukow/copilot-sdk {:mvn/version "0.1.8-SNAPSHOT"}
 
 ;; Or git dependency
 io.github.krukow/copilot-sdk {:git/url "https://github.com/krukow/copilot-sdk-clojure.git"
-                              :git/sha "06ff9c6d04fadc298a520f1ae5ad52f0ae35d979"}
+                              :git/sha "6220296691c1d457f8c13994025b98b120129eb5"}
 ```
 
 ## Quick Start
