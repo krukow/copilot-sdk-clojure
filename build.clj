@@ -9,7 +9,7 @@
 
 (def lib 'io.github.copilot-community-sdk/copilot-sdk-clojure)
 (def clojars-lib 'net.clojars.krukow/copilot-sdk)
-(def version "0.2.1")
+(def version "0.2.2")
 (def class-dir "target/classes")
 (def aot-namespaces ['krukow.copilot-sdk.java-api])
 
