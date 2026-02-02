@@ -117,6 +117,8 @@ Explicitly shutdown the shared client. Safe to call multiple times.
 | `:tool-timeout-ms` | number | `120000` | Timeout for tool handlers returning channels |
 | `:cwd` | string | nil | Working directory for CLI process |
 | `:env` | map | nil | Environment variables |
+| `:github-token` | string | nil | GitHub token for authentication. Sets `COPILOT_SDK_AUTH_TOKEN` env var and passes `--auth-token-env` flag |
+| `:use-logged-in-user?` | boolean | `true` | Use logged-in user auth. Defaults to `false` when `:github-token` is provided. Cannot be used with `:cli-url` |
 
 ### Methods
 
@@ -208,6 +210,9 @@ Create a client and session together, ensuring both are cleaned up on exit.
 | `:disabled-skills` | vector | Disable specific skills by name |
 | `:large-output` | map | Tool output handling config |
 | `:infinite-sessions` | map | Infinite session config (see below) |
+| `:reasoning-effort` | string | Reasoning effort level: `"low"`, `"medium"`, or `"high"` |
+| `:on-user-input-request` | fn | Handler for `ask_user` requests (see below) |
+| `:hooks` | map | Lifecycle hooks (see below) |
 
 #### `resume-session`
 
@@ -256,7 +261,8 @@ Get current authentication status. Returns:
 (copilot/list-models client)
 ```
 
-List available models with their metadata. Requires authentication. Returns a vector of model info maps:
+List available models with their metadata. Results are cached per client connection.
+Requires authentication. Returns a vector of model info maps:
 ```clojure
 [{:id "gpt-5.2"
   :name "GPT-5.2"
@@ -268,7 +274,11 @@ List available models with their metadata. Requires authentication. Returns a ve
   :preview? false
   :vision-limits {:supported-media-types ["image/png" "image/jpeg"]
                   :max-prompt-images 10
-                  :max-prompt-image-size 20971520}}
+                  :max-prompt-image-size 20971520}
+  ;; For models supporting reasoning:
+  :supports-reasoning-effort true
+  :supported-reasoning-efforts ["low" "medium" "high"]
+  :default-reasoning-effort "medium"}
  ...]
 ```
 
@@ -797,6 +807,103 @@ fields like `:full-command-text`, `:commands`, and `:possible-paths`.
 
 ;; Deny after user interaction (optional feedback)
 {:kind :denied-interactively-by-user :feedback "Not allowed"}
+```
+
+### User Input Handling
+
+When the agent needs input from the user (via `ask_user` tool), the `:on-user-input-request`
+handler is called. Return a response map with the user's input:
+
+```clojure
+(def session (copilot/create-session client
+               {:model "gpt-5.2"
+                :on-user-input-request
+                (fn [request invocation]
+                  ;; request contains {:question "..." :choices [...] :allow-freeform true/false}
+                  (println "Agent asks:" (:question request))
+                  (when-let [choices (:choices request)]
+                    (println "Choices:" choices))
+                  ;; Return user's response
+                  ;; :answer is required, :was-freeform defaults to true
+                  {:answer (read-line)
+                   :was-freeform true})}))
+```
+
+The request map includes:
+- `:question` - The question being asked
+- `:choices` - Optional list of choices for multiple choice questions
+- `:allow-freeform` - Whether freeform text input is allowed
+
+The response map should include:
+- `:answer` - The user's answer (string, required). `:response` is also accepted for convenience.
+- `:was-freeform` - Whether the answer was freeform (boolean, defaults to true)
+
+### Session Hooks
+
+Lifecycle hooks allow custom logic at various points during the session:
+
+```clojure
+(def session (copilot/create-session client
+               {:model "gpt-5.2"
+                :hooks
+                {:on-pre-tool-use
+                 (fn [input invocation]
+                   ;; Called before each tool execution
+                   ;; input contains {:tool-name "..." :arguments {...}}
+                   (println "About to use tool:" (:tool-name input))
+                   ;; Return nil to proceed, or a modified input map
+                   nil)
+
+                 :on-post-tool-use
+                 (fn [input invocation]
+                   ;; Called after each tool execution
+                   ;; input contains {:tool-name "..." :result {...}}
+                   (println "Tool completed:" (:tool-name input))
+                   nil)
+
+                 :on-user-prompt-submitted
+                 (fn [input invocation]
+                   ;; Called when user sends a prompt
+                   (println "User prompt:" (:prompt input))
+                   nil)
+
+                 :on-session-start
+                 (fn [input invocation]
+                   (println "Session started")
+                   nil)
+
+                 :on-session-end
+                 (fn [input invocation]
+                   (println "Session ended")
+                   nil)
+
+                 :on-error-occurred
+                 (fn [input invocation]
+                   (println "Error:" (:error input))
+                   nil)}}))
+```
+
+All hooks receive an `input` map (contents vary by hook type) and an `invocation` map
+containing `{:session-id ...}`. Hooks may return `nil` to proceed normally, or in some
+cases return a modified value.
+
+### Reasoning Effort
+
+For models that support reasoning (like o1), you can control the reasoning effort level:
+
+```clojure
+;; Check model capabilities
+(let [models (copilot/list-models client)]
+  (doseq [m models
+          :when (:supports-reasoning-effort m)]
+    (println (:name m) "supports reasoning:"
+             (:supported-reasoning-efforts m)
+             "default:" (:default-reasoning-effort m))))
+
+;; Create session with reasoning effort
+(def session (copilot/create-session client
+               {:model "o1"
+                :reasoning-effort "high"})) ; "low", "medium", or "high"
 ```
 
 ### Multiple Sessions
