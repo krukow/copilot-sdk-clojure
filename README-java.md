@@ -12,7 +12,7 @@ Java API for programmatic control of GitHub Copilot CLI via JSON-RPC.
 <dependency>
     <groupId>io.github.copilot-community-sdk</groupId>
     <artifactId>copilot-sdk-clojure</artifactId>
-    <version>0.1.2</version>
+    <version>0.2.1</version>
 </dependency>
 ```
 
@@ -24,7 +24,7 @@ For the latest development version, use snapshots from the Maven Central snapsho
 <dependency>
     <groupId>io.github.copilot-community-sdk</groupId>
     <artifactId>copilot-sdk-clojure</artifactId>
-    <version>0.1.2-SNAPSHOT</version>
+    <version>0.2.1-SNAPSHOT</version>
 </dependency>
 
 <repositories>
@@ -43,7 +43,7 @@ For the latest development version, use snapshots from the Maven Central snapsho
 <dependency>
     <groupId>net.clojars.krukow</groupId>
     <artifactId>copilot-sdk</artifactId>
-    <version>0.1.2-SNAPSHOT</version>
+    <version>0.2.1</version>
 </dependency>
 
 <repositories>
@@ -165,7 +165,7 @@ Represents a conversation session with context preservation.
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `getSessionId()` | String | Session identifier |
-| `getWorkspacePath()` | String | Workspace path when provided by CLI (nullable) |
+| `getWorkspacePath()` | String | Workspace path when provided by CLI (may be null) |
 | `send(prompt)` | String | Send message (fire-and-forget), returns message ID |
 | `sendAndWait(prompt, timeoutMs)` | String | Send and block until response |
 | `sendStreaming(prompt, handler)` | void | Send with callback for each event |
@@ -192,15 +192,23 @@ Represents a session event.
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `getType()` | String | Event type (e.g., `"assistant.message_delta"`) |
+| `getType()` | String | Event type (e.g., `"copilot/assistant.message_delta"`) |
 | `getData()` | Map | Event data |
 | `get(key)` | Object | Get data field |
 | `getContent()` | String | Get `"content"` field |
 | `getDeltaContent()` | String | Get `"delta-content"` field |
-| `isMessage()` | boolean | Is `"assistant.message"` |
-| `isMessageDelta()` | boolean | Is `"assistant.message_delta"` |
-| `isIdle()` | boolean | Is `"session.idle"` |
-| `isError()` | boolean | Is `"session.error"` |
+| `isMessage()` | boolean | Is `"copilot/assistant.message"` |
+| `isMessageDelta()` | boolean | Is `"copilot/assistant.message_delta"` |
+| `isTurnStart()` | boolean | Is `"copilot/assistant.turn_start"` |
+| `isTurnEnd()` | boolean | Is `"copilot/assistant.turn_end"` |
+| `isReasoning()` | boolean | Is `"copilot/assistant.reasoning"` |
+| `isReasoningDelta()` | boolean | Is `"copilot/assistant.reasoning_delta"` |
+| `isUsage()` | boolean | Is `"copilot/assistant.usage"` |
+| `isIdle()` | boolean | Is `"copilot/session.idle"` |
+| `isError()` | boolean | Is `"copilot/session.error"` |
+| `isUsageInfo()` | boolean | Is `"copilot/session.usage_info"` |
+| `isToolExecutionStart()` | boolean | Is `"copilot/tool.execution_start"` |
+| `isToolExecutionComplete()` | boolean | Is `"copilot/tool.execution_complete"` |
 
 ## Configuration
 
@@ -228,6 +236,8 @@ ClientOptions opts = (ClientOptions) cb.build();
 | `routerQueueSize(size)` | int | Max queued non-session notifications (default: 4096) |
 | `toolTimeoutMs(ms)` | int | Timeout for tool handlers returning channels (default: 120000) |
 | `env(map)` | Map | Environment variables |
+| `githubToken(token)` | String | GitHub token for authentication. Sets `COPILOT_SDK_AUTH_TOKEN` env var |
+| `useLoggedInUser(bool)` | boolean | Use logged-in user auth (default: true, false when githubToken provided) |
 
 ### SessionOptionsBuilder
 
@@ -473,13 +483,18 @@ PermissionResult.deniedByUser("Reason");            // User denied with feedback
 
 | Event Type | Description |
 |------------|-------------|
-| `assistant.message` | Complete assistant response |
-| `assistant.message_delta` | Streaming response chunk |
-| `assistant.reasoning` | Model reasoning (if supported) |
-| `tool.execution_start` | Tool execution started |
-| `tool.execution_complete` | Tool execution completed |
-| `session.idle` | Session finished processing |
-| `session.error` | Error occurred |
+| `copilot/assistant.message` | Complete assistant response |
+| `copilot/assistant.message_delta` | Streaming response chunk |
+| `copilot/assistant.turn_start` | Assistant turn started |
+| `copilot/assistant.turn_end` | Assistant turn completed |
+| `copilot/assistant.reasoning` | Model reasoning (if supported) |
+| `copilot/assistant.reasoning_delta` | Streaming reasoning chunk |
+| `copilot/assistant.usage` | Token usage for this turn |
+| `copilot/tool.execution_start` | Tool execution started |
+| `copilot/tool.execution_complete` | Tool execution completed |
+| `copilot/session.idle` | Session finished processing |
+| `copilot/session.error` | Error occurred |
+| `copilot/session.usage_info` | Token usage metrics |
 
 ## Examples
 
