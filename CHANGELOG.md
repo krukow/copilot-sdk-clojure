@@ -21,12 +21,29 @@ All notable changes to this project will be documented in this file. This change
   - `assistant-events` - Assistant response events
   - `tool-events` - Tool execution events
 - New example: `session_events.clj` - demonstrates monitoring session state events
+- Authentication options for client (upstream PR #237):
+  - `:github-token` - GitHub token for authentication (sets `COPILOT_SDK_AUTH_TOKEN` env var)
+  - `:use-logged-in-user?` - Whether to use logged-in user auth (default: true, false when token provided)
+- Hooks and user input handlers (upstream PR #269):
+  - `:on-user-input-request` - Handler for `ask_user` tool invocations
+  - `:hooks` - Lifecycle hooks map with callbacks:
+    - `:on-pre-tool-use` - Called before tool execution
+    - `:on-post-tool-use` - Called after tool execution
+    - `:on-user-prompt-submitted` - Called when user sends a prompt
+    - `:on-session-start` - Called when session starts
+    - `:on-session-end` - Called when session ends
+    - `:on-error-occurred` - Called on errors
+- Reasoning effort support (upstream PR #302):
+  - `:reasoning-effort` session config option ("low", "medium", "high")
+  - Model info now includes `:supports-reasoning-effort`, `:supported-reasoning-efforts`, `:default-reasoning-effort`
 
 ### Changed
 - **BREAKING**: Event types are now namespaced keywords (e.g., `:copilot/session.idle` instead of `:session.idle`)
   - Migration: Add `copilot/` prefix to all event type keywords in your code
 - Protocol version bumped from 1 to 2 (requires CLI 0.0.389+)
 - Removed `helpers/query-seq` in favor of `helpers/query-seq!` and `helpers/query-chan`
+- `list-models` now caches results per client connection to prevent 429 rate limiting under concurrency (upstream PR #300)
+  - Cache is cleared on `stop!` and `force-stop!`
 
 ## [0.1.0] - 2026-01-18
 ### Added
