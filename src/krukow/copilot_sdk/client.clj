@@ -171,6 +171,13 @@
   [client]
   (:status @(:state client)))
 
+(defn options
+  "Get the client options that were used to create this client.
+   Returns the user-provided options merged with defaults.
+   Note: This reflects SDK configuration, not necessarily server state."
+  [client]
+  (:options @(:state client)))
+
 (declare stop!)
 (declare start!)
 (declare maybe-reconnect!)
@@ -214,8 +221,17 @@
         (do
           (if (= (:method notif) "session.event")
             (let [{:keys [session-id event]} (:params notif)
-                  normalized-event (update event :type util/event-type->keyword)]
-              (log/debug "Routing event to session " session-id ": type=" (:type normalized-event))
+                  normalized-event (update event :type util/event-type->keyword)
+                  event-type (:type normalized-event)]
+              (log/debug "Routing event to session " session-id ": type=" event-type)
+              ;; Validate model selection on session.start
+              (when (= event-type :copilot/session.start)
+                (let [selected-model (get-in event [:data :selectedModel])
+                      requested-model (get-in @(:state client) [:sessions session-id :config :model])]
+                  (when (and requested-model selected-model
+                             (not= requested-model selected-model))
+                    (log/warn "Model mismatch for session " session-id
+                              ": requested " requested-model ", server selected " selected-model))))
               (when-not (:destroyed? (get-in @(:state client) [:sessions session-id]))
                 (when-let [{:keys [event-chan]} (get-in @(:state client) [:session-io session-id])]
                   (>! event-chan normalized-event))))
@@ -739,7 +755,8 @@
                                           :on-permission-request (:on-permission-request config)
                                           :on-user-input-request (:on-user-input-request config)
                                           :hooks (:hooks config)
-                                          :workspace-path workspace-path})]
+                                          :workspace-path workspace-path
+                                          :config config})]
       (log/info "Session created: " session-id)
       session)))
 
@@ -807,7 +824,8 @@
                                           :on-permission-request (:on-permission-request config)
                                           :on-user-input-request (:on-user-input-request config)
                                           :hooks (:hooks config)
-                                          :workspace-path workspace-path})]
+                                          :workspace-path workspace-path
+                                          :config config})]
       session)))
 
 (defn list-sessions

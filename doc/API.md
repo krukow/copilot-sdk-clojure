@@ -156,6 +156,15 @@ Stop the server and close all sessions gracefully.
 
 Force stop the CLI server without graceful cleanup. Use when `stop!` takes too long.
 
+#### `client-options`
+
+```clojure
+(copilot/client-options client)
+;; => {:log-level :info, :use-stdio? true, :auto-start? true, ...}
+```
+
+Get the options that were used to create this client.
+
 #### `create-session`
 
 ```clojure
@@ -177,13 +186,23 @@ Create a session and ensure `destroy!` runs on exit.
 #### `with-client-session`
 
 ```clojure
-;; Simple form - just session binding
+;; Form 1: [session session-opts] - anonymous client with default options
 (copilot/with-client-session [session {:model "gpt-5.2"}]
   ;; use session
   )
 
-;; Full form - both client and session bindings
-(copilot/with-client-session [client session {:model "gpt-5.2"} {:log-level :info}]
+;; Form 2: [client-opts session session-opts] - anonymous client with custom options
+(copilot/with-client-session [{:log-level :debug} session {:model "gpt-5.2"}]
+  ;; use session
+  )
+
+;; Form 3: [client session session-opts] - named client with default options
+(copilot/with-client-session [client session {:model "gpt-5.2"}]
+  ;; use client and session
+  )
+
+;; Form 4: [client client-opts session session-opts] - named client with custom options
+(copilot/with-client-session [client {:log-level :debug} session {:model "gpt-5.2"}]
   ;; use client and session
   )
 ```
@@ -416,8 +435,25 @@ Note: session events use a sliding buffer (4096). Slow consumers may drop events
 (copilot/subscribe-events session)
 ```
 
-Subscribe to session events. Returns a channel that receives events.
+Subscribe to session events. Returns a channel (buffer size 1024) that receives events.
 This is a convenience wrapper around `(tap (copilot/events session) ch)`.
+
+##### Event Drop Behavior
+
+Session events are delivered via core.async `mult`. When `mult` receives an event, it
+attempts to `put!` to each subscriber's channel. **If a subscriber's buffer is full at
+that moment, that specific event is silently dropped for that subscriber only.**
+
+Key points:
+- **Per-subscriber**: Each subscriber is independent. If subscriber A's buffer is full
+  but B has space, only A misses the event.
+- **Per-event**: Only the event that arrived when the buffer was full is dropped.
+  Earlier events already in the buffer are not affected.
+- **Silent**: No error, warning, or indication that a drop occurred.
+- **Not recoverable**: The dropped event is gone for that subscriber.
+
+With the default 1024 buffer, drops are unlikely unless a subscriber completely stops
+reading. For most use cases, this is not a concern.
 
 #### `unsubscribe-events`
 

@@ -39,6 +39,7 @@
            [stop [] java.util.List]
            [forceStop [] void]
            [getState [] String]
+           [getOptions [] java.util.Map]
            [createSession [krukow.copilot_sdk.SessionOptions] krukow.copilot_sdk.ICopilotSession]
            [ping [] java.util.Map]
            [getStatus [] java.util.Map]
@@ -49,6 +50,7 @@
  :name krukow.copilot_sdk.ICopilotSession
  :methods [[getSessionId [] String]
            [getWorkspacePath [] String]
+           [getConfig [] java.util.Map]
            [send [String] String]
            [sendAndWait [String long] String]
            [sendStreaming [String krukow.copilot_sdk.IEventHandler] void]
@@ -482,6 +484,7 @@
     (stop [_] (java.util.ArrayList. (copilot/stop! clj-client)))
     (forceStop [_] (copilot/force-stop! clj-client))
     (getState [_] (name (copilot/state clj-client)))
+    (getOptions [_] (walk/stringify-keys (copilot/client-options clj-client)))
     (createSession [_ opts] (wrap-session (copilot/create-session clj-client (or (convert-session-opts opts) {}))))
     (ping [_] (walk/stringify-keys (copilot/ping clj-client)))
     (getStatus [_] (walk/stringify-keys (copilot/get-status clj-client)))
@@ -492,6 +495,7 @@
   (reify krukow.copilot_sdk.ICopilotSession
     (getSessionId [_] (copilot/session-id clj-session))
     (getWorkspacePath [_] (copilot/workspace-path clj-session))
+    (getConfig [_] (walk/stringify-keys (copilot/session-config clj-session)))
     (send [_ prompt] (copilot/send! clj-session {:prompt prompt}))
     (sendAndWait [_ prompt timeout-ms]
       (let [response (copilot/send-and-wait! clj-session {:prompt prompt} timeout-ms)]

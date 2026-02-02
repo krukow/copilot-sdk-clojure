@@ -152,6 +152,7 @@ Manages connections and sessions.
 | `stop()` | List | Stop gracefully, returns errors |
 | `forceStop()` | void | Force stop without cleanup |
 | `getState()` | String | `"disconnected"`, `"connecting"`, `"connected"`, `"error"` |
+| `getOptions()` | Map | Get the options used to create this client |
 | `createSession(opts)` | ICopilotSession | Create a new session |
 | `ping()` | Map | Ping server |
 | `getStatus()` | Map | CLI version and protocol info |
@@ -166,6 +167,7 @@ Represents a conversation session with context preservation.
 |--------|---------|-------------|
 | `getSessionId()` | String | Session identifier |
 | `getWorkspacePath()` | String | Workspace path when provided by CLI (may be null) |
+| `getConfig()` | Map | Get the config used to create this session |
 | `send(prompt)` | String | Send message (fire-and-forget), returns message ID |
 | `sendAndWait(prompt, timeoutMs)` | String | Send and block until response |
 | `sendStreaming(prompt, handler)` | void | Send with callback for each event |

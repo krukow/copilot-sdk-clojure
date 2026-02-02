@@ -182,6 +182,20 @@
   [client]
   (client/state client))
 
+(defn client-options
+  "Get the options used to create this client.
+   
+   Returns the user-provided options merged with defaults. This reflects
+   what the SDK is configured to use, not necessarily server state.
+
+   Example:
+   ```clojure
+   (copilot/client-options client)
+   ;=> {:log-level :info, :use-stdio? true, ...}
+   ```"
+  [client]
+  (client/options client))
+
 (defmacro with-client
   "Create a client, start it, and ensure stop! on exit.
 
@@ -506,6 +520,24 @@
   "Get the session workspace path when provided by the CLI."
   [session]
   (session/workspace-path session))
+
+(defn session-config
+  "Get the configuration that was passed to create this session.
+   
+   Returns the user-provided config map. This reflects what was requested,
+   not necessarily what the server is using (e.g., if a model was unavailable,
+   the server may have selected a different one).
+   
+   The session.start event contains the actual selected model if validation
+   is needed.
+
+   Example:
+   ```clojure
+   (copilot/session-config session)
+   ;=> {:model \"gpt-5.2\", :streaming? true, ...}
+   ```"
+  [session]
+  (session/config session))
 
 ;; =============================================================================
 ;; Tool Helpers

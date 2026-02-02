@@ -48,7 +48,7 @@
 (defn create-session
   "Create a new session. Internal use - called by client.
    Initializes session state in client's atom and returns a CopilotSession handle."
-  [client session-id {:keys [tools on-permission-request on-user-input-request hooks workspace-path]}]
+  [client session-id {:keys [tools on-permission-request on-user-input-request hooks workspace-path config]}]
   (log/debug "Creating session: " session-id)
   (let [event-chan (chan (async/sliding-buffer 4096))
         event-mult (mult event-chan)
@@ -64,7 +64,8 @@
                              :user-input-handler on-user-input-request
                              :hooks hooks
                              :destroyed? false
-                             :workspace-path workspace-path})
+                             :workspace-path workspace-path
+                             :config config})
                  (assoc-in [:session-io session-id]
                            {:event-chan event-chan
                             :event-mult event-mult
