@@ -62,5 +62,8 @@ Define tools with JSON Schema and provide handlers:
 ## Where to go next
 
 - See `README.md` for the full API and examples
+- See `doc/getting-started.md` for a step-by-step tutorial
+- See `doc/auth/` for authentication and BYOK guides
+- See `doc/mcp/` for MCP server integration
 - Browse `examples/` for working applications
 - Generate API docs with `bb docs` (output in `doc/api/`)

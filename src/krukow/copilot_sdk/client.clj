@@ -697,6 +697,10 @@
                  (format "Invalid session config: %s"
                          (with-out-str (s/explain ::specs/session-config config))))]
        (throw (ex-info msg {:config config :unknown-keys unknown :explain explain}))))
+   ;; BYOK validation: model is required when provider is specified
+   (when (and (:provider config) (not (:model config)))
+     (throw (ex-info "Invalid session config: :model is required when :provider (BYOK) is specified"
+                     {:config config})))
    (ensure-connected! client)
    (let [{:keys [connection-io]} @(:state client)
          _ (when-let [servers (:mcp-servers config)]
@@ -719,7 +723,7 @@
          wire-provider (when-let [provider (:provider config)]
                          (util/clj->wire provider))
          wire-mcp-servers (when-let [servers (:mcp-servers config)]
-                            (into {} (map (fn [[k v]] [k (util/clj->wire v)])) servers))
+                            (util/mcp-servers->wire servers))
          wire-custom-agents (when-let [agents (:custom-agents config)]
                               (mapv util/clj->wire agents))
          wire-infinite-sessions (when-let [is (:infinite-sessions config)]
@@ -793,6 +797,10 @@
      (throw (ex-info "Invalid resume session config"
                      {:config config
                       :explain (s/explain-data ::specs/resume-session-config config)})))
+   ;; BYOK validation: model is required when provider is specified
+   (when (and (:provider config) (not (:model config)))
+     (throw (ex-info "Invalid session config: :model is required when :provider (BYOK) is specified"
+                     {:config config})))
    (ensure-connected! client)
    (let [{:keys [connection-io]} @(:state client)
          _ (when-let [servers (:mcp-servers config)]
@@ -813,7 +821,7 @@
          wire-provider (when-let [provider (:provider config)]
                          (util/clj->wire provider))
          wire-mcp-servers (when-let [servers (:mcp-servers config)]
-                            (into {} (map (fn [[k v]] [k (util/clj->wire v)])) servers))
+                            (util/mcp-servers->wire servers))
          wire-custom-agents (when-let [agents (:custom-agents config)]
                               (mapv util/clj->wire agents))
          wire-infinite-sessions (when-let [is (:infinite-sessions config)]

@@ -60,12 +60,23 @@ clojure -A:examples -X session-events/run
 # User input handling (ask_user)
 clojure -A:examples -X user-input/run
 clojure -A:examples -X user-input/run-simple
+
+# BYOK provider (requires API key, see example docs)
+OPENAI_API_KEY=sk-... clojure -A:examples -X byok-provider/run
+clojure -A:examples -X byok-provider/run :provider-name '"ollama"'
+
+# MCP local server (requires npx/Node.js)
+clojure -A:examples -X mcp-local-server/run
+clojure -A:examples -X mcp-local-server/run-with-custom-tools
 ```
 
 Or run all examples:
 ```bash
 ./run-all-examples.sh
 ```
+
+> **Note:** `run-all-examples.sh` runs the core examples (1–9) that need only the Copilot CLI.
+> The BYOK and MCP examples require external dependencies (API keys, Node.js) and must be run manually.
 
 With a custom CLI path:
 ```bash
@@ -467,6 +478,81 @@ clojure -A:examples -X user-input/run-simple
   (copilot/send-and-wait! session
     {:prompt "Ask me what format I prefer for the output, then respond accordingly."}))
 ```
+
+---
+
+## Example 10: BYOK Provider (`byok_provider.clj`)
+
+**Difficulty:** Intermediate  
+**Concepts:** BYOK (Bring Your Own Key), custom providers, API key authentication
+
+Shows how to use the SDK with your own API keys from OpenAI, Azure, Anthropic, or Ollama instead of GitHub Copilot authentication.
+
+### What It Demonstrates
+
+- Configuring a `:provider` map for BYOK
+- Connecting to OpenAI, Azure OpenAI, Anthropic, or local Ollama
+- Using environment variables for API keys
+
+### Prerequisites
+
+Set an environment variable for your provider:
+- OpenAI: `OPENAI_API_KEY`
+- Azure: `AZURE_OPENAI_KEY`
+- Anthropic: `ANTHROPIC_API_KEY`
+- Ollama: No key needed (ensure `ollama serve` is running)
+
+### Usage
+
+```bash
+# OpenAI (default)
+OPENAI_API_KEY=sk-... clojure -A:examples -X byok-provider/run
+
+# Anthropic
+ANTHROPIC_API_KEY=sk-... clojure -A:examples -X byok-provider/run :provider-name '"anthropic"'
+
+# Ollama (local, no key)
+clojure -A:examples -X byok-provider/run :provider-name '"ollama"'
+
+# Azure
+AZURE_OPENAI_KEY=... clojure -A:examples -X byok-provider/run :provider-name '"azure"'
+```
+
+See [doc/auth/byok.md](../doc/auth/byok.md) for full BYOK documentation.
+
+---
+
+## Example 11: MCP Local Server (`mcp_local_server.clj`)
+
+**Difficulty:** Intermediate  
+**Concepts:** MCP servers, external tools, filesystem access
+
+Shows how to integrate MCP (Model Context Protocol) servers to extend the assistant's capabilities with external tools.
+
+### What It Demonstrates
+
+- Configuring `:mcp-servers` with a local stdio server
+- Using the `@modelcontextprotocol/server-filesystem` MCP server
+- Combining MCP server tools with custom tools
+
+### Prerequisites
+
+- Node.js and `npx` installed (for the filesystem MCP server)
+
+### Usage
+
+```bash
+# Basic filesystem access
+clojure -A:examples -X mcp-local-server/run
+
+# With custom directory
+clojure -A:examples -X mcp-local-server/run :allowed-dir '"/home/user/docs"'
+
+# MCP + custom tools combined
+clojure -A:examples -X mcp-local-server/run-with-custom-tools
+```
+
+See [doc/mcp/overview.md](../doc/mcp/overview.md) for full MCP documentation.
 
 ---
 

@@ -57,10 +57,24 @@ All notable changes to this project will be documented in this file. This change
 - Reasoning effort support (upstream PR #302):
   - `:reasoning-effort` session config option ("low", "medium", "high")
   - Model info now includes `:supports-reasoning-effort`, `:supported-reasoning-efforts`, `:default-reasoning-effort`
+- Documentation:
+  - `doc/getting-started.md` — Comprehensive tutorial
+  - `doc/auth/index.md` — Authentication guide (all methods, priority order)
+  - `doc/auth/byok.md` — BYOK (Bring Your Own Key) guide with examples for OpenAI, Azure, Anthropic, Ollama
+  - `doc/mcp/overview.md` — MCP server configuration guide
+  - `doc/mcp/debugging.md` — MCP debugging and troubleshooting guide
+- New examples:
+  - `examples/byok_provider.clj` — BYOK provider configuration
+  - `examples/mcp_local_server.clj` — MCP local server integration
+- BYOK validation: `create-session` and `resume-session` now throw when `:provider` is specified without `:model`
 
 ### Changed
 - **BREAKING**: Event types are now namespaced keywords (e.g., `:copilot/session.idle` instead of `:session.idle`)
   - Migration: Add `copilot/` prefix to all event type keywords in your code
+- **FIX**: MCP server config wire format now correctly strips `:mcp-` prefix before sending to CLI.
+  Previously `:mcp-command`, `:mcp-args`, `:mcp-tools`, etc. were sent as `mcpCommand`, `mcpArgs`,
+  `mcpTools` on the wire; they are now correctly sent as `command`, `args`, `tools` to match the
+  upstream Node.js SDK. The Clojure API keys (`:mcp-command`, `:mcp-args`, etc.) are unchanged.
 - Protocol version bumped from 1 to 2 (requires CLI 0.0.389+)
 - Removed `helpers/query-seq` in favor of `helpers/query-seq!` and `helpers/query-chan`
 - `list-models` now caches results per client connection to prevent 429 rate limiting under concurrency (upstream PR #300)

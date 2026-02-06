@@ -219,8 +219,8 @@ Create a client and session together, ensuring both are cleaned up on exit.
 | `:system-message` | map | System message customization (see below) |
 | `:available-tools` | vector | List of allowed tool names |
 | `:excluded-tools` | vector | List of excluded tool names |
-| `:provider` | map | Provider config for BYOK |
-| `:mcp-servers` | map | MCP server configs keyed by server ID |
+| `:provider` | map | Provider config for BYOK (see [BYOK docs](./auth/byok.md)). Required key: `:base-url`. Optional: `:provider-type` (`:openai`/`:azure`/`:anthropic`), `:wire-api` (`:completions`/`:responses`), `:api-key`, `:bearer-token`, `:azure-options` |
+| `:mcp-servers` | map | MCP server configs keyed by server ID (see [MCP docs](./mcp/overview.md)). Local servers: `:mcp-command`, `:mcp-args`, `:mcp-tools`. Remote servers: `:mcp-server-type` (`:http`/`:sse`), `:mcp-url`, `:mcp-tools` |
 | `:custom-agents` | vector | Custom agent configs |
 | `:on-permission-request` | fn | Permission handler function |
 | `:streaming?` | boolean | Enable streaming deltas |

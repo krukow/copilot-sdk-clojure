@@ -3,6 +3,7 @@
             [krukow.copilot-sdk :as copilot]
             [krukow.copilot-sdk.protocol :as proto]
             [krukow.copilot-sdk.specs :as specs]
+            [krukow.copilot-sdk.util :as util]
             [clojure.spec.alpha :as s]
             [clojure.data.json])
   (:import [java.nio ByteBuffer]
@@ -257,3 +258,50 @@
       (is false "Should have thrown")
       (catch IllegalArgumentException e
         (is (re-find #"session.idle" (ex-message e)))))))
+
+;; =============================================================================
+;; MCP Wire Format Tests
+;; =============================================================================
+
+(deftest mcp-server-wire-format-test
+  (testing "local MCP server: :mcp-* prefix stripped on wire"
+    (let [wire (util/mcp-server->wire {:mcp-command "node"
+                                        :mcp-args ["server.js"]
+                                        :mcp-tools ["*"]
+                                        :mcp-timeout 30000
+                                        :env {"DEBUG" "true"}
+                                        :cwd "/tmp"})]
+      (is (= "node" (:command wire)))
+      (is (= ["server.js"] (:args wire)))
+      (is (= ["*"] (:tools wire)))
+      (is (= 30000 (:timeout wire)))
+      (is (= "true" (get-in wire [:env "DEBUG"])))
+      (is (= "/tmp" (:cwd wire)))
+      ;; Ensure no mcp-prefixed keys remain
+      (is (nil? (:mcpCommand wire)))
+      (is (nil? (:mcpArgs wire)))
+      (is (nil? (:mcpTools wire)))))
+
+  (testing "remote MCP server: :mcp-* prefix stripped on wire"
+    (let [wire (util/mcp-server->wire {:mcp-server-type :http
+                                        :mcp-url "https://example.com/mcp"
+                                        :mcp-tools ["*"]
+                                        :mcp-headers {"Authorization" "Bearer tok"}})]
+      (is (= "http" (:type wire)))
+      (is (= "https://example.com/mcp" (:url wire)))
+      (is (= ["*"] (:tools wire)))
+      (is (= "Bearer tok" (get-in wire [:headers "Authorization"])))
+      (is (nil? (:mcpServerType wire)))
+      (is (nil? (:mcpUrl wire)))))
+
+  (testing "mcp-servers->wire converts full servers map"
+    (let [wire (util/mcp-servers->wire
+                {"fs" {:mcp-command "npx"
+                       :mcp-args ["-y" "@mcp/server-fs" "/tmp"]
+                       :mcp-tools ["*"]}
+                 "api" {:mcp-server-type :http
+                        :mcp-url "https://api.test"
+                        :mcp-tools ["read" "write"]}})]
+      (is (= "npx" (get-in wire ["fs" :command])))
+      (is (= "https://api.test" (get-in wire ["api" :url])))
+      (is (= ["read" "write"] (get-in wire ["api" :tools]))))))

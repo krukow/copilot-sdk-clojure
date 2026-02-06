@@ -137,7 +137,7 @@
 (deftest test-create-session
   (testing "Create new session"
     (let [session (sdk/create-session *test-client*
-                                      {:model "gpt-4"})]
+                                      {:model "gpt-5.2"})]
       (is (some? session))
       (is (string? (sdk/session-id session)))
       (is (clojure.string/starts-with? (sdk/session-id session) "session-")))))
@@ -461,7 +461,8 @@
                                                     (when (#{"session.create" "session.resume"} method)
                                                       (swap! seen assoc method params))))
           _ (sdk/create-session *test-client*
-                                {:provider {:base-url "https://example.test"
+                                {:model "gpt-5.2"
+                                 :provider {:base-url "https://example.test"
                                             :api-key "key"}
                                  :mcp-servers {"srv-1" {:mcp-server-type :http
                                                         :mcp-url "https://mcp.test"
@@ -472,7 +473,8 @@
                                                   :agent-display-name "Agent One"}]})
           session-id (sdk/get-last-session-id *test-client*)
           _ (sdk/resume-session *test-client* session-id
-                                {:provider {:base-url "https://resume.test"}
+                                {:model "gpt-5.2"
+                                 :provider {:base-url "https://resume.test"}
                                  :mcp-servers {"srv-2" {:mcp-server-type :sse
                                                         :mcp-url "https://mcp.resume.test"
                                                         :mcp-tools ["*"]}}
@@ -482,16 +484,17 @@
           resume-params (get @seen "session.resume")]
       (is (= "https://example.test" (get-in create-params [:provider :baseUrl])))
       (is (= "key" (get-in create-params [:provider :apiKey])))
-      (is (= "http" (get-in create-params [:mcpServers :srv-1 :mcpServerType])))
-      (is (= "https://mcp.test" (get-in create-params [:mcpServers :srv-1 :mcpUrl])))
-      (is (= ["*"] (get-in create-params [:mcpServers :srv-1 :mcpTools])))
-      (is (= 1000 (get-in create-params [:mcpServers :srv-1 :mcpTimeout])))
+      ;; MCP server keys: :mcp-* prefix is stripped on wire (upstream uses bare names)
+      (is (= "http" (get-in create-params [:mcpServers :srv-1 :type])))
+      (is (= "https://mcp.test" (get-in create-params [:mcpServers :srv-1 :url])))
+      (is (= ["*"] (get-in create-params [:mcpServers :srv-1 :tools])))
+      (is (= 1000 (get-in create-params [:mcpServers :srv-1 :timeout])))
       (is (= "agent-1" (get-in create-params [:customAgents 0 :agentName])))
       (is (= "Agent One" (get-in create-params [:customAgents 0 :agentDisplayName])))
       (is (= "https://resume.test" (get-in resume-params [:provider :baseUrl])))
-      (is (= "sse" (get-in resume-params [:mcpServers :srv-2 :mcpServerType])))
-      (is (= "https://mcp.resume.test" (get-in resume-params [:mcpServers :srv-2 :mcpUrl])))
-      (is (= ["*"] (get-in resume-params [:mcpServers :srv-2 :mcpTools])))
+      (is (= "sse" (get-in resume-params [:mcpServers :srv-2 :type])))
+      (is (= "https://mcp.resume.test" (get-in resume-params [:mcpServers :srv-2 :url])))
+      (is (= ["*"] (get-in resume-params [:mcpServers :srv-2 :tools])))
       (is (= "agent-2" (get-in resume-params [:customAgents 0 :agentName]))))))
 
 ;; -----------------------------------------------------------------------------
