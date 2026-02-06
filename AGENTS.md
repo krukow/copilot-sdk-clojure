@@ -76,8 +76,14 @@ clj -T:build install
 
 ### Version Management
 
+This project uses 4-segment versioning: `UPSTREAM.CLJ_PATCH` (e.g., `0.1.22.0`).
+First 3 segments track the upstream copilot-sdk release, 4th is Clojure-specific.
+
 ```bash
-# Bump version (updates build.clj, README.md, examples/java/pom.xml)
+# Sync to new upstream release (updates build.clj, README.md, README-java.md, examples/java/pom.xml)
+clj -T:build sync-version :upstream '"0.1.23"'
+
+# Bump Clojure patch: 0.1.22.0 -> 0.1.22.1
 clj -T:build bump-version
 ```
 

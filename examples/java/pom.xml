@@ -15,7 +15,7 @@
     <properties>
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <copilot-sdk.version>0.2.3</copilot-sdk.version>
+        <copilot-sdk.version>0.1.22.0</copilot-sdk.version>
         <clojure.version>1.12.4</clojure.version>
         <core.async.version>1.8.741</core.async.version>
     </properties>

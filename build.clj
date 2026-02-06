@@ -9,7 +9,7 @@
 
 (def lib 'io.github.copilot-community-sdk/copilot-sdk-clojure)
 (def clojars-lib 'net.clojars.krukow/copilot-sdk)
-(def version "0.2.3")
+(def version "0.1.22.0")
 (def class-dir "target/classes")
 (def aot-namespaces ['krukow.copilot-sdk.java-api])
 
@@ -250,42 +250,81 @@
     (spit "README.md" updated)
     (println "Updated README.md SHA to" sha)))
 
-(defn bump-version
-  "Bump the version number.
-   Usage: clj -T:build bump-version              ; 0.1.4 -> 0.1.5-SNAPSHOT (default)
-          clj -T:build bump-version :type :minor ; 0.1.4 -> 0.2.0-SNAPSHOT
-          clj -T:build bump-version :type :major ; 0.1.4 -> 1.0.0-SNAPSHOT
-          clj -T:build bump-version :version '\"0.2.0\"'  ; explicit version
-          clj -T:build bump-version :snapshot false      ; release (no -SNAPSHOT)"
-  [{:keys [type version snapshot] :or {type :patch snapshot true}}]
-  (let [current-version (re-find #"^[\d.]+" build/version)
-        [major minor patch] (map parse-long (str/split current-version #"\."))
-        new-base (cond
-                   version version
-                   (= type :major) (format "%d.0.0" (inc major))
-                   (= type :minor) (format "%d.%d.0" major (inc minor))
-                   (= type :patch) (format "%d.%d.%d" major minor (inc patch))
-                   :else (throw (ex-info "Specify :type (:major, :minor, :patch) or :version" {})))
-        new-version (if snapshot (str new-base "-SNAPSHOT") new-base)
-        build-clj (slurp "build.clj")
+(defn- update-version-in-files!
+  "Update version string in all files that reference it."
+  [new-version]
+  ;; build.clj
+  (let [build-clj (slurp "build.clj")
         updated (str/replace build-clj
                              #"\(def version \"[^\"]+\"\)"
                              (str "(def version \"" new-version "\")"))]
     (when (= build-clj updated)
       (throw (ex-info "Failed to update version in build.clj" {})))
-    (spit "build.clj" updated)
-    ;; Update README.md version
-    (let [readme (slurp "README.md")
-          updated-readme (-> readme
-                             (str/replace #"\{:mvn/version \"[^\"]+\"\}"
-                                          (str "{:mvn/version \"" new-version "\"}")))]
-      (spit "README.md" updated-readme))
-    ;; Update examples/java/pom.xml version
-    (let [pom (slurp "examples/java/pom.xml")
-          updated-pom (str/replace pom
-                                   #"<copilot-sdk\.version>[^<]+</copilot-sdk\.version>"
-                                   (str "<copilot-sdk.version>" new-version "</copilot-sdk.version>"))]
-      (spit "examples/java/pom.xml" updated-pom))
+    (spit "build.clj" updated))
+  ;; README.md
+  (let [readme (slurp "README.md")
+        updated (-> readme
+                    (str/replace #"\{:mvn/version \"[^\"]+\"\}"
+                                 (str "{:mvn/version \"" new-version "\"}")))]
+    (spit "README.md" updated))
+  ;; README-java.md - only update copilot-sdk artifact versions, not dependencies
+  (let [readme-java (slurp "README-java.md")
+        ;; Match version tags that follow copilot-sdk-clojure or copilot-sdk artifact lines
+        updated (-> readme-java
+                    (str/replace #"(artifactId>copilot-sdk(?:-clojure)?</artifactId>\s*<version>)[^<]+(</version>)"
+                                 (str "$1" new-version "$2")))]
+    (spit "README-java.md" updated))
+  ;; examples/java/pom.xml
+  (let [pom (slurp "examples/java/pom.xml")
+        updated (str/replace pom
+                             #"<copilot-sdk\.version>[^<]+</copilot-sdk\.version>"
+                             (str "<copilot-sdk.version>" new-version "</copilot-sdk.version>"))]
+    (spit "examples/java/pom.xml" updated))
+  (println "Updated: build.clj, README.md, README-java.md, examples/java/pom.xml"))
+
+(defn- parse-version
+  "Parse a 4-segment version string into [upstream-major upstream-minor upstream-patch clj-patch]."
+  [v]
+  (let [base (str/replace v #"-SNAPSHOT$" "")
+        parts (str/split base #"\.")
+        nums (mapv parse-long parts)]
+    (case (count nums)
+      3 (conj nums 0)
+      4 nums
+      (throw (ex-info (str "Expected 3 or 4 version segments, got: " v) {:version v})))))
+
+(defn sync-version
+  "Set version to match an upstream copilot-sdk release.
+   The version format is UPSTREAM.PATCH where UPSTREAM is the 3-segment
+   upstream version and PATCH is a Clojure-specific patch counter (starts at 0).
+
+   Usage: clj -T:build sync-version :upstream '\"0.1.22\"'
+          clj -T:build sync-version :upstream '\"0.1.23\"' :snapshot true"
+  [{:keys [upstream snapshot] :or {snapshot false}}]
+  (when-not upstream
+    (throw (ex-info "Required: :upstream version (e.g., :upstream '\"0.1.22\"')" {})))
+  (let [parts (str/split upstream #"\.")
+        _ (when-not (= 3 (count parts))
+            (throw (ex-info "Upstream version must be 3 segments (e.g., \"0.1.22\")" {:upstream upstream})))
+        new-version (str upstream ".0" (when snapshot "-SNAPSHOT"))]
+    (update-version-in-files! new-version)
+    (println (str "Synced version to upstream " upstream ": " version " -> " new-version))
+    new-version))
+
+(defn bump-version
+  "Bump the Clojure-specific patch segment of the version.
+   Version format: UPSTREAM_MAJOR.UPSTREAM_MINOR.UPSTREAM_PATCH.CLJ_PATCH
+
+   Usage: clj -T:build bump-version                    ; 0.1.22.0 -> 0.1.22.1
+          clj -T:build bump-version :snapshot true      ; 0.1.22.0 -> 0.1.22.1-SNAPSHOT
+          clj -T:build bump-version :version '\"0.1.23.0\"'  ; explicit version"
+  [{:keys [version snapshot] :or {snapshot false}}]
+  (let [current (str/replace build/version #"-SNAPSHOT$" "")
+        [maj min patch clj-patch] (parse-version current)
+        new-version (cond
+                      version version
+                      :else (format "%d.%d.%d.%d" maj min patch (inc clj-patch)))
+        new-version (if snapshot (str new-version "-SNAPSHOT") new-version)]
+    (update-version-in-files! new-version)
     (println (str "Bumped version: " build/version " -> " new-version))
-    (println "Updated: build.clj, README.md, examples/java/pom.xml")
     new-version))

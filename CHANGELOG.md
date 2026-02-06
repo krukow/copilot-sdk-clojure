@@ -3,6 +3,12 @@ All notable changes to this project will be documented in this file. This change
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING**: Version scheme changed to 4-segment format `UPSTREAM.CLJ_PATCH` (e.g., `0.1.22.0`)
+  to track upstream copilot-sdk releases. See PUBLISHING.md for details.
+- New build tasks: `sync-version` (align to upstream), `bump-version` (increment clj-patch)
+- `bump-version` and `sync-version` now also update `README-java.md`
+
 ### Added
 - Resume session config parity with create-session (upstream PR #376):
   - `resume-session` now accepts `:model`, `:system-message`, `:available-tools`,

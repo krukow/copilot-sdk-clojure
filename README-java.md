@@ -12,7 +12,7 @@ Java API for programmatic control of GitHub Copilot CLI via JSON-RPC.
 <dependency>
     <groupId>io.github.copilot-community-sdk</groupId>
     <artifactId>copilot-sdk-clojure</artifactId>
-    <version>0.2.1</version>
+    <version>0.1.22.0</version>
 </dependency>
 ```
 
@@ -24,7 +24,7 @@ For the latest development version, use snapshots from the Maven Central snapsho
 <dependency>
     <groupId>io.github.copilot-community-sdk</groupId>
     <artifactId>copilot-sdk-clojure</artifactId>
-    <version>0.2.1-SNAPSHOT</version>
+    <version>0.1.22.0</version>
 </dependency>
 
 <repositories>
@@ -43,7 +43,7 @@ For the latest development version, use snapshots from the Maven Central snapsho
 <dependency>
     <groupId>net.clojars.krukow</groupId>
     <artifactId>copilot-sdk</artifactId>
-    <version>0.2.1</version>
+    <version>0.1.22.0</version>
 </dependency>
 
 <repositories>
