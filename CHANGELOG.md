@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file. This change
 - Replaced `cheshire/cheshire` (Clojars) with `org.clojure/data.json` (Maven Central)
   for JSON processing — eliminates Clojars and Jackson transitive dependencies
 - **Deprecated** Clojars publishing (`net.clojars.krukow/copilot-sdk`). Use Maven Central
-  (`io.github.krukow/copilot-sdk-clojure`) going forward.
+  (`io.github.copilot-community-sdk/copilot-sdk-clojure`) going forward.
 
 ### Removed
 - Java API (`java_api.clj`), Java examples, and AOT compilation.

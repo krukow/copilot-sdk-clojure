@@ -32,13 +32,13 @@ copilot --version
 Add to your `deps.edn`:
 
 ```clojure
-{:deps {io.github.krukow/copilot-sdk {:mvn/version "LATEST"}}}
+{:deps {io.github.copilot-community-sdk/copilot-sdk-clojure {:mvn/version "LATEST"}}}
 ```
 
 Or use as a Git dependency:
 
 ```clojure
-{:deps {io.github.krukow/copilot-sdk
+{:deps {io.github.copilot-community-sdk/copilot-sdk-clojure
         {:git/url "https://github.com/krukow/copilot-sdk-clojure"
          :git/sha "LATEST_SHA"}}}
 ```

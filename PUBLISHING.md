@@ -35,7 +35,7 @@ clj -T:build bump-version :snapshot true
 
 | Repository | Group ID | Artifact ID |
 |------------|----------|-------------|
-| Maven Central | `io.github.krukow` | `copilot-sdk-clojure` |
+| Maven Central | `io.github.copilot-community-sdk` | `copilot-sdk-clojure` |
 
 > **Note:** The Clojars artifact `net.clojars.krukow/copilot-sdk` is deprecated.
 > Use the Maven Central coordinates above.
@@ -91,7 +91,7 @@ clj -T:build deploy-central
 
 Uses version from `build.clj`. Override with `:version '"X.Y.Z"'` if needed.
 
-Publishes to `io.github.krukow/copilot-sdk-clojure`.
+Publishes to `io.github.copilot-community-sdk/copilot-sdk-clojure`.
 
 ## Local Testing
 

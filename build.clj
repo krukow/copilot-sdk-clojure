@@ -6,7 +6,7 @@
             [clojure.xml :as xml])
   (:import [java.io File]))
 
-(def lib 'io.github.krukow/copilot-sdk-clojure)
+(def lib 'io.github.copilot-community-sdk/copilot-sdk-clojure)
 (def version "0.1.22.1")
 (def class-dir "target/classes")
 
