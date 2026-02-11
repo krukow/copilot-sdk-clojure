@@ -139,13 +139,13 @@ jobs:
           fi
           case "$VERSION_STRATEGY" in
             sync-upstream)
-              clj -T:build sync-version :upstream "\"${UPSTREAM_VERSION}\"" "${args[@]}"
+              clojure -T:build sync-version :upstream "\"${UPSTREAM_VERSION}\"" "${args[@]}"
               ;;
             bump-clj-patch)
-              clj -T:build bump-version "${args[@]}"
+              clojure -T:build bump-version "${args[@]}"
               ;;
             set-version)
-              clj -T:build bump-version :version "\"${EXPLICIT_VERSION}\""
+              clojure -T:build bump-version :version "\"${EXPLICIT_VERSION}\""
               ;;
           esac
 
@@ -204,7 +204,7 @@ jobs:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
           GNUPGHOME: ${{ runner.temp }}/gnupg
-        run: clj -T:build deploy-central
+        run: clojure -T:build deploy-central
 
       - name: Identify release artifacts
         id: artifacts
