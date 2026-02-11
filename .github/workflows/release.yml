@@ -36,7 +36,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     env:
-      GNUPGHOME: ${{ runner.temp }}/gnupg
+      HAS_GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
@@ -169,15 +169,19 @@ jobs:
           git commit -m "chore: bump version for release"
 
       - name: Prepare GPG home
-        if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
+        if: ${{ env.HAS_GPG_KEY == 'true' }}
         run: |
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
           mkdir -p "$GNUPGHOME"
           chmod 700 "$GNUPGHOME"
 
       - name: Import GPG key
-        if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
+        if: ${{ env.HAS_GPG_KEY == 'true' }}
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
-          printf '%s' "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import --no-tty --quiet
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import --no-tty --quiet
 
       - name: Update README SHA
         run: bb readme:sha
@@ -202,6 +206,7 @@ jobs:
         env:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          GNUPGHOME: ${{ runner.temp }}/gnupg
         run: clj -T:build deploy-central
 
       - name: Identify release artifacts
@@ -224,5 +229,5 @@ jobs:
           subject-path: ${{ steps.artifacts.outputs.bundle }}
 
       - name: Cleanup GPG home
-        if: ${{ always() && secrets.GPG_PRIVATE_KEY != '' }}
-        run: rm -rf "$GNUPGHOME"
+        if: ${{ always() && env.HAS_GPG_KEY == 'true' }}
+        run: rm -rf "$RUNNER_TEMP/gnupg"
