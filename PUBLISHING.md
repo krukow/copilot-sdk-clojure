@@ -97,12 +97,44 @@ Publishes to `io.github.copilot-community-sdk/copilot-sdk-clojure`.
 
 Trigger the **Release** workflow manually in GitHub Actions. Inputs:
 
-- `version_strategy`: `none`, `sync-upstream`, `bump-clj-patch`, or `set-version`
-- `upstream_version`: required for `sync-upstream` (format `X.Y.Z`)
-- `explicit_version`: required for `set-version` (format `X.Y.Z.N` or `X.Y.Z.N-SNAPSHOT`)
-- `snapshot`: optional for `sync-upstream`/`bump-clj-patch` to append `-SNAPSHOT`
+| Input | Type | Description |
+|-------|------|-------------|
+| `version_strategy` | choice | `none` (use current), `sync-upstream`, `bump-clj-patch`, or `set-version` |
+| `upstream_version` | string | Required for `sync-upstream`; 3-segment version (e.g., `0.1.23`) |
+| `explicit_version` | string | Required for `set-version`; full version (e.g., `0.1.23.1` or `0.1.23.1-SNAPSHOT`) |
+| `snapshot` | boolean | Append `-SNAPSHOT` for `sync-upstream`/`bump-clj-patch` |
 
-When `version_strategy` is not `none`, the workflow commits the version update (build.clj/README.md). It then updates README's git SHA and commits that change as well, pushing both commits to the branch used for the release.
+When `version_strategy` is not `none`, the workflow commits the version update (`build.clj`/`README.md`), updates README's git SHA, and pushes both commits before deploying.
+
+### Required secrets
+
+| Secret | Description |
+|--------|-------------|
+| `CENTRAL_USERNAME` | Sonatype Central Portal token username |
+| `CENTRAL_PASSWORD` | Sonatype Central Portal token password |
+| `GPG_PRIVATE_KEY` | (Optional) ASCII-armored GPG private key for artifact signing |
+
+## Build Attestation
+
+Release artifacts are attested with [SLSA build provenance](https://slsa.dev/) using [`actions/attest-build-provenance`](https://github.com/actions/attest-build-provenance). Both the JAR and bundle zip receive attestations.
+
+View attestations: https://github.com/krukow/copilot-sdk-clojure/attestations
+
+### Verifying an attestation
+
+Use the [GitHub CLI](https://cli.github.com/) to verify a downloaded artifact against its attestation:
+
+```bash
+# Verify the JAR from a specific release
+gh attestation verify copilot-sdk-clojure-0.1.23.0.jar \
+  --repo krukow/copilot-sdk-clojure
+
+# Verify a JAR from your local Maven cache
+gh attestation verify ~/.m2/repository/io/github/copilot-community-sdk/copilot-sdk-clojure/0.1.23.0/copilot-sdk-clojure-0.1.23.0.jar \
+  --repo krukow/copilot-sdk-clojure
+```
+
+A successful verification confirms the artifact was built by the GitHub Actions release workflow in this repository and has not been tampered with.
 
 ## Local Testing
 

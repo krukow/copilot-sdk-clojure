@@ -23,4 +23,5 @@ Clojure SDK for programmatic control of the GitHub Copilot CLI via JSON-RPC.
 
 - [Style Guide](style.md) — Documentation authoring conventions
 - [AGENTS.md](../AGENTS.md) — Guidelines for AI agents working on this codebase
+- [PUBLISHING.md](../PUBLISHING.md) — Versioning, CI/CD workflows, release process, build attestation
 - [CHANGELOG](../CHANGELOG.md) — Version history
