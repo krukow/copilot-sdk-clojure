@@ -1,7 +1,7 @@
 (ns helpers-query
   (:require [clojure.core.async :refer [<!! go-loop <!]]
-            [krukow.copilot-sdk :as copilot :refer [evt]]
-            [krukow.copilot-sdk.helpers :as h]))
+            [github.copilot-sdk :as copilot :refer [evt]]
+            [github.copilot-sdk.helpers :as h]))
 
 ;; See examples/README.md for usage
 

@@ -21,7 +21,7 @@ This is the default when running the Copilot CLI interactively. Users authentica
 3. SDK automatically uses stored credentials
 
 ```clojure
-(require '[krukow.copilot-sdk :as copilot])
+(require '[github.copilot-sdk :as copilot])
 
 ;; Default: uses logged-in user credentials
 (copilot/with-client [client {}]
@@ -44,7 +44,7 @@ Use an OAuth GitHub App to authenticate users through your application. This ena
 3. Pass the token to the SDK via `:github-token`
 
 ```clojure
-(require '[krukow.copilot-sdk :as copilot])
+(require '[github.copilot-sdk :as copilot])
 
 (copilot/with-client [client {:github-token user-access-token}]
   ;; :use-logged-in-user? automatically defaults to false
@@ -77,7 +77,7 @@ For automation, CI/CD, and server-to-server scenarios, authenticate using enviro
 No code changes needed — the SDK automatically detects environment variables:
 
 ```clojure
-(require '[krukow.copilot-sdk :as copilot])
+(require '[github.copilot-sdk :as copilot])
 
 ;; Token is read from environment variable automatically
 (copilot/with-client [client {}]

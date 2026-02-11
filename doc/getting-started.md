@@ -39,7 +39,7 @@ Or use as a Git dependency:
 
 ```clojure
 {:deps {io.github.copilot-community-sdk/copilot-sdk-clojure
-        {:git/url "https://github.com/krukow/copilot-sdk-clojure"
+        {:git/url "https://github.com/copilot-community-sdk/copilot-sdk-clojure"
          :git/sha "LATEST_SHA"}}}
 ```
 
@@ -48,7 +48,7 @@ Or use as a Git dependency:
 The simplest way to use the SDK — about 3 lines of code:
 
 ```clojure
-(require '[krukow.copilot-sdk.helpers :as h])
+(require '[github.copilot-sdk.helpers :as h])
 
 (println (h/query "What is 2 + 2?"))
 ;; => "4"
@@ -59,7 +59,7 @@ That's it! The helpers API manages the client lifecycle automatically.
 For more control, use the explicit client/session API:
 
 ```clojure
-(require '[krukow.copilot-sdk :as copilot])
+(require '[github.copilot-sdk :as copilot])
 
 (copilot/with-client-session [session {:model "gpt-5.2"}]
   (let [response (copilot/send-and-wait! session {:prompt "What is 2 + 2?"})]
@@ -81,7 +81,7 @@ Right now, you wait for the complete response before seeing anything. Let's make
 ### Using Lazy Sequences
 
 ```clojure
-(require '[krukow.copilot-sdk.helpers :as h])
+(require '[github.copilot-sdk.helpers :as h])
 
 (defmulti handle-event :type)
 (defmethod handle-event :default [_] nil)
@@ -98,7 +98,7 @@ Right now, you wait for the complete response before seeing anything. Let's make
 
 ```clojure
 (require '[clojure.core.async :refer [chan tap go-loop <!]])
-(require '[krukow.copilot-sdk :as copilot])
+(require '[github.copilot-sdk :as copilot])
 
 (copilot/with-client-session [session {:model "gpt-5.2" :streaming? true}]
   (let [ch (chan 256)
@@ -138,8 +138,8 @@ The SDK uses core.async `mult/tap` for event subscription:
 Now for the powerful part. Let's give Copilot the ability to call your code by defining a custom tool:
 
 ```clojure
-(require '[krukow.copilot-sdk :as copilot])
-(require '[krukow.copilot-sdk.helpers :as h])
+(require '[github.copilot-sdk :as copilot])
+(require '[github.copilot-sdk.helpers :as h])
 
 ;; Define a tool that Copilot can call
 (def get-weather
@@ -170,8 +170,8 @@ Run it and you'll see Copilot call your tool to get weather data, then respond w
 Let's put it all together into an interactive assistant:
 
 ```clojure
-(require '[krukow.copilot-sdk :as copilot])
-(require '[krukow.copilot-sdk.helpers :as h])
+(require '[github.copilot-sdk :as copilot])
+(require '[github.copilot-sdk.helpers :as h])
 
 (def get-weather
   (copilot/define-tool "get_weather"

@@ -42,7 +42,7 @@
 (defn- pom-template [version]
   (let [email (get-developer-email)]
     [[:description "Clojure SDK for GitHub Copilot CLI."]
-     [:url "https://github.com/krukow/copilot-sdk-clojure"]
+     [:url "https://github.com/copilot-community-sdk/copilot-sdk-clojure"]
      [:licenses
       [:license
        [:name "MIT License"]
@@ -53,9 +53,9 @@
              [:name "Karl Krukow"]]
             (when email [[:email email]]))]
      [:scm
-      [:url "https://github.com/krukow/copilot-sdk-clojure"]
-      [:connection "scm:git:https://github.com/krukow/copilot-sdk-clojure.git"]
-      [:developerConnection "scm:git:ssh:git@github.com:krukow/copilot-sdk-clojure.git"]
+      [:url "https://github.com/copilot-community-sdk/copilot-sdk-clojure"]
+      [:connection "scm:git:https://github.com/copilot-community-sdk/copilot-sdk-clojure.git"]
+      [:developerConnection "scm:git:ssh:git@github.com:copilot-community-sdk/copilot-sdk-clojure.git"]
       [:tag (str "v" version)]]]))
 
 (defn- jar-opts [opts]
@@ -133,7 +133,7 @@
     (let [javadoc-dir "target/javadoc"]
       (b/delete {:path javadoc-dir})
       (shell/sh "mkdir" "-p" javadoc-dir)
-      (spit (str javadoc-dir "/README.md") "Clojure library. See https://github.com/krukow/copilot-sdk-clojure")
+      (spit (str javadoc-dir "/README.md") "Clojure library. See https://github.com/copilot-community-sdk/copilot-sdk-clojure")
       (b/jar {:class-dir javadoc-dir :jar-file (str artifact-dir "/" (:javadoc files))}))
       ;; Copy main JAR and POM
       (println "Copying artifacts...")

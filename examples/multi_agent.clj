@@ -1,7 +1,7 @@
 (ns multi-agent
   "Multi-agent pipeline: 3 researchers (parallel) → analyst → writer"
-  (:require [krukow.copilot-sdk :as copilot]
-            [krukow.copilot-sdk.helpers :as h]
+  (:require [github.copilot-sdk :as copilot]
+            [github.copilot-sdk.helpers :as h]
             [clojure.core.async :as async :refer [go <! <!!]]))
 
 ;; See examples/README.md for usage

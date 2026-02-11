@@ -2,7 +2,7 @@
   "1:1 port of copilot-sdk/nodejs/examples/basic-example.ts
    Demonstrates user cancellation (simulating Esc) with full event tracing."
   (:require [clojure.core.async :as async :refer [chan tap go-loop <!]]
-            [krukow.copilot-sdk :as copilot]))
+            [github.copilot-sdk :as copilot]))
 
 (defn run
   "Port of basic-example.ts — user cancels ask_user (simulates Esc).

@@ -45,14 +45,14 @@ doc/
 
 | Doc Area | Primary Sources | Affected Docs |
 |----------|----------------|---------------|
-| Helpers API | `src/krukow/copilot_sdk/helpers.clj` | `doc/reference/API.md` (Helpers section), `doc/getting-started.md` |
-| Client API | `src/krukow/copilot_sdk/client.clj` | `doc/reference/API.md` (Client section) |
-| Session API | `src/krukow/copilot_sdk/session.clj` | `doc/reference/API.md` (Session section) |
-| Tools | `src/krukow/copilot_sdk/client.clj` (`define-tool`, `result-success`) | `doc/reference/API.md` (Tools section) |
-| Specs | `src/krukow/copilot_sdk/specs.clj`, `src/krukow/copilot_sdk/instrument.clj` | `doc/reference/API.md` |
-| MCP | `src/krukow/copilot_sdk/util.clj` (`mcp-server->wire`), `src/krukow/copilot_sdk/client.clj` | `doc/mcp/overview.md`, `doc/mcp/debugging.md` |
-| Auth/BYOK | `src/krukow/copilot_sdk/client.clj` (`:provider` in `create-session`) | `doc/auth/index.md`, `doc/auth/byok.md` |
-| Events | `src/krukow/copilot_sdk/client.clj` (`event-types`, `subscribe-events!`) | `doc/reference/API.md` (Events section) |
+| Helpers API | `src/github/copilot_sdk/helpers.clj` | `doc/reference/API.md` (Helpers section), `doc/getting-started.md` |
+| Client API | `src/github/copilot_sdk/client.clj` | `doc/reference/API.md` (Client section) |
+| Session API | `src/github/copilot_sdk/session.clj` | `doc/reference/API.md` (Session section) |
+| Tools | `src/github/copilot_sdk/client.clj` (`define-tool`, `result-success`) | `doc/reference/API.md` (Tools section) |
+| Specs | `src/github/copilot_sdk/specs.clj`, `src/github/copilot_sdk/instrument.clj` | `doc/reference/API.md` |
+| MCP | `src/github/copilot_sdk/util.clj` (`mcp-server->wire`), `src/github/copilot_sdk/client.clj` | `doc/mcp/overview.md`, `doc/mcp/debugging.md` |
+| Auth/BYOK | `src/github/copilot_sdk/client.clj` (`:provider` in `create-session`) | `doc/auth/index.md`, `doc/auth/byok.md` |
+| Events | `src/github/copilot_sdk/client.clj` (`event-types`, `subscribe-events!`) | `doc/reference/API.md` (Events section) |
 | Examples | `examples/*.clj` | `examples/README.md`, related doc pages |
 
 ## Update Workflow
@@ -75,7 +75,7 @@ For each affected area, use the `explore` agent to gather information:
 
 ```
 task agent_type: explore
-prompt: "In /path/to/repo, find all public functions in src/krukow/copilot_sdk/helpers.clj. List function name, arglists, and docstring."
+prompt: "In /path/to/repo, find all public functions in src/github/copilot_sdk/helpers.clj. List function name, arglists, and docstring."
 ```
 
 Key things to check in source:
@@ -106,7 +106,7 @@ prompt: |
 
   **YOUR TASK**: Update doc/reference/API.md — Helpers API section
 
-  **RESEARCH**: Analyze src/krukow/copilot_sdk/helpers.clj for:
+  **RESEARCH**: Analyze src/github/copilot_sdk/helpers.clj for:
   - All public functions, their arglists, and docstrings
   - Option keys accepted (check specs.clj for spec definitions)
   - Return types and behavior
@@ -227,4 +227,4 @@ git diff --name-only main...HEAD -- src/ examples/
 # Launch parallel subagents for each affected doc
 ```
 
-Example: If `src/krukow/copilot_sdk/helpers.clj` changed, update `doc/reference/API.md` (Helpers section) and `doc/getting-started.md`.
+Example: If `src/github/copilot_sdk/helpers.clj` changed, update `doc/reference/API.md` (Helpers section) and `doc/getting-started.md`.

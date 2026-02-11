@@ -1,6 +1,6 @@
 (ns user-input
   (:require [clojure.core.async :as async :refer [chan tap go-loop <!]]
-            [krukow.copilot-sdk :as copilot :refer [evt]]))
+            [github.copilot-sdk :as copilot :refer [evt]]))
 
 ;; This example demonstrates handling user input requests (ask_user).
 ;; When the agent needs clarification or input from the user, it invokes the ask_user

@@ -26,8 +26,8 @@ The SDK supports two types of MCP servers:
 ### Local MCP Server
 
 ```clojure
-(require '[krukow.copilot-sdk :as copilot])
-(require '[krukow.copilot-sdk.helpers :as h])
+(require '[github.copilot-sdk :as copilot])
+(require '[github.copilot-sdk.helpers :as h])
 
 (copilot/with-client-session [session
                               {:model "gpt-5.2"
@@ -81,8 +81,8 @@ You can combine multiple MCP servers in a single session:
 Here's a complete working example using the official [`@modelcontextprotocol/server-filesystem`](https://www.npmjs.com/package/@modelcontextprotocol/server-filesystem) MCP server:
 
 ```clojure
-(require '[krukow.copilot-sdk :as copilot])
-(require '[krukow.copilot-sdk.helpers :as h])
+(require '[github.copilot-sdk :as copilot])
+(require '[github.copilot-sdk.helpers :as h])
 
 (copilot/with-client-session [session
                               {:model "gpt-5.2"

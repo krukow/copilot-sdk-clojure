@@ -1,6 +1,6 @@
 (ns basic-chat
-  (:require [krukow.copilot-sdk :as copilot]
-            [krukow.copilot-sdk.helpers :as h]))
+  (:require [github.copilot-sdk :as copilot]
+            [github.copilot-sdk.helpers :as h]))
 
 ;; See examples/README.md for usage
 

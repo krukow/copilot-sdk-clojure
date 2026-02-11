@@ -3,7 +3,7 @@
 
    This example demonstrates how to observe and handle session events."
   (:require [clojure.core.async :refer [<!!]]
-            [krukow.copilot-sdk :as copilot :refer [evt]]))
+            [github.copilot-sdk :as copilot :refer [evt]]))
 
 ;; See examples/README.md for usage
 (declare format-event)

@@ -38,7 +38,7 @@ Short paragraphs (1–3 sentences). Use code blocks liberally.
 - Use `;; prints:` comments for output
 
 ```clojure
-(require '[krukow.copilot-sdk.helpers :as h])
+(require '[github.copilot-sdk.helpers :as h])
 
 (h/query "What is 2+2?")
 ;; => "4"
@@ -46,9 +46,9 @@ Short paragraphs (1–3 sentences). Use code blocks liberally.
 
 ### Conventions
 
-- Use `copilot` as the alias for `krukow.copilot-sdk.client`
-- Use `h` as the alias for `krukow.copilot-sdk.helpers`
-- Use `session` as the alias for `krukow.copilot-sdk.session`
+- Use `copilot` as the alias for `github.copilot-sdk.client`
+- Use `h` as the alias for `github.copilot-sdk.helpers`
+- Use `session` as the alias for `github.copilot-sdk.session`
 - Prefer `def` over `let` in top-level examples for clarity
 - Include cleanup (`stop!`, `destroy!`) in lifecycle examples
 

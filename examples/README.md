@@ -106,8 +106,8 @@ clojure -A:examples -X basic-chat/run :q1 '"What is Clojure?"' :q2 '"Who created
 ### Code Walkthrough
 
 ```clojure
-(require '[krukow.copilot-sdk :as copilot])
-(require '[krukow.copilot-sdk.helpers :as h])
+(require '[github.copilot-sdk :as copilot])
+(require '[github.copilot-sdk.helpers :as h])
 
 ;; 1. Create a client and session
 (copilot/with-client-session [session {:model "gpt-5.2"}]
@@ -160,7 +160,7 @@ clojure -A:examples -X helpers-query/run-multi :questions '["What is Rust?" "Wha
 ### Code Walkthrough
 
 ```clojure
-(require '[krukow.copilot-sdk.helpers :as h])
+(require '[github.copilot-sdk.helpers :as h])
 
 ;; Simplest possible query - just get the answer
 (h/query "What is 2+2?")
@@ -206,8 +206,8 @@ clojure -A:examples -X tool-integration/run :languages '["clojure" "haskell"]'
 ### Code Walkthrough
 
 ```clojure
-(require '[krukow.copilot-sdk :as copilot])
-(require '[krukow.copilot-sdk.helpers :as h])
+(require '[github.copilot-sdk :as copilot])
+(require '[github.copilot-sdk.helpers :as h])
 
 ;; Define a tool with handler
 (def lookup-tool
@@ -386,7 +386,7 @@ clojure -A:examples -X session-events/run :prompt '"Explain recursion."'
 
 ```clojure
 (require '[clojure.core.async :refer [chan tap go-loop <!]])
-(require '[krukow.copilot-sdk :as copilot])
+(require '[github.copilot-sdk :as copilot])
 
 (def session-state-events
   #{:copilot/session.idle :copilot/session.usage_info :copilot/session.error
@@ -438,7 +438,7 @@ clojure -A:examples -X user-input/run-simple
 ### Code Walkthrough
 
 ```clojure
-(require '[krukow.copilot-sdk :as copilot])
+(require '[github.copilot-sdk :as copilot])
 
 (copilot/with-client-session [session {:model "gpt-5.2"
                                        :on-user-input-request
@@ -550,7 +550,7 @@ await client.start();
 
 **Clojure:**
 ```clojure
-(require '[krukow.copilot-sdk :as copilot])
+(require '[github.copilot-sdk :as copilot])
 (copilot/with-client [client]
   ;; use client
   )
@@ -565,7 +565,7 @@ await client.start();
 
 **Clojure:**
 ```clojure
-(require '[krukow.copilot-sdk.helpers :as h])
+(require '[github.copilot-sdk.helpers :as h])
 (h/query "What is 2+2?")
 ;; => "4"
 ```

@@ -15,8 +15,8 @@ BYOK allows you to use the Copilot SDK with your own API keys from model provide
 ## Quick Start: Azure AI Foundry
 
 ```clojure
-(require '[krukow.copilot-sdk :as copilot])
-(require '[krukow.copilot-sdk.helpers :as h])
+(require '[github.copilot-sdk :as copilot])
+(require '[github.copilot-sdk.helpers :as h])
 
 (copilot/with-client-session [session
                               {:model "gpt-5.2-codex"

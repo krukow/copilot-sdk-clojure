@@ -1,8 +1,8 @@
 (ns config-skill-output
   (:require [clojure.java.io :as io]
             [clojure.core.async :as async :refer [<!!]]
-            [krukow.copilot-sdk :as copilot]
-            [krukow.copilot-sdk.tools :as tools]))
+            [github.copilot-sdk :as copilot]
+            [github.copilot-sdk.tools :as tools]))
 
 ;; See examples/README.md for usage
 

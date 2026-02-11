@@ -118,7 +118,7 @@ When `version_strategy` is not `none`, the workflow commits the version update (
 
 Release artifacts are attested with [SLSA build provenance](https://slsa.dev/) using [`actions/attest-build-provenance`](https://github.com/actions/attest-build-provenance). Both the JAR and bundle zip receive attestations.
 
-View attestations: https://github.com/krukow/copilot-sdk-clojure/attestations
+View attestations: https://github.com/copilot-community-sdk/copilot-sdk-clojure/attestations
 
 ### Verifying an attestation
 
@@ -127,11 +127,11 @@ Use the [GitHub CLI](https://cli.github.com/) to verify a downloaded artifact ag
 ```bash
 # Verify the JAR from a specific release
 gh attestation verify copilot-sdk-clojure-0.1.23.0.jar \
-  --repo krukow/copilot-sdk-clojure
+  --repo copilot-community-sdk/copilot-sdk-clojure
 
 # Verify a JAR from your local Maven cache
 gh attestation verify ~/.m2/repository/io/github/copilot-community-sdk/copilot-sdk-clojure/0.1.23.0/copilot-sdk-clojure-0.1.23.0.jar \
-  --repo krukow/copilot-sdk-clojure
+  --repo copilot-community-sdk/copilot-sdk-clojure
 ```
 
 A successful verification confirms the artifact was built by the GitHub Actions release workflow in this repository and has not been tampered with.

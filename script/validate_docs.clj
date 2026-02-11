@@ -36,11 +36,11 @@
 
 (def source-namespaces
   "Known public namespaces in the SDK."
-  #{"krukow.copilot-sdk.client"
-    "krukow.copilot-sdk.session"
-    "krukow.copilot-sdk.helpers"
-    "krukow.copilot-sdk.specs"
-    "krukow.copilot-sdk.instrument"})
+  #{"github.copilot-sdk.client"
+    "github.copilot-sdk.session"
+    "github.copilot-sdk.helpers"
+    "github.copilot-sdk.specs"
+    "github.copilot-sdk.instrument"})
 
 ;; --- State ---
 
@@ -195,14 +195,14 @@
 
 (defn validate-namespace-refs [file content]
   (let [;; Look for require forms referencing our namespaces
-        ns-refs (re-seq #"krukow\.copilot[-_]sdk[.\w-]*" content)]
+        ns-refs (re-seq #"github\.copilot[-_]sdk[.\w-]*" content)]
     (doseq [ns-ref ns-refs]
       (let [normalized (str/replace ns-ref "_" "-")]
         (when (and (not (source-namespaces normalized))
-                   ;; Allow sub-references like krukow.copilot-sdk.client/start!
+                   ;; Allow sub-references like github.copilot-sdk.client/start!
                    (not (some #(str/starts-with? normalized (str % "/")) source-namespaces))
                    ;; Allow the base namespace
-                   (not= normalized "krukow.copilot-sdk"))
+                   (not= normalized "github.copilot-sdk"))
           (warn! file (format "Reference to unknown namespace: %s" normalized)))))))
 
 ;; --- Main ---

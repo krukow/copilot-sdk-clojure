@@ -148,7 +148,7 @@ This project emphasizes **rigor and correctness**, particularly for:
 ## Project Structure
 
 ```
-src/krukow/copilot_sdk/
+src/github/copilot_sdk/
 ├── client.clj       # Main client API (create-client, create-session, etc.)
 ├── session.clj      # Session operations (send!, send-and-wait!, etc.)
 ├── helpers.clj      # Convenience functions (query, query-seq!, query-chan, etc.)

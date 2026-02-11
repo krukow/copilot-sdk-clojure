@@ -1,6 +1,6 @@
 (ns permission-bash
-  (:require [krukow.copilot-sdk :as copilot]
-            [krukow.copilot-sdk.helpers :as h]
+  (:require [github.copilot-sdk :as copilot]
+            [github.copilot-sdk.helpers :as h]
             [clojure.pprint :as pprint]))
 
 ;; See examples/README.md for usage

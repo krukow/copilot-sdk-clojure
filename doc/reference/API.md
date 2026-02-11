@@ -5,7 +5,7 @@
 The helpers namespace provides simple, stateless query functions with automatic client management.
 
 ```clojure
-(require '[krukow.copilot-sdk.helpers :as h])
+(require '[github.copilot-sdk.helpers :as h])
 ```
 
 ### `query`
@@ -91,7 +91,7 @@ Explicitly shutdown the shared client. Safe to call multiple times.
 ## CopilotClient
 
 ```clojure
-(require '[krukow.copilot-sdk :as copilot])
+(require '[github.copilot-sdk :as copilot])
 ```
 
 ### Constructor
