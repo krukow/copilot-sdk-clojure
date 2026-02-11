@@ -18,6 +18,7 @@
   [{:keys [log-level use-stdio? port cli-args github-token use-logged-in-user?]}]
   (cond-> (vec (or cli-args []))
     true (conj "--server")
+    true (conj "--no-auto-update")
     log-level (conj "--log-level" (name log-level))
     use-stdio? (conj "--stdio")
     (and (not use-stdio?) port (pos? port)) (conj "--port" (str port))
