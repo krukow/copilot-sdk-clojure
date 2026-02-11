@@ -29,6 +29,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -201,6 +203,25 @@ jobs:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
         run: clj -T:build deploy-central
+
+      - name: Identify release artifacts
+        id: artifacts
+        run: |
+          jar=$(ls target/io.github.copilot-community-sdk/copilot-sdk-clojure-*.jar)
+          bundle=$(ls target/copilot-sdk-clojure-*-bundle.zip 2>/dev/null || true)
+          echo "jar=$jar" >> "$GITHUB_OUTPUT"
+          echo "bundle=$bundle" >> "$GITHUB_OUTPUT"
+
+      - name: Attest JAR provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: ${{ steps.artifacts.outputs.jar }}
+
+      - name: Attest bundle provenance
+        if: ${{ steps.artifacts.outputs.bundle != '' }}
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: ${{ steps.artifacts.outputs.bundle }}
 
       - name: Cleanup GPG home
         if: ${{ always() && secrets.GPG_PRIVATE_KEY != '' }}
