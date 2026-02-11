@@ -44,10 +44,6 @@ clojure -A:examples -X tool-integration/run :languages '["clojure" "haskell"]'
 clojure -A:examples -X multi-agent/run
 clojure -A:examples -X multi-agent/run :topics '["AI safety" "machine learning"]'
 
-# Streaming responses (with high reasoning effort)
-clojure -A:examples -X streaming-chat/run
-clojure -A:examples -X streaming-chat/run :prompt '"Explain the Fibonacci sequence."'
-
 # Config directory, skills, and large output
 clojure -A:examples -X config-skill-output/run
 
@@ -312,24 +308,7 @@ clojure -A:examples -X multi-agent/run :topics '["AI safety" "machine learning" 
 
 ---
 
-## Example 5: Streaming Chat (`streaming_chat.clj`)
-
-**Difficulty:** Intermediate  
-**Concepts:** Streaming deltas, event handling, incremental output
-
-Demonstrates how to enable streaming and render assistant output incrementally as
-`:copilot/assistant.message_delta` events arrive, then print the final message on idle.
-
-### Usage
-
-```bash
-clojure -A:examples -X streaming-chat/run
-clojure -A:examples -X streaming-chat/run :prompt '"Explain the Fibonacci sequence."'
-```
-
----
-
-## Example 6: Config, Skills, and Large Output (`config_skill_output.clj`)
+## Example 5: Config, Skills, and Large Output (`config_skill_output.clj`)
 
 **Difficulty:** Intermediate  
 **Concepts:** config-dir overrides, skill directories, disabling skills, large tool output settings

@@ -99,7 +99,7 @@ See [`examples/`](./examples/) for more patterns including streaming, custom too
 
 ## API Reference
 
-See [doc/API.md](./doc/API.md) for the complete API reference, including:
+See [doc/reference/API.md](./doc/reference/API.md) for the complete API reference, including:
 
 - **CopilotClient** - Client options, lifecycle methods (`start!`, `stop!`, `with-client`)
 - **CopilotSession** - Session methods (`send!`, `send-and-wait!`, `<send!`, `events`)
@@ -116,7 +116,6 @@ See the [`examples/`](./examples/) directory for complete working examples:
 | [`basic_chat.clj`](./examples/basic_chat.clj) | Beginner | Simple Q&A conversation with multi-turn context |
 | [`tool_integration.clj`](./examples/tool_integration.clj) | Intermediate | Custom tools that the LLM can invoke |
 | [`multi_agent.clj`](./examples/multi_agent.clj) | Advanced | Multi-agent orchestration with core.async |
-| [`streaming_chat.clj`](./examples/streaming_chat.clj) | Intermediate | Streaming deltas with incremental output |
 | [`config_skill_output.clj`](./examples/config_skill_output.clj) | Intermediate | Config dir, skills, and large output settings |
 | [`permission_bash.clj`](./examples/permission_bash.clj) | Intermediate | Permission handling with bash |
 
@@ -126,7 +125,6 @@ Run examples:
 clojure -A:examples -M -m basic-chat
 clojure -A:examples -M -m tool-integration
 clojure -A:examples -M -m multi-agent
-clojure -A:examples -M -m streaming-chat
 clojure -A:examples -M -m config-skill-output
 clojure -A:examples -M -m permission-bash
 ```

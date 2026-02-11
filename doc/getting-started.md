@@ -206,7 +206,7 @@ Let's put it all together into an interactive assistant:
 
 Now that you have the basics, explore these topics:
 
-- **[API Reference](./API.md)** — Complete API documentation
+- **[API Reference](./reference/API.md)** — Complete API documentation
 - **[Authentication](./auth/index.md)** — All auth methods including BYOK
 - **[MCP Servers](./mcp/overview.md)** — Connect to external tools via MCP
 - **[Examples](../examples/README.md)** — More working examples

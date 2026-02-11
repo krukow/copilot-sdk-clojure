@@ -38,4 +38,7 @@
              :task (clojure "-T:build" "deploy-central")}
 
   install {:doc "Install the JAR locally (build via ci)."
-           :task (clojure "-T:build" "install")}}}
+           :task (clojure "-T:build" "install")}
+
+  validate-docs {:doc "Validate documentation: links, code blocks, and structure."
+                 :task (shell "bb" "script/validate_docs.clj")}}}

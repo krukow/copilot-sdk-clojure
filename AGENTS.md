@@ -160,11 +160,16 @@ src/krukow/copilot_sdk/
 All these must be updated as appropriate when making changes:
 
 - `README.md` - User-facing documentation and quick start
-- `doc/API.md` - Detailed API reference - read this to understand the current API design
+- `doc/index.md` - Documentation hub / table of contents
+- `doc/reference/API.md` - Detailed API reference - read this to understand the current API design
 - `doc/getting-started.md` - Step-by-step tutorial for new users
+- `doc/style.md` - Documentation authoring style guide
 - `doc/auth/index.md` - Authentication guide (all methods, priority order)
 - `doc/auth/byok.md` - BYOK (Bring Your Own Key) provider guide
 - `doc/mcp/overview.md` - MCP server configuration guide
 - `doc/mcp/debugging.md` - MCP debugging and troubleshooting
 - `CHANGELOG.md` - Version history and changes
 - `AGENTS.md` - update this file when significant changes happen (e.g.Project Structure)
+
+Run `bb validate-docs` to check for broken links, unparseable code blocks, and structural issues.
+Use `/update-docs` skill (`.github/skills/update-docs/SKILL.md`) to regenerate docs after source changes.
