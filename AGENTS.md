@@ -170,8 +170,18 @@ All these must be updated as appropriate when making changes:
 - `doc/auth/byok.md` - BYOK (Bring Your Own Key) provider guide
 - `doc/mcp/overview.md` - MCP server configuration guide
 - `doc/mcp/debugging.md` - MCP debugging and troubleshooting
-- `CHANGELOG.md` - Version history and changes
-- `AGENTS.md` - update this file when significant changes happen (e.g.Project Structure)
+- `CHANGELOG.md` - Version history and changes (see below)
+- `AGENTS.md` - update this file when significant changes happen (e.g. Project Structure)
 
 Run `bb validate-docs` to check for broken links, unparseable code blocks, and structural issues.
 Use `/update-docs` skill (`.github/skills/update-docs/SKILL.md`) to regenerate docs after source changes.
+
+### Changelog
+
+`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/) conventions. When making changes:
+
+1. **Always update the `[Unreleased]` section** — add entries under `Added`, `Changed`, `Fixed`, or `Removed` as appropriate.
+2. **Group related entries** — use sub-headings like `### Added (CI/CD)` when a batch of changes belongs to a theme.
+3. **Mark breaking changes** with `**BREAKING**:` prefix.
+4. **Include upstream PR references** when porting features (e.g., "upstream PR #376").
+5. On release, the maintainer moves `[Unreleased]` entries to a versioned section and updates comparison links at the bottom.

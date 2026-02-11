@@ -3,6 +3,11 @@ All notable changes to this project will be documented in this file. This change
 
 ## [Unreleased]
 
+### Changed
+- **Repository moved** to [`copilot-community-sdk/copilot-sdk-clojure`](https://github.com/copilot-community-sdk/copilot-sdk-clojure)
+  on GitHub. Maven artifact unchanged: `io.github.copilot-community-sdk/copilot-sdk-clojure`.
+- Git dependency URL in README fixed to point to new org
+
 ### Added (v0.1.23 sync)
 - Selection attachment type support (`:selection` with `:file-path`, `:display-name`, `:selection-range`, `:text`)
 - Session lifecycle event subscription via `on-lifecycle-event` (`:session.created`, `:session.deleted`, `:session.updated`, `:session.foreground`, `:session.background`)
@@ -12,11 +17,19 @@ All notable changes to this project will be documented in this file. This change
 
 ### Added (CI/CD)
 - GitHub Actions CI workflow: runs `bb ci` (unit/integration tests, doc validation, jar build) on PRs and `main` pushes
-- GitHub Actions Release workflow: manual dispatch with version management inputs (`sync-upstream`, `bump-clj-patch`, `set-version`), GPG signing, Maven Central deploy, and [SLSA build provenance attestation](https://github.com/krukow/copilot-sdk-clojure/attestations)
+- GitHub Actions Release workflow: manual dispatch with version management inputs (`sync-upstream`, `bump-clj-patch`, `set-version`), GPG signing, Maven Central deploy, and [SLSA build provenance attestation](https://github.com/copilot-community-sdk/copilot-sdk-clojure/attestations)
 - `bb ci` task: runs tests, doc validation, and jar build (no copilot CLI required)
 - `bb ci:full` task: full pipeline including E2E tests and examples (requires copilot CLI)
 - Cross-platform `build.clj`: `md5-hash` and `sha1-hash` helpers with macOS/Linux fallback
 - Idempotent `update-readme-sha`: succeeds when README already has current SHA
+
+### Added (documentation)
+- `doc/index.md` — Documentation hub / table of contents
+- `doc/style.md` — Documentation authoring style guide
+- `doc/reference/API.md` — API reference (moved from `doc/API.md`)
+- `PUBLISHING.md` — Maven Central publishing guide
+- `script/validate_docs.clj` — Documentation validation script (`bb validate-docs`)
+- `.github/skills/update-docs/SKILL.md` — Update-docs skill for regenerating docs after source changes
 
 ### Changed
 - **BREAKING**: Version scheme changed to 4-segment format `UPSTREAM.CLJ_PATCH` (e.g., `0.1.22.0`)
@@ -30,6 +43,7 @@ All notable changes to this project will be documented in this file. This change
 ### Removed
 - Java API (`java_api.clj`), Java examples, and AOT compilation.
   For Java/JVM usage, see [copilot-sdk-java](https://github.com/copilot-community-sdk/copilot-sdk-java).
+- `doc/intro.md` and `doc/java-async-api.md` (replaced by reorganized documentation)
 
 ### Added
 - Resume session config parity with create-session (upstream PR #376):
@@ -126,5 +140,5 @@ All notable changes to this project will be documented in this file. This change
 - org.clojure/spec.alpha 0.5.238
 - cheshire/cheshire 5.13.0
 
-[Unreleased]: https://github.com/krukow/copilot-sdk-clojure/compare/0.1.0...HEAD
-[0.1.0]: https://github.com/krukow/copilot-sdk-clojure/releases/tag/0.1.0
+[Unreleased]: https://github.com/copilot-community-sdk/copilot-sdk-clojure/compare/0.1.0...HEAD
+[0.1.0]: https://github.com/copilot-community-sdk/copilot-sdk-clojure/releases/tag/0.1.0
