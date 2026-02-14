@@ -359,6 +359,9 @@ clojure -A:examples -X metadata-api/run
 - **get-quota**: Returns a map of quota type to snapshot (entitlement, used, remaining %)
 - **switch-model!**: Change models dynamically without losing conversation context
 
+> **Note:** Some methods (`tools.list`, `account.getQuota`, `session.model.*`) may not be
+> supported by all CLI versions. The example gracefully skips unsupported operations.
+
 ---
 
 ## Example 7: Permission Handling (`permission_bash.clj`)
