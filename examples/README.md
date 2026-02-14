@@ -47,6 +47,9 @@ clojure -A:examples -X multi-agent/run :topics '["AI safety" "machine learning"]
 # Config directory, skills, and large output
 clojure -A:examples -X config-skill-output/run
 
+# Metadata API (list-tools, get-quota, model switching)
+clojure -A:examples -X metadata-api/run
+
 # Permission handling
 clojure -A:examples -X permission-bash/run
 
@@ -72,7 +75,7 @@ Or run all examples:
 ```
 
 > **Note:** `run-all-examples.sh` runs the core examples (1–9) that need only the Copilot CLI.
-> The BYOK and MCP examples require external dependencies (API keys, Node.js) and must be run manually.
+> Example 10 (BYOK) and Example 11 (MCP) require external dependencies (API keys, Node.js) and must be run manually.
 
 With a custom CLI path:
 ```bash
@@ -324,6 +327,40 @@ Shows how to:
 ```bash
 clojure -A:examples -X config-skill-output/run
 ```
+
+---
+
+## Example 6: Metadata API (`metadata_api.clj`)
+
+**Difficulty:** Beginner  
+**Concepts:** list-sessions, list-tools, get-quota, get-current-model, switch-model
+
+Demonstrates the metadata API functions introduced in v0.1.24 for inspecting available tools, quota information, and dynamically switching models within a session.
+
+### What It Demonstrates
+
+- `list-sessions` with context filtering (by repository, branch, cwd)
+- `list-tools` to enumerate available tools, with optional model-specific overrides
+- `get-quota` to check account usage and entitlements
+- `get-current-model` to inspect the session's current model
+- `switch-model!` to change the model mid-conversation while maintaining context
+
+### Usage
+
+```bash
+# Run the metadata API demo
+clojure -A:examples -X metadata-api/run
+```
+
+### Key Points
+
+- **list-sessions**: Filter sessions by context (`:repository`, `:branch`, `:cwd`, `:git-root`)
+- **list-tools**: Get tool metadata; pass a model ID for model-specific tool lists
+- **get-quota**: Returns a map of quota type to snapshot (entitlement, used, remaining %)
+- **switch-model!**: Change models dynamically without losing conversation context
+
+> **Note:** Some methods (`tools.list`, `account.getQuota`, `session.model.*`) may not be
+> supported by all CLI versions. The example gracefully skips unsupported operations.
 
 ---
 

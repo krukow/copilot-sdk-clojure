@@ -27,6 +27,10 @@ echo "=== config-skill-output ==="
 clojure -A:examples -X config-skill-output/run
 
 echo ""
+echo "=== metadata-api ==="
+clojure -A:examples -X metadata-api/run
+
+echo ""
 echo "=== permission-bash ==="
 clojure -A:examples -X permission-bash/run
 

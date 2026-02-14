@@ -768,10 +768,12 @@ copilot/tool-events
 | `:copilot/session.context_changed` | Session context (cwd, repo, branch) changed |
 | `:copilot/session.title_changed` | Session title updated |
 | `:copilot/session.warning` | Session warning (e.g., quota limits) |
+| `:copilot/session.shutdown` | Session is shutting down |
 | `:copilot/session.truncation` | Context window truncated |
 | `:copilot/session.snapshot_rewind` | Session state rolled back |
 | `:copilot/session.compaction_start` | Context compaction started (infinite sessions) |
 | `:copilot/session.compaction_complete` | Context compaction completed (infinite sessions) |
+| `:copilot/skill.invoked` | Skill invocation triggered |
 | `:copilot/user.message` | User message added |
 | `:copilot/pending_messages.modified` | Pending message queue updated |
 | `:copilot/assistant.turn_start` | Assistant turn started |
