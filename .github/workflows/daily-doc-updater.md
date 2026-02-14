@@ -45,6 +45,8 @@ tools:
     - "bb ci"
     - "bb test"
     - ./run-all-examples.sh"
+    - "cat *"
+    - "jq *"
 
 timeout-minutes: 45
 
@@ -151,6 +153,13 @@ For each missing or incomplete feature documentation:
    - Follow the same structure
    - Use similar examples
    - Match the level of detail
+
+
+### 5. Identify Documentation Gaps
+
+If you added or changed any examples run them with `./run-all-examples.sh`.
+
+Also always run `bb validate-docs`
 
 ### 6. Create Pull Request
 
