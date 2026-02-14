@@ -623,3 +623,24 @@
   "Get the session workspace path when provided by the CLI."
   [session]
   (:workspace-path session))
+
+(defn get-current-model
+  "Get the current model for this session.
+   Returns the model ID string, or nil if none set."
+  [session]
+  (let [{:keys [session-id client]} session
+        conn (connection-io client)
+        result (proto/send-request! conn "session.model.getCurrent"
+                                    {:sessionId session-id})]
+    (:model-id result)))
+
+(defn switch-model!
+  "Switch the model for this session.
+   Returns the new model ID string, or nil."
+  [session model-id]
+  (let [{:keys [session-id client]} session
+        conn (connection-io client)
+        result (proto/send-request! conn "session.model.switchTo"
+                                    {:sessionId session-id
+                                     :modelId model-id})]
+    (:model-id result)))

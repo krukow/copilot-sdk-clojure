@@ -70,6 +70,20 @@ bb test
 COPILOT_E2E_TESTS=true bb test
 ```
 
+### Instrumented Testing
+
+All public API functions have `clojure.spec` fdefs defined in `instrument.clj`.
+When `github.copilot-sdk.instrument` is required (which happens automatically during
+integration tests), every public function call is validated against its spec at runtime.
+
+This means integration tests run with full spec checking — any argument or return
+value that violates a spec will throw immediately. When adding new public functions:
+
+1. Add an `s/fdef` in `src/github/copilot_sdk/instrument.clj`
+2. Add the function to both `instrument-all!` and `unstrument-all!` lists
+3. Ensure the corresponding specs exist in `src/github/copilot_sdk/specs.clj`
+4. Run `bb test` — if specs are wrong, instrumented tests will catch it
+
 ### Running Examples
 
 Examples are part of the test suite but run separately:

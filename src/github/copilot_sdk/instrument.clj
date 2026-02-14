@@ -53,7 +53,8 @@
   :ret ::specs/session)
 
 (s/fdef github.copilot-sdk.client/list-sessions
-  :args (s/cat :client ::specs/client)
+  :args (s/cat :client ::specs/client
+               :filter (s/? (s/nilable ::specs/session-list-filter)))
   :ret (s/coll-of ::specs/session-metadata))
 
 (s/fdef github.copilot-sdk.client/delete-session!
@@ -85,6 +86,15 @@
 (s/fdef github.copilot-sdk.client/list-models
   :args (s/cat :client ::specs/client)
   :ret (s/coll-of ::specs/model-info))
+
+(s/fdef github.copilot-sdk.client/list-tools
+  :args (s/cat :client ::specs/client
+               :model (s/? (s/nilable string?)))
+  :ret (s/coll-of ::specs/tool-info-entry))
+
+(s/fdef github.copilot-sdk.client/get-quota
+  :args (s/cat :client ::specs/client)
+  :ret ::specs/quota-snapshots)
 
 (s/fdef github.copilot-sdk.client/force-stop!
   :args (s/cat :client ::specs/client)
@@ -175,6 +185,15 @@
                :opts (s/? (s/keys :opt-un [::specs/buffer ::specs/xf])))
   :ret any?)  ; core.async channel
 
+(s/fdef github.copilot-sdk.session/get-current-model
+  :args (s/cat :session ::specs/session)
+  :ret ::specs/model-id)
+
+(s/fdef github.copilot-sdk.session/switch-model!
+  :args (s/cat :session ::specs/session
+               :model-id string?)
+  :ret ::specs/model-id)
+
 ;; -----------------------------------------------------------------------------
 ;; Function specs for helpers namespace
 ;; -----------------------------------------------------------------------------
@@ -214,6 +233,8 @@
                       github.copilot-sdk.client/get-status
                       github.copilot-sdk.client/get-auth-status
                       github.copilot-sdk.client/list-models
+                      github.copilot-sdk.client/list-tools
+                      github.copilot-sdk.client/get-quota
                       github.copilot-sdk.client/create-session
                       github.copilot-sdk.client/resume-session
                       github.copilot-sdk.client/list-sessions
@@ -233,6 +254,8 @@
                       github.copilot-sdk.session/destroy!
                       github.copilot-sdk.session/session-id
                       github.copilot-sdk.session/workspace-path
+                      github.copilot-sdk.session/get-current-model
+                      github.copilot-sdk.session/switch-model!
                       github.copilot-sdk.session/events
                       github.copilot-sdk.session/subscribe-events
                       github.copilot-sdk.session/unsubscribe-events
@@ -254,6 +277,8 @@
                       github.copilot-sdk.client/get-status
                       github.copilot-sdk.client/get-auth-status
                       github.copilot-sdk.client/list-models
+                      github.copilot-sdk.client/list-tools
+                      github.copilot-sdk.client/get-quota
                       github.copilot-sdk.client/create-session
                       github.copilot-sdk.client/resume-session
                       github.copilot-sdk.client/list-sessions
@@ -273,6 +298,8 @@
                       github.copilot-sdk.session/destroy!
                       github.copilot-sdk.session/session-id
                       github.copilot-sdk.session/workspace-path
+                      github.copilot-sdk.session/get-current-model
+                      github.copilot-sdk.session/switch-model!
                       github.copilot-sdk.session/events
                       github.copilot-sdk.session/subscribe-events
                       github.copilot-sdk.session/unsubscribe-events

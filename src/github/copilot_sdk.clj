@@ -42,6 +42,10 @@
     :copilot/session.usage_info
     :copilot/session.compaction_start
     :copilot/session.compaction_complete
+    :copilot/session.shutdown
+    :copilot/session.context_changed
+    :copilot/session.title_changed
+    :copilot/session.warning
     :copilot/user.message
     :copilot/pending_messages.modified
     :copilot/assistant.turn_start
@@ -62,6 +66,7 @@
     :copilot/subagent.completed
     :copilot/subagent.failed
     :copilot/subagent.selected
+    :copilot/skill.invoked
     :copilot/hook.start
     :copilot/hook.end
     :copilot/system.message})
@@ -79,7 +84,11 @@
     :copilot/session.snapshot_rewind
     :copilot/session.usage_info
     :copilot/session.compaction_start
-    :copilot/session.compaction_complete})
+    :copilot/session.compaction_complete
+    :copilot/session.shutdown
+    :copilot/session.context_changed
+    :copilot/session.title_changed
+    :copilot/session.warning})
 
 (def assistant-events
   "Assistant response events."
@@ -302,6 +311,38 @@
   [client]
   (client/list-models client))
 
+(defn list-tools
+  "List available tools with their metadata.
+   Optional model param returns model-specific tool overrides.
+
+   Returns a vector of tool info maps with keys:
+   :name :namespaced-name :description :parameters :instructions
+
+   Example:
+   ```clojure
+   (doseq [tool (copilot/list-tools client)]
+     (println (:name tool) \"-\" (:description tool)))
+   ```"
+  ([client]
+   (client/list-tools client))
+  ([client model]
+   (client/list-tools client model)))
+
+(defn get-quota
+  "Get account quota information.
+   Returns a map of quota type (string) to quota snapshot maps:
+   {:entitlement-requests :used-requests :remaining-percentage
+    :overage :overage-allowed-with-exhausted-quota? :reset-date}
+
+   Example:
+   ```clojure
+   (let [quotas (copilot/get-quota client)]
+     (doseq [[type snapshot] quotas]
+       (println type \":\" (:remaining-percentage snapshot) \"% remaining\")))
+   ```"
+  [client]
+  (client/get-quota client))
+
 ;; =============================================================================
 ;; Session Management
 ;; =============================================================================
@@ -455,9 +496,23 @@
 (defn list-sessions
   "List all available sessions.
    Returns a vector of session metadata maps:
-   {:session-id :start-time :modified-time :summary :remote?}"
-  [client]
-  (client/list-sessions client))
+   {:session-id :start-time :modified-time :summary :remote? :context}
+
+   Optional filter map narrows results by context fields:
+   {:cwd :git-root :repository :branch}
+
+   Example:
+   ```clojure
+   ;; List all sessions
+   (copilot/list-sessions client)
+
+   ;; Filter by repository
+   (copilot/list-sessions client {:repository \"owner/repo\"})
+   ```"
+  ([client]
+   (client/list-sessions client))
+  ([client filter-opts]
+   (client/list-sessions client filter-opts)))
 
 (defn delete-session!
   "Delete a session and its data from disk."
@@ -640,6 +695,28 @@
   "Get the session workspace path when provided by the CLI."
   [session]
   (session/workspace-path session))
+
+(defn get-current-model
+  "Get the current model for this session.
+   Returns the model ID string, or nil if none set.
+
+   Example:
+   ```clojure
+   (println \"Current model:\" (copilot/get-current-model session))
+   ```"
+  [session]
+  (session/get-current-model session))
+
+(defn switch-model!
+  "Switch the model for this session.
+   Returns the new model ID string, or nil.
+
+   Example:
+   ```clojure
+   (copilot/switch-model! session \"claude-sonnet-4.5\")
+   ```"
+  [session model-id]
+  (session/switch-model! session model-id))
 
 (defn session-config
   "Get the configuration that was passed to create this session.

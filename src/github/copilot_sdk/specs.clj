@@ -291,9 +291,24 @@
 (s/def ::summary string?)
 (s/def ::remote? boolean?)
 
+;; Session context (cwd, git info from session creation)
+(s/def ::git-root ::non-blank-string)
+(s/def ::repository ::non-blank-string)
+(s/def ::branch ::non-blank-string)
+
+(s/def ::session-context
+  (s/keys :req-un [::cwd]
+          :opt-un [::git-root ::repository ::branch]))
+
+;; Session list filter
+(s/def ::session-list-filter
+  (s/keys :opt-un [::cwd ::git-root ::repository ::branch]))
+
+(s/def ::context (s/nilable ::session-context))
+
 (s/def ::session-metadata
   (s/keys :req-un [::session-id ::start-time ::modified-time ::remote?]
-          :opt-un [::summary]))
+          :opt-un [::summary ::context]))
 
 ;; -----------------------------------------------------------------------------
 ;; Session lifecycle events (client-level)
@@ -329,6 +344,7 @@
     :copilot/session.truncation :copilot/session.snapshot_rewind :copilot/session.usage_info
     :copilot/session.compaction_start :copilot/session.compaction_complete
     :copilot/session.shutdown
+    :copilot/session.title_changed :copilot/session.warning :copilot/session.context_changed
     :copilot/user.message :copilot/pending_messages.modified
     :copilot/assistant.turn_start :copilot/assistant.intent :copilot/assistant.reasoning
     :copilot/assistant.reasoning_delta :copilot/assistant.message :copilot/assistant.message_delta
@@ -391,6 +407,21 @@
   (s/keys :req-un [::shutdown-type ::total-premium-requests ::total-api-duration-ms
                    ::session-start-time ::code-changes ::model-metrics]
           :opt-un [::error-reason ::current-model]))
+
+;; Session title changed event
+(s/def ::title string?)
+(s/def ::session.title_changed-data
+  (s/keys :req-un [::title]))
+
+;; Session warning event
+(s/def ::warning-type string?)
+(s/def ::session.warning-data
+  (s/keys :req-un [::warning-type ::message]))
+
+;; Session context changed event
+(s/def ::session.context_changed-data
+  (s/keys :req-un [::cwd]
+          :opt-un [::git-root ::repository ::branch]))
 
 ;; Skill invoked event
 (s/def ::allowed-tools (s/coll-of string?))
@@ -533,3 +564,41 @@
 (s/def ::buffer pos-int?)
 (s/def ::xf fn?)
 (s/def ::max-events pos-int?)
+
+;; -----------------------------------------------------------------------------
+;; Tool listing (tools.list RPC)
+;; -----------------------------------------------------------------------------
+
+(s/def ::namespaced-name string?)
+(s/def ::description string?)
+(s/def ::parameters (s/nilable map?))
+(s/def ::instructions (s/nilable string?))
+
+(s/def ::tool-info-entry
+  (s/keys :req-un [::name ::description]
+          :opt-un [::namespaced-name ::parameters ::instructions]))
+
+;; -----------------------------------------------------------------------------
+;; Account quota (account.getQuota RPC)
+;; -----------------------------------------------------------------------------
+
+(s/def ::entitlement-requests number?)
+(s/def ::used-requests number?)
+(s/def ::remaining-percentage number?)
+(s/def ::overage number?)
+(s/def ::overage-allowed-with-exhausted-quota? boolean?)
+(s/def ::reset-date string?)
+
+(s/def ::quota-snapshot
+  (s/keys :req-un [::entitlement-requests ::used-requests ::remaining-percentage
+                   ::overage ::overage-allowed-with-exhausted-quota?]
+          :opt-un [::reset-date]))
+
+(s/def ::quota-snapshots
+  (s/map-of string? ::quota-snapshot))
+
+;; -----------------------------------------------------------------------------
+;; Session model operations (session.model.getCurrent / switchTo)
+;; -----------------------------------------------------------------------------
+
+(s/def ::model-id (s/nilable string?))

@@ -744,6 +744,49 @@
           (throw result)
           result)))))
 
+(defn list-tools
+  "List available tools with their metadata.
+   Optional :model param returns model-specific tool overrides.
+   Returns a vector of tool info maps with keys:
+   :name :namespaced-name :description :parameters :instructions"
+  ([client]
+   (list-tools client nil))
+  ([client model]
+   (ensure-connected! client)
+   (let [{:keys [connection-io]} @(:state client)
+         result (proto/send-request! connection-io "tools.list"
+                                     (cond-> {}
+                                       model (assoc :model model)))
+         tools (:tools result)]
+     (mapv (fn [t]
+             (cond-> {:name (:name t)
+                      :description (:description t)}
+               (:namespaced-name t) (assoc :namespaced-name (:namespaced-name t))
+               (:parameters t) (assoc :parameters (:parameters t))
+               (:instructions t) (assoc :instructions (:instructions t))))
+           tools))))
+
+(defn get-quota
+  "Get account quota information.
+   Returns a map of quota type (string) to quota snapshot maps:
+   {:entitlement-requests :used-requests :remaining-percentage
+    :overage :overage-allowed-with-exhausted-quota? :reset-date}"
+  [client]
+  (ensure-connected! client)
+  (let [{:keys [connection-io]} @(:state client)
+        result (proto/send-request! connection-io "account.getQuota" {})
+        snapshots (:quota-snapshots result)]
+    (reduce-kv (fn [m k v]
+                 (assoc m (name k)
+                        (cond-> {:entitlement-requests (:entitlement-requests v)
+                                 :used-requests (:used-requests v)
+                                 :remaining-percentage (:remaining-percentage v)
+                                 :overage (:overage v)
+                                 :overage-allowed-with-exhausted-quota?
+                                 (:overage-allowed-with-exhausted-quota v)}
+                          (:reset-date v) (assoc :reset-date (:reset-date v)))))
+               {} snapshots)))
+
 (defn create-session
   "Create a new conversation session.
    
@@ -953,19 +996,36 @@
 
 (defn list-sessions
   "List all available sessions.
-   Returns a vector of session metadata maps."
-  [client]
-  (ensure-connected! client)
-  (let [{:keys [connection-io]} @(:state client)
-        result (proto/send-request! connection-io "session.list" {})
-        sessions (:sessions result)]
-    (mapv (fn [s]
-            {:session-id (:session-id s)
-             :start-time (java.time.Instant/parse (:start-time s))
-             :modified-time (java.time.Instant/parse (:modified-time s))
-             :summary (:summary s)
-             :remote? (:is-remote s)})
-          sessions)))
+   Returns a vector of session metadata maps.
+   Optional filter map narrows results by context fields:
+   {:cwd :git-root :repository :branch}"
+  ([client]
+   (list-sessions client nil))
+  ([client filter-opts]
+   (ensure-connected! client)
+   (let [{:keys [connection-io]} @(:state client)
+         wire-filter (when filter-opts
+                       (cond-> {}
+                         (:cwd filter-opts) (assoc :cwd (:cwd filter-opts))
+                         (:git-root filter-opts) (assoc :gitRoot (:git-root filter-opts))
+                         (:repository filter-opts) (assoc :repository (:repository filter-opts))
+                         (:branch filter-opts) (assoc :branch (:branch filter-opts))))
+         result (proto/send-request! connection-io "session.list"
+                                     (cond-> {}
+                                       wire-filter (assoc :filter wire-filter)))
+         sessions (:sessions result)]
+     (mapv (fn [s]
+             (let [ctx (:context s)]
+               (cond-> {:session-id (:session-id s)
+                        :start-time (java.time.Instant/parse (:start-time s))
+                        :modified-time (java.time.Instant/parse (:modified-time s))
+                        :summary (:summary s)
+                        :remote? (:is-remote s)}
+                 ctx (assoc :context (cond-> {:cwd (:cwd ctx)}
+                                      (:git-root ctx) (assoc :git-root (:git-root ctx))
+                                      (:repository ctx) (assoc :repository (:repository ctx))
+                                      (:branch ctx) (assoc :branch (:branch ctx)))))))
+           sessions))))
 
 (defn delete-session!
   "Delete a session and its data from disk."

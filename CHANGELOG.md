@@ -3,6 +3,15 @@ All notable changes to this project will be documented in this file. This change
 
 ## [Unreleased]
 
+### Added (v0.1.24 sync)
+- `list-sessions` now accepts optional filter map `{:cwd :git-root :repository :branch}` to narrow results by session context (upstream PR #427)
+- Session metadata from `list-sessions` now includes `:context` map with working directory info (`{:cwd :git-root :repository :branch}`) when available (upstream PR #427)
+- `list-tools` — list available tools with metadata; accepts optional model param for model-specific overrides (upstream PR #464)
+- `get-quota` — get account quota information (entitlements, usage, overage) (upstream PR #464)
+- `get-current-model` — get the current model for a session (session-scoped) (upstream PR #464)
+- `switch-model!` — switch the model for a session (session-scoped) (upstream PR #464)
+- New event types: `session.context_changed`, `session.title_changed`, `session.warning` (upstream PRs #396, #427)
+
 ### Changed
 - **BREAKING**: Namespace prefix renamed from `krukow.copilot-sdk` to `github.copilot-sdk`.
   All requires must be updated (e.g., `github.copilot-sdk.client`, `github.copilot-sdk.helpers`).

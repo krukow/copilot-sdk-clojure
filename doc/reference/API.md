@@ -320,6 +320,72 @@ Requires authentication. Returns a vector of model info maps:
  ...]
 ```
 
+#### `list-tools`
+
+```clojure
+(copilot/list-tools client)
+(copilot/list-tools client "gpt-5.2")
+```
+
+List available tools with their metadata. Pass an optional model string to get model-specific tool overrides.
+
+```clojure
+(copilot/list-tools client)
+;; => [{:name "read_file"
+;;      :namespaced-name "builtin.read_file"
+;;      :description "Read a file from disk"
+;;      :parameters {...}
+;;      :instructions "..."}
+;;     ...]
+
+;; Print all tool names
+(doseq [tool (copilot/list-tools client)]
+  (println (:name tool) "-" (:description tool)))
+```
+
+Each tool info map contains:
+
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
+| `:name` | string | yes | Short tool name |
+| `:namespaced-name` | string | no | Fully qualified tool name |
+| `:description` | string | yes | Human-readable description |
+| `:parameters` | map | no | JSON Schema of tool parameters |
+| `:instructions` | string | no | Usage instructions for the tool |
+
+#### `get-quota`
+
+```clojure
+(copilot/get-quota client)
+```
+
+Get account quota information. Returns a map of quota type (string) to quota snapshot maps.
+
+```clojure
+(copilot/get-quota client)
+;; => {"chat" {:entitlement-requests 1000
+;;             :used-requests 42
+;;             :remaining-percentage 95.8
+;;             :overage 0
+;;             :overage-allowed-with-exhausted-quota? false
+;;             :reset-date "2025-02-01T00:00:00Z"}}
+
+(let [quotas (copilot/get-quota client)]
+  (doseq [[type snapshot] quotas]
+    (println type ":" (:remaining-percentage snapshot) "% remaining")))
+```
+
+Each quota snapshot map contains:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `:entitlement-requests` | number | Total allowed requests |
+| `:used-requests` | number | Requests used so far |
+| `:remaining-percentage` | number | Percentage of quota remaining |
+| `:overage` | number | Number of requests over quota |
+| `:overage-allowed-with-exhausted-quota?` | boolean | Whether overage is allowed when quota is exhausted |
+| `:reset-date` | string (optional) | ISO 8601 date when quota resets |
+
 #### `state`
 
 ```clojure
@@ -373,10 +439,35 @@ Handlers are called synchronously on the notification router's go-loop. Keep han
 
 ```clojure
 (copilot/list-sessions client)
+(copilot/list-sessions client {:repository "owner/repo" :branch "main"})
 ```
 
-List all available sessions. Returns vector of session metadata with
-`:start-time` and `:modified-time` as `java.time.Instant`.
+List available sessions. Pass an optional filter map to narrow results by context fields.
+
+**Filter options:**
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `:cwd` | string | Filter by working directory |
+| `:git-root` | string | Filter by git repository root |
+| `:repository` | string | Filter by repository (e.g., `"owner/repo"`) |
+| `:branch` | string | Filter by branch name |
+
+Returns a vector of session metadata maps with `:start-time` and `:modified-time` as `java.time.Instant`. Sessions may include a `:context` map with the session's working directory and repository info.
+
+```clojure
+(copilot/list-sessions client)
+;; => [{:session-id "abc-123"
+;;      :start-time #inst "2025-01-15T10:00:00Z"
+;;      :modified-time #inst "2025-01-15T10:05:00Z"
+;;      :summary "Refactoring auth module"
+;;      :remote? false
+;;      :context {:cwd "/home/user/project"
+;;                :git-root "/home/user/project"
+;;                :repository "owner/repo"
+;;                :branch "main"}}
+;;     ...]
+```
 
 #### `delete-session!`
 
@@ -567,6 +658,34 @@ Abort the currently processing message.
 
 Get all events/messages from this session.
 
+#### `get-current-model`
+
+```clojure
+(copilot/get-current-model session)
+;; => "gpt-5.2"
+```
+
+Get the current model for this session. Returns the model ID string, or nil if none set.
+
+#### `switch-model!`
+
+```clojure
+(copilot/switch-model! session "claude-sonnet-4.5")
+;; => "claude-sonnet-4.5"
+```
+
+Switch the model for this session mid-conversation. Returns the new model ID string, or nil.
+
+```clojure
+(copilot/with-client-session [session {:model "gpt-5.2"}]
+  (println "Before:" (copilot/get-current-model session))
+  (copilot/switch-model! session "claude-sonnet-4.5")
+  (println "After:" (copilot/get-current-model session)))
+;; prints:
+;; Before: gpt-5.2
+;; After: claude-sonnet-4.5
+```
+
 #### `destroy!`
 
 ```clojure
@@ -646,6 +765,9 @@ copilot/tool-events
 | `:copilot/session.model_change` | Session model changed |
 | `:copilot/session.handoff` | Session handed off to another agent |
 | `:copilot/session.usage_info` | Token usage information |
+| `:copilot/session.context_changed` | Session context (cwd, repo, branch) changed |
+| `:copilot/session.title_changed` | Session title updated |
+| `:copilot/session.warning` | Session warning (e.g., quota limits) |
 | `:copilot/session.truncation` | Context window truncated |
 | `:copilot/session.snapshot_rewind` | Session state rolled back |
 | `:copilot/session.compaction_start` | Context compaction started (infinite sessions) |

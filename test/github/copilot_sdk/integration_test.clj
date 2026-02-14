@@ -149,6 +149,65 @@
       (is (seq sessions))
       (is (some #(= (sdk/session-id session) (:session-id %)) sessions)))))
 
+(deftest test-list-sessions-with-context
+  (testing "List sessions returns context when present"
+    (let [session (sdk/create-session *test-client* {})
+          sid (sdk/session-id session)]
+      (mock/set-session-context! *mock-server* sid
+                                 {:cwd "/home/user/project"
+                                  :gitRoot "/home/user/project"
+                                  :repository "owner/repo"
+                                  :branch "main"})
+      (let [sessions (sdk/list-sessions *test-client*)
+            found (first (filter #(= sid (:session-id %)) sessions))]
+        (is (some? found))
+        (is (= "/home/user/project" (get-in found [:context :cwd])))
+        (is (= "owner/repo" (get-in found [:context :repository])))
+        (is (= "main" (get-in found [:context :branch])))))))
+
+(deftest test-list-sessions-with-filter
+  (testing "List sessions filter narrows results"
+    (let [s1 (sdk/create-session *test-client* {})
+          s2 (sdk/create-session *test-client* {})]
+      (mock/set-session-context! *mock-server* (sdk/session-id s1)
+                                 {:cwd "/project-a" :repository "org/repo-a"})
+      (mock/set-session-context! *mock-server* (sdk/session-id s2)
+                                 {:cwd "/project-b" :repository "org/repo-b"})
+      (let [filtered (sdk/list-sessions *test-client* {:repository "org/repo-a"})]
+        (is (= 1 (count filtered)))
+        (is (= (sdk/session-id s1) (:session-id (first filtered))))))))
+
+(deftest test-list-tools
+  (testing "List tools returns tool info"
+    (let [tools (sdk/list-tools *test-client*)]
+      (is (seq tools))
+      (is (every? #(and (:name %) (:description %)) tools))
+      (is (some #(= "bash" (:name %)) tools))
+      (is (some #(= "builtin/grep" (:namespaced-name %)) tools)))))
+
+(deftest test-get-quota
+  (testing "Get quota returns quota snapshots"
+    (let [quotas (sdk/get-quota *test-client*)]
+      (is (map? quotas))
+      (is (contains? quotas "chat"))
+      (let [chat (get quotas "chat")]
+        (is (= 1000 (:entitlement-requests chat)))
+        (is (= 42 (:used-requests chat)))
+        (is (number? (:remaining-percentage chat)))
+        (is (= false (:overage-allowed-with-exhausted-quota? chat)))))))
+
+(deftest test-get-current-model
+  (testing "Get current model for session"
+    (let [session (sdk/create-session *test-client* {:model "gpt-5.2"})]
+      (is (= "gpt-5.2" (sdk/get-current-model session))))))
+
+(deftest test-switch-model
+  (testing "Switch model for session"
+    (let [session (sdk/create-session *test-client* {:model "gpt-5.2"})
+          new-model (sdk/switch-model! session "claude-sonnet-4.5")]
+      (is (= "claude-sonnet-4.5" new-model))
+      (is (= "claude-sonnet-4.5" (sdk/get-current-model session))))))
+
 (deftest test-delete-session
   (testing "Delete session removes it from list"
     (let [session (sdk/create-session *test-client* {})

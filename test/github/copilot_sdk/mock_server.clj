@@ -196,12 +196,24 @@
   {:events []})
 
 (defn- handle-session-list [server params]
-  {:sessions (mapv (fn [[id state]]
-                     {:sessionId id
-                      :startTime (.toString (:created-at state))
-                      :modifiedTime (.toString (java.time.Instant/now))
-                      :isRemote false})
-                   @(:sessions server))})
+  (let [filter-opts (:filter params)
+        sessions (mapv (fn [[id state]]
+                         (cond-> {:sessionId id
+                                  :startTime (.toString (:created-at state))
+                                  :modifiedTime (.toString (java.time.Instant/now))
+                                  :isRemote false}
+                           (:context state) (assoc :context (:context state))))
+                       @(:sessions server))
+        filtered (if filter-opts
+                   (filterv (fn [s]
+                              (let [ctx (:context s)]
+                                (and (or (nil? (:cwd filter-opts)) (= (:cwd filter-opts) (:cwd ctx)))
+                                     (or (nil? (:gitRoot filter-opts)) (= (:gitRoot filter-opts) (:gitRoot ctx)))
+                                     (or (nil? (:repository filter-opts)) (= (:repository filter-opts) (:repository ctx)))
+                                     (or (nil? (:branch filter-opts)) (= (:branch filter-opts) (:branch ctx))))))
+                            sessions)
+                   sessions)]
+    {:sessions filtered}))
 
 (defn- handle-session-delete [server params]
   (let [session-id (:sessionId params)]
@@ -213,6 +225,49 @@
     (if (empty? sessions)
       {:sessionId nil}
       {:sessionId (first (keys sessions))})))
+
+(defn- handle-tools-list [server params]
+  {:tools [{:name "bash"
+            :description "Run a shell command"
+            :parameters {:type "object"
+                         :properties {:command {:type "string"}}
+                         :required ["command"]}}
+           {:name "grep"
+            :namespacedName "builtin/grep"
+            :description "Search files for patterns"
+            :parameters {:type "object"
+                         :properties {:pattern {:type "string"}}
+                         :required ["pattern"]}
+            :instructions "Use for searching file contents"}]})
+
+(defn- handle-account-get-quota [server params]
+  {:quotaSnapshots {:chat {:entitlementRequests 1000
+                           :usedRequests 42
+                           :remainingPercentage 95.8
+                           :overage 0
+                           :overageAllowedWithExhaustedQuota false
+                           :resetDate "2026-03-01T00:00:00Z"}
+                    :premium_interactions {:entitlementRequests 500
+                                           :usedRequests 10
+                                           :remainingPercentage 98.0
+                                           :overage 0
+                                           :overageAllowedWithExhaustedQuota true}}})
+
+(defn- handle-session-model-get-current [server params]
+  (let [session-id (:sessionId params)
+        session-state (get @(:sessions server) session-id)]
+    (if session-state
+      {:modelId (:model session-state)}
+      (throw (ex-info "Session not found" {:code -32001 :session-id session-id})))))
+
+(defn- handle-session-model-switch-to [server params]
+  (let [session-id (:sessionId params)
+        model-id (:modelId params)]
+    (if (get @(:sessions server) session-id)
+      (do
+        (swap! (:sessions server) assoc-in [session-id :model] model-id)
+        {:modelId model-id})
+      (throw (ex-info "Session not found" {:code -32001 :session-id session-id})))))
 
 (defn- handle-request [server msg]
   (let [method (:method msg)
@@ -234,6 +289,10 @@
                  "session.list" (handle-session-list server params)
                  "session.delete" (handle-session-delete server params)
                  "session.getLastId" (handle-session-get-last-id server params)
+                 "tools.list" (handle-tools-list server params)
+                 "account.getQuota" (handle-account-get-quota server params)
+                 "session.model.getCurrent" (handle-session-model-get-current server params)
+                 "session.model.switchTo" (handle-session-model-switch-to server params)
                  (throw (ex-info "Method not found" {:code -32601 :method method})))]
     {:jsonrpc "2.0"
      :id (:id msg)
@@ -351,3 +410,8 @@
   [server session-id event-type event-data & {:keys [ephemeral?]}]
   (send-session-event server session-id
                       (make-event server (name event-type) event-data :ephemeral? ephemeral?)))
+
+(defn set-session-context!
+  "Set context on a mock session (for testing list-sessions with context)."
+  [server session-id context]
+  (swap! (:sessions server) assoc-in [session-id :context] context))
