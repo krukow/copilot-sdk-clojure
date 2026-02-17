@@ -283,6 +283,29 @@ jobs:
         with:
           subject-path: ${{ steps.artifacts.outputs.bundle }}
 
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+          ARGS=(
+            "$TAG"
+            --title "$TAG"
+            --generate-notes
+          )
+          # Attach artifacts
+          ARGS+=("${{ steps.artifacts.outputs.jar }}")
+          if [[ -n "${{ steps.artifacts.outputs.bundle }}" ]]; then
+            ARGS+=("${{ steps.artifacts.outputs.bundle }}")
+          fi
+          # Mark pre-release if SNAPSHOT
+          if [[ "$VERSION" == *-SNAPSHOT ]]; then
+            ARGS+=(--prerelease)
+          fi
+          gh release create "${ARGS[@]}"
+
       - name: Cleanup GPG home
         if: ${{ always() && env.HAS_GPG_KEY == 'true' }}
         run: rm -rf "$RUNNER_TEMP/gnupg"
