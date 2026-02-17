@@ -104,7 +104,9 @@ Trigger the **Release** workflow manually in GitHub Actions. Inputs:
 | `explicit_version` | string | Required for `set-version`; full version (e.g., `0.1.23.1` or `0.1.23.1-SNAPSHOT`) |
 | `snapshot` | boolean | Append `-SNAPSHOT` for `sync-upstream`/`bump-clj-patch` |
 
-When `version_strategy` is not `none`, the workflow commits the version update (`build.clj`/`README.md`), updates README's git SHA, and pushes both commits before deploying.
+When `version_strategy` is not `none`, the workflow bumps the version in `build.clj`/`README.md`, updates the README git SHA, then opens a PR to `main` with auto-merge enabled. Once CI passes and the PR merges, the workflow deploys to Maven Central, creates a release tag (`vX.Y.Z.N`), and attests the artifacts.
+
+**Prerequisites**: Enable **Allow auto-merge** in repository settings (Settings → General → Pull Requests).
 
 ### Required secrets
 

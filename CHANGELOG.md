@@ -38,6 +38,11 @@ All notable changes to this project will be documented in this file. This change
 - Cross-platform `build.clj`: `md5-hash` and `sha1-hash` helpers with macOS/Linux fallback
 - Idempotent `update-readme-sha`: succeeds when README already has current SHA
 
+### Changed (CI/CD)
+- Release workflow now creates a PR with auto-merge instead of pushing directly to `main`,
+  compatible with branch protection rules requiring PRs and status checks
+- Release workflow creates a `vX.Y.Z.N` tag after successful deploy
+
 ### Added (documentation)
 - `doc/index.md` — Documentation hub / table of contents
 - `doc/style.md` — Documentation authoring style guide
