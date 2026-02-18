@@ -38,10 +38,12 @@
     (let [session (<! (copilot/<create-session
                        client
                        {:system-message {:mode :append :content researcher-prompt}
-                        :model "gpt-4.1"}))
-          answer (<! (copilot/<send! session {:prompt (str "Research: " topic)}))]
-      {:topic topic
-       :findings answer})))
+                        :model "gpt-4.1"}))]
+      (if (instance? Throwable session)
+        {:topic topic :findings (str "Error: " (ex-message session))}
+        (let [answer (<! (copilot/<send! session {:prompt (str "Research: " topic)}))]
+          {:topic topic
+           :findings answer})))))
 
 (defn- format-research
   "Format research results as a summary string."

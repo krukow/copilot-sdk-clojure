@@ -479,7 +479,8 @@
                      (close! out-ch)
                      (release-lock!))]
       (go
-        (when (<! send-lock) ;; park for lock (nil = channel closed)
+        (if-not (<! send-lock) ;; park for lock (nil = channel closed)
+          (do (close! event-ch) (close! out-ch))
           (try
             (tap event-mult event-ch)
             ;; Send message via channel-based RPC (no blocking)

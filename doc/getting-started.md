@@ -133,9 +133,11 @@ Use `<create-session` and `<send!` for fully non-blocking operations inside `go`
 (copilot/with-client [client]
   (let [result-ch
         (go
-          (let [session (<! (copilot/<create-session client {:model "gpt-5.2"}))
-                answer  (<! (copilot/<send! session {:prompt "Capital of France?"}))]
-            answer))]
+          (let [session (<! (copilot/<create-session client {:model "gpt-5.2"}))]
+            (when (instance? Throwable session)
+              (throw session))
+            (let [answer (<! (copilot/<send! session {:prompt "Capital of France?"}))]
+              answer)))]
     (println (<!! result-ch))))
 ```
 

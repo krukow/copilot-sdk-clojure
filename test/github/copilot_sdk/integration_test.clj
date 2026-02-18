@@ -788,6 +788,7 @@
     (let [result-ch (sdk/<create-session *test-client* {:model "gpt-4.1"})
           [session _] (alts!! [result-ch (timeout 5000)])]
       (is (some? session) "<create-session should deliver a session")
+      (is (not (instance? Throwable session)) "<create-session should not return an error")
       (is (string? (sdk/session-id session)))
       (sdk/destroy! session))))
 
@@ -799,6 +800,9 @@
           [s1 _] (alts!! [ch1 (timeout 5000)])
           [s2 _] (alts!! [ch2 (timeout 5000)])
           [s3 _] (alts!! [ch3 (timeout 5000)])]
+      (is (not (instance? Throwable s1)) "<create-session s1 should not return an error")
+      (is (not (instance? Throwable s2)) "<create-session s2 should not return an error")
+      (is (not (instance? Throwable s3)) "<create-session s3 should not return an error")
       (is (some? s1))
       (is (some? s2))
       (is (some? s3))
