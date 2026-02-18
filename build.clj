@@ -7,7 +7,7 @@
   (:import [java.io File]))
 
 (def lib 'io.github.copilot-community-sdk/copilot-sdk-clojure)
-(def version "0.1.25.3")
+(def version "0.1.25.4")
 (def class-dir "target/classes")
 
 (defn- try-sh
