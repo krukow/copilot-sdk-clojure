@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file. This change
 
 ## [Unreleased]
 
+## [0.1.25.0] - 2026-02-18
 ### Added
 - **Core.async native async architecture** — eliminates all blocking operations from the async API path:
   - `<create-session` / `<resume-session` — async session lifecycle functions that return channels delivering `CopilotSession`, safe for use inside `go` blocks
@@ -177,5 +178,6 @@ All notable changes to this project will be documented in this file. This change
 - org.clojure/spec.alpha 0.5.238
 - cheshire/cheshire 5.13.0
 
-[Unreleased]: https://github.com/copilot-community-sdk/copilot-sdk-clojure/compare/0.1.0...HEAD
+[Unreleased]: https://github.com/copilot-community-sdk/copilot-sdk-clojure/compare/v0.1.25.0...HEAD
+[0.1.25.0]: https://github.com/copilot-community-sdk/copilot-sdk-clojure/compare/0.1.0...v0.1.25.0
 [0.1.0]: https://github.com/copilot-community-sdk/copilot-sdk-clojure/releases/tag/0.1.0
