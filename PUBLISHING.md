@@ -129,6 +129,7 @@ SNAPSHOT versions are marked as pre-release.
 | `CENTRAL_USERNAME` | Sonatype Central Portal token username |
 | `CENTRAL_PASSWORD` | Sonatype Central Portal token password |
 | `GPG_PRIVATE_KEY` | ASCII-armored GPG private key for artifact signing (required by Maven Central) |
+| `GPG_PASSPHRASE` | Passphrase for the GPG key (optional — omit if key has no passphrase) |
 
 ## Build Attestation
 

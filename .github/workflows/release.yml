@@ -238,11 +238,20 @@ jobs:
       - name: Import GPG key
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
+          set -euo pipefail
           export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          # Import key
           printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import --no-tty --quiet
-          echo "allow-loopback-pinentry" >> "$GNUPGHOME/gpg-agent.conf"
-          gpgconf --kill gpg-agent || true
+          # Configure agent to accept preset passphrases
+          printf '%s\n' "default-cache-ttl 7200" "max-cache-ttl 7200" "allow-preset-passphrase" > "$GNUPGHOME/gpg-agent.conf"
+          gpg-connect-agent "RELOADAGENT" /bye
+          # Preset passphrase for all keygrips via stdin (avoids exposing in /proc cmdline)
+          HEX_PASS=$(printf '%s' "${GPG_PASSPHRASE:-}" | xxd -p -c 256 | tr -d '\n' | tr 'a-f' 'A-F')
+          for KEYGRIP in $(gpg --batch --with-colons --with-keygrip --list-secret-keys | grep '^grp' | cut -d: -f10); do
+            echo "PRESET_PASSPHRASE $KEYGRIP -1 $HEX_PASS" | gpg-connect-agent
+          done
 
       # --- Deploy ---
 
@@ -251,7 +260,6 @@ jobs:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
           GNUPGHOME: ${{ runner.temp }}/gnupg
-          GPG_TTY: /dev/null
         run: |
           clojure -T:build deploy-central || {
             echo "::group::Deploy error details"
