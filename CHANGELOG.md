@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file. This change
 
 ## [Unreleased]
 
+## [0.1.25.1] - 2026-02-18
 ### Fixed
 - Release pipeline: GPG signing now fails fast with a clear error when no key is available, instead of silently producing unsigned artifacts that Maven Central rejects
 - Release pipeline: `stamp-changelog` no longer throws when `[Unreleased]` is empty — prints a warning and exits cleanly
@@ -185,6 +186,7 @@ All notable changes to this project will be documented in this file. This change
 - org.clojure/spec.alpha 0.5.238
 - cheshire/cheshire 5.13.0
 
-[Unreleased]: https://github.com/copilot-community-sdk/copilot-sdk-clojure/compare/v0.1.25.0...HEAD
+[Unreleased]: https://github.com/copilot-community-sdk/copilot-sdk-clojure/compare/v0.1.25.1...HEAD
+[0.1.25.1]: https://github.com/copilot-community-sdk/copilot-sdk-clojure/compare/v0.1.25.0...v0.1.25.1
 [0.1.25.0]: https://github.com/copilot-community-sdk/copilot-sdk-clojure/compare/0.1.0...v0.1.25.0
 [0.1.0]: https://github.com/copilot-community-sdk/copilot-sdk-clojure/releases/tag/0.1.0
