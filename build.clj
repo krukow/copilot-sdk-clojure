@@ -292,3 +292,64 @@
     (update-version-in-files! new-version)
     (println (str "Bumped version: " build/version " -> " new-version))
     new-version))
+
+(def ^:private changelog-file "CHANGELOG.md")
+(def ^:private repo-url "https://github.com/copilot-community-sdk/copilot-sdk-clojure")
+
+(defn stamp-changelog
+  "Move [Unreleased] entries to a versioned section in CHANGELOG.md.
+   Uses the current version from build.clj and today's date.
+
+   Transforms:
+     ## [Unreleased]
+     ### Added
+     - feature X
+   Into:
+     ## [Unreleased]
+
+     ## [0.1.24.3] - 2026-02-18
+     ### Added
+     - feature X
+
+   Also updates the comparison links at the bottom.
+
+   Usage: clj -T:build stamp-changelog"
+  [_]
+  (let [changelog (slurp changelog-file)
+        today (.format (java.time.LocalDate/now)
+                       (java.time.format.DateTimeFormatter/ISO_LOCAL_DATE))
+        ver version
+        tag (str "v" ver)
+        ;; Find the [Unreleased] header and capture everything until the next ## section.
+        ;; Uses single \n after header so the lookahead \n## can detect an empty section.
+        unreleased-re #"(?s)## \[Unreleased\]\n(.*?)(?=\n## \[)"
+        m (re-find unreleased-re changelog)]
+    (when-not m
+      (throw (ex-info "Could not find [Unreleased] section in CHANGELOG.md" {})))
+    (let [unreleased-content (str/trim (nth m 1))]
+      (when (str/blank? unreleased-content)
+        (throw (ex-info "No entries under [Unreleased] — nothing to release" {})))
+      (let [;; Replace the [Unreleased] block with a fresh empty one + versioned section
+            new-section (str "## [Unreleased]\n\n"
+                             "## [" ver "] - " today "\n"
+                             unreleased-content)
+            updated (str/replace changelog #"(?s)## \[Unreleased\]\n.*?(?=\n## \[)"
+                                 (str new-section "\n"))
+            ;; Update comparison links at bottom:
+            ;; [Unreleased]: .../compare/OLD...HEAD  →  .../compare/vNEW...HEAD
+            ;; Add new version link: [NEW]: .../compare/OLD_TAG...vNEW
+            ;; Find the previous version tag from the existing [Unreleased] link
+            prev-tag-re #"\[Unreleased\]: .*/compare/(.+?)\.\.\.HEAD"
+            prev-tag (second (re-find prev-tag-re updated))
+            updated (if prev-tag
+                      (-> updated
+                          ;; Update [Unreleased] link to compare from new tag
+                          (str/replace (re-pattern (str "\\[Unreleased\\]: .*/compare/.*?\\.\\.\\.HEAD"))
+                                       (str "[Unreleased]: " repo-url "/compare/" tag "...HEAD"))
+                          ;; Insert new version link after [Unreleased] link
+                          (str/replace (str "[Unreleased]: " repo-url "/compare/" tag "...HEAD")
+                                       (str "[Unreleased]: " repo-url "/compare/" tag "...HEAD\n"
+                                            "[" ver "]: " repo-url "/compare/" prev-tag "..." tag)))
+                      updated)]
+        (spit changelog-file updated)
+        (println (str "Stamped CHANGELOG.md: [Unreleased] → [" ver "] - " today))))))

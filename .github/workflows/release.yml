@@ -164,6 +164,9 @@ jobs:
       - name: Update README SHA
         run: bb readme:sha
 
+      - name: Stamp changelog
+        run: clojure -T:build stamp-changelog
+
       # --- PR flow: branch protection requires changes go through a PR ---
 
       - name: Create release PR
@@ -180,7 +183,7 @@ jobs:
           VERSION=$(grep -m1 -F '(def version' build.clj | sed 's/.*"\(.*\)".*/\1/')
           BRANCH="release/v${VERSION}-run${GITHUB_RUN_ID}"
           git checkout -b "$BRANCH"
-          git add build.clj README.md
+          git add build.clj README.md CHANGELOG.md
           git commit -m "chore: release v${VERSION}"
           git push origin "$BRANCH"
           PR_URL=$(gh pr create \
