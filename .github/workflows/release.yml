@@ -249,6 +249,7 @@ jobs:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
           GNUPGHOME: ${{ runner.temp }}/gnupg
+          GPG_TTY: /dev/null
         run: |
           clojure -T:build deploy-central || {
             echo "::group::Deploy error details"

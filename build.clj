@@ -143,7 +143,7 @@
       (println "Signing and checksumming...")
       (doseq [f (vals files)
               :let [path (str artifact-dir "/" f)]]
-        (let [result (shell/sh "gpg" "--batch" "--no-tty" "-ab" path)]
+        (let [result (shell/sh "gpg" "--batch" "--no-tty" "--pinentry-mode" "loopback" "-ab" path)]
           (when-not (zero? (:exit result))
             (throw (ex-info (str "GPG signing failed for " f
                                  ". Ensure a GPG key is available (see PUBLISHING.md).")
