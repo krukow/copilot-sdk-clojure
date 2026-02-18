@@ -2,7 +2,7 @@
   "Multi-agent pipeline: 3 researchers (parallel) → analyst → writer"
   (:require [github.copilot-sdk :as copilot]
             [github.copilot-sdk.helpers :as h]
-            [clojure.core.async :as async :refer [go <! <!!]]))
+            [clojure.core.async :as async :refer [<!! <! go]]))
 
 ;; See examples/README.md for usage
 
@@ -16,6 +16,7 @@
 (defn run
   [{:keys [topics] :or {topics (:topics defaults)}}]
   (copilot/with-client [client]
+    (println "🗂️  CLI process working directory:" (get-in client [:options :cwd]))
     (->> (research-phase client topics)
          (analysis-phase client)
          (synthesis-phase client))))
@@ -30,13 +31,17 @@
 
 (def researcher-prompt "You are a research assistant. Be concise: 2-3 bullet points.")
 (defn- research-topic
-  "Start async research on a topic. Returns channel yielding {:topic :findings}."
+  "Start parallel research on a topic. Returns channel yielding {:topic :findings}.
+   Uses go + <create-session + <send! — parks instead of blocking."
   [client topic]
-  (let [session (copilot/create-session
-                 client
-                 {:system-message {:mode :append :content researcher-prompt}})]
-    (go {:topic topic
-         :findings (<! (copilot/<send! session {:prompt (str "Research: " topic)}))})))
+  (go
+    (let [session (<! (copilot/<create-session
+                       client
+                       {:system-message {:mode :append :content researcher-prompt}
+                        :model "gpt-4.1"}))
+          answer (<! (copilot/<send! session {:prompt (str "Research: " topic)}))]
+      {:topic topic
+       :findings answer})))
 
 (defn- format-research
   "Format research results as a summary string."
@@ -62,7 +67,7 @@
   (with-timing
     (doto (h/query (str "Analyze these findings:\n\n" research-summary)
                    :client client
-                   :session {:system-prompt analyst-prompt})
+                   :session {:system-prompt analyst-prompt :model "gpt-5.2"})
       (->> (println "Analysis:\n")))))
 
 (def synthesis-prompt "You are a writer. Create clear, engaging prose.")
@@ -73,5 +78,5 @@
   (with-timing
     (doto (h/query (str "Write a 3-4 sentence executive summary. ANALYSIS: " analysis)
                    :client client
-                   :session {:system-prompt synthesis-prompt})
+                   :session {:system-prompt synthesis-prompt :model "gpt-5.2"})
       println)))
