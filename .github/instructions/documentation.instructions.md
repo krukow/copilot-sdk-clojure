@@ -101,9 +101,13 @@ When adding new features:
 
 1. **Always update the `[Unreleased]` section** — add entries under `Added`, `Changed`, `Fixed`, or `Removed`
 2. **Group related entries** — use sub-headings like `### Added (CI/CD)` when appropriate
-3. **Mark breaking changes** with `**BREAKING**:` prefix
-4. **Include upstream PR references** when porting features (e.g., "upstream PR #376")
-5. On release, the maintainer moves `[Unreleased]` entries to a versioned section
+3. **Upstream sync annotations** — when porting changes from an upstream copilot-sdk release, annotate
+   the sub-heading with the upstream version: `### Added (v0.1.24 sync)`. Individual entries should also
+   cite specific upstream PRs (e.g., "upstream PR #376"). Clojure-specific changes use other annotations
+   like `(CI/CD)`, `(documentation)`, or none.
+4. **Mark breaking changes** with `**BREAKING**:` prefix
+5. On release, the maintainer moves `[Unreleased]` entries to a versioned section. The release version
+   (`UPSTREAM.CLJ_PATCH`, e.g., `0.1.24.0`) encodes upstream parity.
 
 ## Cross-References
 

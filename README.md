@@ -97,6 +97,23 @@ Use `<send!` with core.async for non-blocking operations:
 
 See [`examples/`](./examples/) for more patterns including streaming, custom tools, and multi-agent orchestration.
 
+### List Available Models
+
+Discover available models and their billing multipliers:
+
+```clojure
+(require '[github.copilot-sdk :as copilot])
+
+(copilot/with-client [client]
+  (doseq [m (copilot/list-models client)]
+    (println (:id m) (str "x" (get-in m [:model-billing :multiplier])))))
+;; prints:
+;; gpt-5.2 x1.0
+;; claude-sonnet-4.5 x1.0
+;; o1 x2.0
+;; ...
+```
+
 ## API Reference
 
 See [doc/reference/API.md](./doc/reference/API.md) for the complete API reference, including:

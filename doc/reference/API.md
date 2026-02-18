@@ -230,6 +230,7 @@ Create a client and session together, ensuring both are cleaned up on exit.
 | `:large-output` | map | (Experimental) Tool output handling config. CLI protocol feature, not in official SDK. |
 | `:working-directory` | string | Working directory for the session (tool operations relative to this) |
 | `:infinite-sessions` | map | Infinite session config (see below) |
+| `:env-value-mode` | string | Environment value mode. Defaults to `"direct"` (always sent). |
 | `:reasoning-effort` | string | Reasoning effort level: `"low"`, `"medium"`, `"high"`, or `"xhigh"` |
 | `:on-user-input-request` | fn | Handler for `ask_user` requests (see below) |
 | `:hooks` | map | Lifecycle hooks (see below) |
@@ -252,6 +253,43 @@ Resume an existing session by ID. The `config` map accepts the same options as `
 (copilot/resume-session client "session-123"
   {:model "claude-sonnet-4"
    :reasoning-effort "high"})
+```
+
+#### `<create-session`
+
+```clojure
+(copilot/<create-session client config)
+```
+
+Async version of `create-session`. Returns a channel that delivers a `CopilotSession`.
+
+Validation is synchronous (throws immediately on invalid config). The RPC call parks instead of blocking, making this safe inside `go` blocks.
+
+```clojure
+(require '[clojure.core.async :refer [go <!]])
+
+(go
+  (let [session (<! (copilot/<create-session client {:model "gpt-5.2"}))]
+    (let [answer (<! (copilot/<send! session {:prompt "Hello"}))]
+      (println answer))))
+```
+
+#### `<resume-session`
+
+```clojure
+(copilot/<resume-session client session-id)
+(copilot/<resume-session client session-id config)
+```
+
+Async version of `resume-session`. Returns a channel that delivers a `CopilotSession`.
+
+Same config options as `resume-session`. Safe for use inside `go` blocks.
+
+```clojure
+(go
+  (let [session (<! (copilot/<resume-session client "session-123"))]
+    ;; use resumed session
+    ))
 ```
 
 #### `ping`
@@ -318,6 +356,21 @@ Requires authentication. Returns a vector of model info maps:
   :supported-reasoning-efforts ["low" "medium" "high" "xhigh"]
   :default-reasoning-effort "medium"}
  ...]
+```
+
+List all models with their billing multiplier:
+
+```clojure
+(require '[github.copilot-sdk :as copilot])
+
+(copilot/with-client [client]
+  (doseq [m (copilot/list-models client)]
+    (println (:id m) (str "x" (get-in m [:model-billing :multiplier])))))
+;; prints:
+;; gpt-5.2 x1.0
+;; claude-sonnet-4.5 x1.0
+;; o1 x2.0
+;; ...
 ```
 
 #### `list-tools`
@@ -529,9 +582,19 @@ Send a message to the session. Returns immediately with the message ID.
 
 | Type | Required Keys | Optional Keys | Description |
 |------|--------------|---------------|-------------|
-| `:file` | `:type`, `:path` | `:display-name` | File attachment |
-| `:directory` | `:type`, `:path` | `:display-name` | Directory attachment |
+| `:file` | `:type`, `:path` | `:display-name`, `:line-range` | File attachment |
+| `:directory` | `:type`, `:path` | `:display-name`, `:line-range` | Directory attachment |
 | `:selection` | `:type`, `:file-path`, `:display-name` | `:selection-range`, `:text` | Code selection attachment |
+
+`:line-range` is a map with `:start` and `:end` line numbers (zero-based) to restrict the attachment to a range of lines:
+
+```clojure
+(copilot/send! session
+  {:prompt "Explain this function"
+   :attachments [{:type :file
+                  :path "/path/to/file.clj"
+                  :line-range {:start 10 :end 25}}]})
+```
 
 Selection range is a map with `:start` and `:end` positions, each containing `:line` and `:character`:
 
@@ -562,6 +625,7 @@ Default timeout is `300000` ms (5 minutes).
 ```
 
 Send a message and return a core.async channel that receives all events for this message, closing when idle.
+Safe for use inside `go` blocks — no blocking operations.
 Supports `:timeout-ms` in options (default: `300000`) to force cleanup on long-running requests.
 
 #### `send-async-with-id`
@@ -581,6 +645,15 @@ Supports `:timeout-ms` in options (default: `300000`).
 
 Async equivalent of `send-and-wait!` for use inside `go` blocks. Returns a channel that yields the final content string.
 Supports `:timeout-ms` in options (default: `300000`).
+
+Combined with `<create-session`, enables fully non-blocking pipelines:
+
+```clojure
+(go
+  (let [session (<! (copilot/<create-session client {:model "gpt-5.2"}))
+        answer  (<! (copilot/<send! session {:prompt "Explain monads"}))]
+    (println answer)))
+```
 
 #### `events`
 
@@ -667,6 +740,8 @@ Get all events/messages from this session.
 
 Get the current model for this session. Returns the model ID string, or nil if none set.
 
+> **Note:** Not yet implemented in the CLI as of version 0.0.412. Calling this throws until CLI support is added.
+
 #### `switch-model!`
 
 ```clojure
@@ -675,6 +750,8 @@ Get the current model for this session. Returns the model ID string, or nil if n
 ```
 
 Switch the model for this session mid-conversation. Returns the new model ID string, or nil.
+
+> **Note:** Not yet implemented in the CLI as of version 0.0.412. Calling this throws until CLI support is added.
 
 ```clojure
 (copilot/with-client-session [session {:model "gpt-5.2"}]
@@ -1202,6 +1279,13 @@ For models that support reasoning (like o1), you can control the reasoning effor
    :attachments [{:type :file
                   :path "/path/to/file.clj"
                   :display-name "My File"}]})
+
+;; File attachment with line range (restrict to lines 10-25)
+(copilot/send! session
+  {:prompt "Explain this section"
+   :attachments [{:type :file
+                  :path "/path/to/file.clj"
+                  :line-range {:start 10 :end 25}}]})
 
 ;; Selection attachment (code range)
 (copilot/send! session

@@ -3,7 +3,23 @@ All notable changes to this project will be documented in this file. This change
 
 ## [Unreleased]
 
+### Added
+- **Core.async native async architecture** — eliminates all blocking operations from the async API path:
+  - `<create-session` / `<resume-session` — async session lifecycle functions that return channels delivering `CopilotSession`, safe for use inside `go` blocks
+  - Protocol layer now uses core.async channels instead of Java promises for RPC responses
+  - Session send-lock replaced `java.util.concurrent.Semaphore` with a channel-based lock
+  - `<send-async*` — fully non-blocking send pipeline using parking channel operations
+  - The idiomatic pattern is now `(go (let [s (<! (<create-session client opts))] (<! (<send! s {:prompt "..."}))))` — no thread pool starvation
+
+### Fixed
+- Wire parity: always send `requestPermission`, `requestUserInput`, and `hooks` fields (as `false` when not configured) to match upstream Node.js SDK — fixes 400 errors when creating sessions without specifying a model
+- MCP server environment variables now passed correctly as literal values to subprocesses — sends `envValueMode: "direct"` on session create/resume wire payloads (upstream PR #484)
+- Fix potential semaphore deadlock in `send-and-wait!` and `send-async*` — `tap` on a closed mult could leave the send-lock permanently held; moved `tap` inside the `try/finally` block that releases the lock
+- Multi-agent example parallelism: sessions and sends now run concurrently in `go` blocks instead of sequentially blocking
+
 ### Added (v0.1.24 sync)
+- CLI stderr is now captured and forwarded to debug logging; included in error messages on startup failure for better diagnostics (inspired by upstream PR #492)
+- `verify-protocol-version!` now races the initial ping against process exit to detect early CLI failures instead of blocking for 60 seconds on timeout
 - `list-sessions` now accepts optional filter map `{:cwd :git-root :repository :branch}` to narrow results by session context (upstream PR #427)
 - Session metadata from `list-sessions` now includes `:context` map with working directory info (`{:cwd :git-root :repository :branch}`) when available (upstream PR #427)
 - `list-tools` — list available tools with metadata; accepts optional model param for model-specific overrides (upstream PR #464)
@@ -37,6 +53,7 @@ All notable changes to this project will be documented in this file. This change
 - `bb ci:full` task: full pipeline including E2E tests and examples (requires copilot CLI)
 - Cross-platform `build.clj`: `md5-hash` and `sha1-hash` helpers with macOS/Linux fallback
 - Idempotent `update-readme-sha`: succeeds when README already has current SHA
+- `stamp-changelog` build task: automatically moves `[Unreleased]` entries to a versioned section with today's date and updates comparison links; integrated into the release workflow
 
 ### Changed (CI/CD)
 - Release workflow now creates a PR with auto-merge instead of pushing directly to `main`,

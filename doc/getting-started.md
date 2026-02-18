@@ -122,6 +122,25 @@ Right now, you wait for the complete response before seeing anything. Let's make
 
 Run the code and you'll see the response appear word by word.
 
+### Async Session Creation
+
+Use `<create-session` and `<send!` for fully non-blocking operations inside `go` blocks:
+
+```clojure
+(require '[clojure.core.async :refer [go <! <!!]])
+(require '[github.copilot-sdk :as copilot])
+
+(copilot/with-client [client]
+  (let [result-ch
+        (go
+          (let [session (<! (copilot/<create-session client {:model "gpt-5.2"}))
+                answer  (<! (copilot/<send! session {:prompt "Capital of France?"}))]
+            answer))]
+    (println (<!! result-ch))))
+```
+
+This pattern parks (instead of blocking) on the core.async thread pool, enabling true parallelism across multiple `go` blocks — ideal for multi-agent orchestration. See the [multi-agent example](../examples/README.md) for a complete walkthrough.
+
 ### Event Subscription Methods
 
 The SDK uses core.async `mult/tap` for event subscription:
@@ -201,6 +220,25 @@ Let's put it all together into an interactive assistant:
         (println)
         (recur)))))
 ```
+
+## Step 6: List Available Models
+
+Discover which models are available and their billing multipliers:
+
+```clojure
+(require '[github.copilot-sdk :as copilot])
+
+(copilot/with-client [client]
+  (doseq [m (copilot/list-models client)]
+    (println (:id m) (str "x" (get-in m [:model-billing :multiplier])))))
+;; prints:
+;; gpt-5.2 x1.0
+;; claude-sonnet-4.5 x1.0
+;; o1 x2.0
+;; ...
+```
+
+Each model map includes `:id`, `:name`, `:vendor`, `:family`, `:max-input-tokens`, `:max-output-tokens`, and nested `:model-capabilities`, `:model-billing`, and `:model-policy` maps. See the [API Reference](./reference/API.md#list-models) for the full structure.
 
 ## What's Next?
 
