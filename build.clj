@@ -331,9 +331,9 @@
     (when-not m
       (throw (ex-info "Could not find [Unreleased] section in CHANGELOG.md" {})))
     (let [unreleased-content (str/trim (nth m 1))]
-      (when (str/blank? unreleased-content)
-        (throw (ex-info "No entries under [Unreleased] — nothing to release" {})))
-      (let [;; Replace the [Unreleased] block with a fresh empty one + versioned section
+      (if (str/blank? unreleased-content)
+        (println "⚠️  No entries under [Unreleased] — changelog not stamped.")
+        (let [;; Replace the [Unreleased] block with a fresh empty one + versioned section
             new-section (str "## [Unreleased]\n\n"
                              "## [" ver "] - " today "\n"
                              unreleased-content)
@@ -356,4 +356,4 @@
                                             "[" ver "]: " repo-url "/compare/" prev-tag "..." tag)))
                       updated)]
         (spit changelog-file updated)
-        (println (str "Stamped CHANGELOG.md: [Unreleased] → [" ver "] - " today))))))
+        (println (str "Stamped CHANGELOG.md: [Unreleased] → [" ver "] - " today)))))))
