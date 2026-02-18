@@ -128,7 +128,7 @@ SNAPSHOT versions are marked as pre-release.
 | `RELEASE_TOKEN` | Fine-grained PAT with `contents: write` and `pull-requests: write` scopes — used to create the release PR (so CI triggers) and the GitHub release |
 | `CENTRAL_USERNAME` | Sonatype Central Portal token username |
 | `CENTRAL_PASSWORD` | Sonatype Central Portal token password |
-| `GPG_PRIVATE_KEY` | (Optional) ASCII-armored GPG private key for artifact signing |
+| `GPG_PRIVATE_KEY` | ASCII-armored GPG private key for artifact signing (required by Maven Central) |
 
 ## Build Attestation
 

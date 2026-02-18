@@ -42,7 +42,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      HAS_GPG_KEY: ${{ secrets.GPG_PRIVATE_KEY != '' }}
       GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
     steps:
       - uses: actions/checkout@v6
@@ -221,17 +220,22 @@ jobs:
           git checkout main
           git reset --hard origin/main
 
-      # --- GPG signing ---
+      # --- GPG signing (required for Maven Central) ---
+
+      - name: Validate GPG key
+        run: |
+          if [[ -z "${{ secrets.GPG_PRIVATE_KEY }}" ]]; then
+            echo "::error::GPG_PRIVATE_KEY secret is required for Maven Central releases. See PUBLISHING.md."
+            exit 1
+          fi
 
       - name: Prepare GPG home
-        if: ${{ env.HAS_GPG_KEY == 'true' }}
         run: |
           export GNUPGHOME="$RUNNER_TEMP/gnupg"
           mkdir -p "$GNUPGHOME"
           chmod 700 "$GNUPGHOME"
 
       - name: Import GPG key
-        if: ${{ env.HAS_GPG_KEY == 'true' }}
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
@@ -310,5 +314,5 @@ jobs:
           gh release create "${ARGS[@]}"
 
       - name: Cleanup GPG home
-        if: ${{ always() && env.HAS_GPG_KEY == 'true' }}
+        if: always()
         run: rm -rf "$RUNNER_TEMP/gnupg"

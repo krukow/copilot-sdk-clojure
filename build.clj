@@ -143,7 +143,11 @@
       (println "Signing and checksumming...")
       (doseq [f (vals files)
               :let [path (str artifact-dir "/" f)]]
-        (shell/sh "gpg" "-ab" path)
+        (let [result (shell/sh "gpg" "--batch" "--no-tty" "-ab" path)]
+          (when-not (zero? (:exit result))
+            (throw (ex-info (str "GPG signing failed for " f
+                                 ". Ensure a GPG key is available (see PUBLISHING.md).")
+                            {:file f :exit (:exit result) :err (:err result)}))))
         (spit (str path ".md5") (md5-hash path))
         (spit (str path ".sha1") (sha1-hash path)))
       ;; Create zip
