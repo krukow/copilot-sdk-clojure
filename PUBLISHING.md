@@ -123,6 +123,10 @@ SNAPSHOT versions are marked as pre-release.
 
 ### Required secrets
 
+Secrets should be configured as **environment secrets** on the `release` environment
+(Settings → Environments → `release`), not as repository-level secrets.
+This ensures they are only available to the release workflow.
+
 | Secret | Description |
 |--------|-------------|
 | `RELEASE_TOKEN` | Fine-grained PAT with `contents: write` and `pull-requests: write` scopes — used to create the release PR (so CI triggers) and the GitHub release |
@@ -130,6 +134,14 @@ SNAPSHOT versions are marked as pre-release.
 | `CENTRAL_PASSWORD` | Sonatype Central Portal token password |
 | `GPG_PRIVATE_KEY` | ASCII-armored GPG private key for artifact signing (required by Maven Central) |
 | `GPG_PASSPHRASE` | Passphrase for the GPG key (optional — omit if key has no passphrase) |
+
+#### Environment setup
+
+1. Go to **Settings → Environments → New environment**, name it `release`
+2. Add the secrets listed above as environment secrets
+3. Optionally add protection rules:
+   - **Required reviewers** — require approval before the release job runs
+   - **Deployment branches** — restrict to `main` only
 
 ## Build Attestation
 
