@@ -26,37 +26,20 @@ description: Automatically reviews and updates Clojure SDK documentation to ensu
 name: Daily Documentation Updater
 strict: true
 timeout-minutes: 45
-steps:
-  - uses: actions/setup-java@v5
-    with:
-      distribution: 'temurin'
-      java-version: '21'
-  - name: Set up Clojure
-    uses: DeLaGuardo/setup-clojure@13.5.2
-    with:
-      cli: latest
-      bb: 1.12.214
-  - name: Cache Clojure deps
-    uses: actions/cache@v5
-    with:
-      path: |
-        ~/.m2/repository
-        ~/.gitlibs
-        ~/.deps.clj
-        .cpcache
-      key: cljdeps-${{ hashFiles('deps.edn', 'bb.edn') }}
-      restore-keys: cljdeps-
+imports:
+- copilot-setup-steps.yml
 tools:
   bash:
-  - find . -name '*.md'
-  - find . -name '*.clj'
-  - find . -maxdepth 3 -ls
-  - cat
-  - ls
-  - grep -r
-  - git
-  - bb validate-docs
-  - bb test
+  - "find:*"
+  - "cat:*"
+  - "ls:*"
+  - "grep:*"
+  - "git:*"
+  - "bb:*"
+  - "which:*"
+  - "head:*"
+  - "tail:*"
+  - "wc:*"
   cache-memory: true
   edit: null
   github:
