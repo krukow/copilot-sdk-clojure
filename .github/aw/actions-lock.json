@@ -10,6 +10,11 @@
       "version": "v5",
       "sha": "cdf6c1fa76f9f475f3d7449005a359c84ca0f306"
     },
+    "actions/checkout@v6": {
+      "repo": "actions/checkout",
+      "version": "v6",
+      "sha": "de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+    },
     "actions/github-script@v8": {
       "repo": "actions/github-script",
       "version": "v8",
@@ -19,6 +24,11 @@
       "repo": "actions/setup-java",
       "version": "v5",
       "sha": "be666c2fcd27ec809703dec50e508c2fdc7f6654"
+    },
+    "github/gh-aw/actions/setup-cli@v0.46.0": {
+      "repo": "github/gh-aw/actions/setup-cli",
+      "version": "v0.46.0",
+      "sha": "f88ec26c65cc20ebb8ceabe809c9153385945bfe"
     },
     "github/gh-aw/actions/setup@v0.43.23": {
       "repo": "github/gh-aw/actions/setup",
