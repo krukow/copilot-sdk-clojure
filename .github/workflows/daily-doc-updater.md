@@ -27,6 +27,12 @@ engine:
   id: copilot
   args: ["--log-level", "debug"]
 name: Daily Documentation Updater
+sandbox:
+  agent:
+    id: awf
+    mounts:
+    - "/home/runner/.m2:/home/runner/.m2:ro"
+    - "/home/runner/.deps.clj:/home/runner/.deps.clj:ro"
 strict: true
 timeout-minutes: 45
 imports:
