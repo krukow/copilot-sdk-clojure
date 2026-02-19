@@ -297,6 +297,8 @@ jobs:
           sudo ln -sf $(which clj) /usr/local/bin/clj
           sudo ln -sf $(which clojure) /usr/local/bin/clojure
           sudo ln -sf $(which java) /usr/local/bin/java
+      - name: Pre-download Clojure deps and ensure global access
+        run: "# Download deps if cache missed\nclojure -P\n# Ensure deps directories are readable by any user\nchmod -R a+rX ~/.m2/repository ~/.deps.clj 2>/dev/null || true\n"
       - name: Install gh-aw extension
         uses: github/gh-aw/actions/setup-cli@f88ec26c65cc20ebb8ceabe809c9153385945bfe # v0.46.0
         with:
