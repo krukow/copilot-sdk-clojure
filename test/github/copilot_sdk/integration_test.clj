@@ -625,6 +625,106 @@
       ;; envValueMode is always sent as "direct" (upstream PR #484)
       (is (= "direct" (:envValueMode create-params)))
       (is (= "direct" (:envValueMode resume-params))))))
+
+;; -----------------------------------------------------------------------------
+;; Permission Tests (upstream PR #509: deny-by-default)
+;; -----------------------------------------------------------------------------
+
+(deftest test-request-permission-always-true-on-wire
+  (testing "requestPermission is always true on create, even without handler"
+    (let [seen (atom {})
+          _ (mock/set-request-hook! *mock-server* (fn [method params]
+                                                    (when (#{"session.create" "session.resume"} method)
+                                                      (swap! seen assoc method params))))
+          ;; Create without on-permission-request
+          _ (sdk/create-session *test-client* {:model "gpt-5.2"})
+          create-params (get @seen "session.create")]
+      (is (true? (:requestPermission create-params))
+          "requestPermission must be true even when no handler is configured")))
+
+  (testing "requestPermission is true on create with handler"
+    (let [seen (atom {})
+          _ (mock/set-request-hook! *mock-server* (fn [method params]
+                                                    (when (#{"session.create"} method)
+                                                      (swap! seen assoc method params))))
+          _ (sdk/create-session *test-client*
+                                {:model "gpt-5.2"
+                                 :on-permission-request sdk/approve-all})
+          create-params (get @seen "session.create")]
+      (is (true? (:requestPermission create-params)))))
+
+  (testing "requestPermission is true on resume without handler"
+    (let [seen (atom {})
+          session-id (sdk/session-id (sdk/create-session *test-client* {}))
+          _ (mock/set-request-hook! *mock-server* (fn [method params]
+                                                    (when (#{"session.resume"} method)
+                                                      (swap! seen assoc method params))))
+          _ (sdk/resume-session *test-client* session-id {})
+          resume-params (get @seen "session.resume")]
+      (is (true? (:requestPermission resume-params))
+          "requestPermission must be true on resume even without handler"))))
+
+(deftest test-approve-all-returns-approved
+  (testing "approve-all returns {:kind :approved}"
+    (let [result (sdk/approve-all {:permission-kind :shell
+                                   :tool-call-id "tc-1"}
+                                  {:session-id "session-1"})]
+      (is (= {:kind :approved} result))))
+
+  (testing "approve-all works for any permission kind"
+    (doseq [kind [:shell :write :mcp :read :url]]
+      (is (= {:kind :approved}
+             (sdk/approve-all {:permission-kind kind} {:session-id "s1"}))))))
+
+(deftest test-permission-denied-without-handler
+  (testing "Permission requests are denied when no handler is configured"
+    (let [session (sdk/create-session *test-client* {})
+          session-id (sdk/session-id session)
+          handler (get-in @(:state *test-client*) [:connection :request-handler])
+          response (<!! (handler "permission.request"
+                                 {:session-id session-id
+                                  :permission-request {:permission-kind "shell"
+                                                       :full-command-text "echo test"}}))]
+      (is (= :denied-no-approval-rule-and-could-not-request-from-user
+              (get-in response [:result :result :kind]))))))
+
+(deftest test-permission-approved-with-handler
+  (testing "Permission requests use configured handler"
+    (let [session (sdk/create-session *test-client*
+                                      {:on-permission-request sdk/approve-all})
+          session-id (sdk/session-id session)
+          handler (get-in @(:state *test-client*) [:connection :request-handler])
+          response (<!! (handler "permission.request"
+                                 {:session-id session-id
+                                  :permission-request {:permission-kind "shell"
+                                                       :full-command-text "echo test"}}))]
+      ;; approve-all returns keyword :approved
+      (is (= :approved (get-in response [:result :result :kind]))))))
+
+(deftest test-permission-custom-handler
+  (testing "Custom permission handler can selectively deny"
+    (let [session (sdk/create-session *test-client*
+                                      {:on-permission-request
+                                       (fn [request _ctx]
+                                         (if (= "safe-cmd" (:full-command-text request))
+                                           {:kind :approved}
+                                           {:kind :denied-by-rules
+                                            :rules [{:kind "shell"
+                                                      :argument (:full-command-text request)}]}))})
+          session-id (sdk/session-id session)
+          handler (get-in @(:state *test-client*) [:connection :request-handler])
+          approved (<!! (handler "permission.request"
+                                 {:session-id session-id
+                                  :permission-request {:permission-kind "shell"
+                                                       :full-command-text "safe-cmd"}}))
+          denied (<!! (handler "permission.request"
+                               {:session-id session-id
+                                :permission-request {:permission-kind "shell"
+                                                     :full-command-text "dangerous-cmd"}}))]
+      ;; Custom handler returns keywords
+      (is (= :approved (get-in approved [:result :result :kind])))
+      (is (= :denied-by-rules (get-in denied [:result :result :kind]))))))
+
 ;; -----------------------------------------------------------------------------
 ;; Last Session ID Tests
 ;; -----------------------------------------------------------------------------

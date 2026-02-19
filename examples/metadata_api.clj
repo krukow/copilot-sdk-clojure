@@ -53,8 +53,8 @@
 
     ;; 4. Model switching within a session
     (println "\n4. Dynamic Model Switching:")
-    (copilot/with-session [session client {}]
-      ;; Query with default model
+    (copilot/with-session [session client {:model "gpt-5.2"}]
+      ;; Query with gpt-5.2
       (println "   Query: 'What is 2+2? Answer briefly.'")
       (println (str "   Response: " (h/query "What is 2+2? Answer briefly." :session session)))
 
@@ -62,7 +62,7 @@
       (try
         (let [current (copilot/get-current-model session)]
           (println (str "\n   Current model: " current))
-          (copilot/switch-model! session "gpt-4o")
+          (copilot/switch-model! session "gpt-5.2")
           (println (str "   Switched to: " (copilot/get-current-model session)))
           (println "   Query: 'What was my previous question?'")
           (println (str "   Response: " (h/query "What was my previous question?" :session session))))
@@ -70,4 +70,3 @@
           (println (str "\n   Model switching skipped: " (.getMessage e)))))))
 
   (println "\n=== Demo Complete ==="))
-

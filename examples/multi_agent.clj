@@ -38,7 +38,7 @@
     (let [session (<! (copilot/<create-session
                        client
                        {:system-message {:mode :append :content researcher-prompt}
-                        :model "gpt-4.1"}))]
+                        :model "gpt-5.2"}))]
       (if (instance? Throwable session)
         {:topic topic :findings (str "Error: " (ex-message session))}
         (let [answer (<! (copilot/<send! session {:prompt (str "Research: " topic)}))]

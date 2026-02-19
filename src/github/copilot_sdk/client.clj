@@ -386,7 +386,7 @@
                                       "permission.request"
                                       (let [{:keys [session-id permission-request]} params]
                                         (if-not (get-in @(:state client) [:sessions session-id])
-                                          {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}}
+                                          {:result {:kind :denied-no-approval-rule-and-could-not-request-from-user}}
                                           (let [result (<! (session/handle-permission-request! client session-id permission-request))]
                                             (log/debug "Permission response for session " session-id ": " result)
                                             {:result result})))
@@ -502,6 +502,26 @@
               (str "SDK protocol version mismatch: SDK expects version "
                    sdk-protocol-version ", but server reports version " server-version)
               {:expected sdk-protocol-version :actual server-version})))))
+
+;; ---------------------------------------------------------------------------
+;; Permission helpers
+;; ---------------------------------------------------------------------------
+
+(defn approve-all
+  "Permission handler that approves all permission requests.
+
+  The SDK uses a **deny-by-default** permission model: all permission requests
+  (file writes, shell commands, URL fetches, etc.) are denied unless your
+  session config provides an `:on-permission-request` handler.
+
+  Use `approve-all` to opt into approving everything (equivalent to the
+  upstream `approveAll` export):
+
+    (copilot/create-session client {:on-permission-request copilot/approve-all})
+
+  For fine-grained control, provide your own handler function instead."
+  [_request _ctx]
+  {:kind :approved})
 
 (defn start!
   "Start the CLI server and establish connection.
@@ -937,7 +957,7 @@
       (:available-tools config) (assoc :available-tools (:available-tools config))
       (:excluded-tools config) (assoc :excluded-tools (:excluded-tools config))
       wire-provider (assoc :provider wire-provider)
-      true (assoc :request-permission (boolean (:on-permission-request config)))
+      true (assoc :request-permission true)
       (:streaming? config) (assoc :streaming (:streaming? config))
       wire-mcp-servers (assoc :mcp-servers wire-mcp-servers)
       wire-custom-agents (assoc :custom-agents wire-custom-agents)
@@ -984,7 +1004,7 @@
       (:available-tools config) (assoc :available-tools (:available-tools config))
       (:excluded-tools config) (assoc :excluded-tools (:excluded-tools config))
       wire-provider (assoc :provider wire-provider)
-      true (assoc :request-permission (boolean (:on-permission-request config)))
+      true (assoc :request-permission true)
       (:streaming? config) (assoc :streaming (:streaming? config))
       wire-mcp-servers (assoc :mcp-servers wire-mcp-servers)
       wire-custom-agents (assoc :custom-agents wire-custom-agents)

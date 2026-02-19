@@ -24,6 +24,7 @@
   (println (str "MCP Filesystem Server — allowed directory: " allowed-dir))
   (println)
   (let [session-config {:model "gpt-5.2"
+                        :on-permission-request copilot/approve-all
                         :mcp-servers
                         {"filesystem"
                          {:mcp-command "npx"
@@ -55,6 +56,7 @@
                        (str "Summary: " (subs text 0 (min 100 (count text))) "...")))})
         session-config {:model "gpt-5.2"
                         :tools [summary-tool]
+                        :on-permission-request copilot/approve-all
                         :mcp-servers
                         {"filesystem"
                          {:mcp-command "npx"

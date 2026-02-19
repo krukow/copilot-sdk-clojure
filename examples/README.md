@@ -166,7 +166,7 @@ clojure -A:examples -X helpers-query/run-multi :questions '["What is Rust?" "Wha
 (require '[github.copilot-sdk.helpers :as h])
 
 ;; Simplest possible query - just get the answer
-(h/query "What is 2+2?")
+(h/query "What is 2+2?" :session {:model "gpt-5.2"})
 ;; => "4"
 
 ;; With options
@@ -180,7 +180,7 @@ clojure -A:examples -X helpers-query/run-multi :questions '["What is Rust?" "Wha
   (flush))
 (defmethod handle-event :copilot/assistant.message [_] (println))
 
-(run! handle-event (h/query-seq! "Tell me a joke" :session {:streaming? true}))
+(run! handle-event (h/query-seq! "Tell me a joke" :session {:model "gpt-5.2" :streaming? true}))
 ```
 
 ---
@@ -367,7 +367,11 @@ clojure -A:examples -X metadata-api/run
 ## Example 7: Permission Handling (`permission_bash.clj`)
 
 **Difficulty:** Intermediate  
-**Concepts:** permission requests, bash tool, approval callback
+**Concepts:** permission requests, bash tool, approval callback, deny-by-default
+
+The SDK uses a **deny-by-default** permission model — all permission requests are
+denied unless an `:on-permission-request` handler is provided. Use `copilot/approve-all`
+for blanket approval, or provide a custom handler for fine-grained control.
 
 Shows how to:
 - handle `permission.request` via `:on-permission-request`
@@ -550,6 +554,7 @@ Shows how to integrate MCP (Model Context Protocol) servers to extend the assist
 - Configuring `:mcp-servers` with a local stdio server
 - Using the `@modelcontextprotocol/server-filesystem` MCP server
 - Combining MCP server tools with custom tools
+- Using `copilot/approve-all` to permit MCP tool execution (deny-by-default)
 
 ### Prerequisites
 
@@ -603,7 +608,7 @@ await client.start();
 **Clojure:**
 ```clojure
 (require '[github.copilot-sdk.helpers :as h])
-(h/query "What is 2+2?")
+(h/query "What is 2+2?" :session {:model "gpt-5.2"})
 ;; => "4"
 ```
 
@@ -625,7 +630,7 @@ session.on((event) => {
 (defmethod handle-event :copilot/assistant.message [{{:keys [content]} :data}]
   (println content))
 
-(run! handle-event (h/query-seq! "Hello" :session {:streaming? true}))
+(run! handle-event (h/query-seq! "Hello" :session {:model "gpt-5.2" :streaming? true}))
 ```
 
 ### Tool Definition

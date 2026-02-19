@@ -122,7 +122,7 @@ See [doc/reference/API.md](./doc/reference/API.md) for the complete API referenc
 - **CopilotSession** - Session methods (`send!`, `send-and-wait!`, `<send!`, `events`)
 - **Event Types** - All session events (`:assistant.message`, `:assistant.message_delta`, etc.)
 - **Streaming** - How to handle incremental responses
-- **Advanced Usage** - Tools, system messages, permissions, multiple sessions
+- **Advanced Usage** - Tools, system messages, permissions (deny-by-default), multiple sessions
 
 ## Examples
 

@@ -821,3 +821,8 @@
 (def result-failure tools/result-failure)
 (def result-denied tools/result-denied)
 (def result-rejected tools/result-rejected)
+
+;; Re-export permission helpers
+(def approve-all
+  "Permission handler that approves all requests. See `github.copilot-sdk.client/approve-all`."
+  client/approve-all)

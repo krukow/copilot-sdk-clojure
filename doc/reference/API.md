@@ -222,7 +222,7 @@ Create a client and session together, ensuring both are cleaned up on exit.
 | `:provider` | map | Provider config for BYOK (see [BYOK docs](../auth/byok.md)). Required key: `:base-url`. Optional: `:provider-type` (`:openai`/`:azure`/`:anthropic`), `:wire-api` (`:completions`/`:responses`), `:api-key`, `:bearer-token`, `:azure-options` |
 | `:mcp-servers` | map | MCP server configs keyed by server ID (see [MCP docs](../mcp/overview.md)). Local servers: `:mcp-command`, `:mcp-args`, `:mcp-tools`. Remote servers: `:mcp-server-type` (`:http`/`:sse`), `:mcp-url`, `:mcp-tools` |
 | `:custom-agents` | vector | Custom agent configs |
-| `:on-permission-request` | fn | Permission handler function |
+| `:on-permission-request` | fn | Permission handler function. Without a handler, all permissions are denied (deny-by-default). Use `copilot/approve-all` to approve everything. |
 | `:streaming?` | boolean | Enable streaming deltas |
 | `:config-dir` | string | Override config directory for CLI |
 | `:skill-directories` | vector | Additional skill directories to load |
@@ -1140,10 +1140,22 @@ Sessions emit `:session.compaction_start` and `:session.compaction_complete` eve
 
 ### Permission Handling
 
-When the CLI needs approval (e.g., shell or file write), it sends a JSON-RPC
-`permission.request` to the SDK. Your `:on-permission-request` callback must
-return a map compatible with the permission result payload; the SDK wraps this
-into the JSON-RPC response as `{:result <your-map>}`:
+The SDK uses a **deny-by-default** permission model. All permission requests
+(file writes, shell commands, URL fetches, etc.) are denied unless your
+session config provides an `:on-permission-request` handler.
+
+Use `approve-all` to opt into approving everything:
+
+```clojure
+(def session (copilot/create-session client
+               {:on-permission-request copilot/approve-all}))
+```
+
+For fine-grained control, provide your own handler. When the CLI needs
+approval, it sends a JSON-RPC `permission.request` to the SDK. Your
+`:on-permission-request` callback must return a map compatible with the
+permission result payload; the SDK wraps this into the JSON-RPC response
+as `{:result <your-map>}`:
 
 The `permission_bash.clj` example demonstrates both an allowed and a denied
 shell command and prints the full permission request payload so you can inspect
@@ -1162,6 +1174,21 @@ fields like `:full-command-text`, `:commands`, and `:possible-paths`.
 
 ;; Deny after user interaction (optional feedback)
 {:kind :denied-interactively-by-user :feedback "Not allowed"}
+```
+
+#### `approve-all`
+
+```clojure
+(copilot/approve-all request ctx)
+```
+
+A convenience permission handler that approves all permission requests.
+Equivalent to the upstream Node.js SDK `approveAll` export.
+
+Pass as the `:on-permission-request` value in session config:
+
+```clojure
+(copilot/create-session client {:on-permission-request copilot/approve-all})
 ```
 
 ### User Input Handling
