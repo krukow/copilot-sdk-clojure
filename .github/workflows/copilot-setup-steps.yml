@@ -47,8 +47,11 @@ jobs:
           sudo ln -sf $(which java) /usr/local/bin/java
       - name: Pre-download Clojure deps and ensure global access
         run: |
-          # Download deps and tools jar (version pinned to match bb's built-in deps.clj)
+          # Download Maven deps via system clojure
           clojure -P
+          # Populate ~/.deps.clj/ with the tools jar that bb expects —
+          # the system clojure stores its jar in the install dir, not ~/.deps.clj/
+          bb clojure -P
           # Ensure deps directories are readable by any user
           chmod -R a+rX ~/.m2/repository ~/.deps.clj 2>/dev/null || true
       - name: Install gh-aw extension
