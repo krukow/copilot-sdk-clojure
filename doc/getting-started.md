@@ -186,7 +186,39 @@ Now for the powerful part. Let's give Copilot the ability to call your code by d
 
 Run it and you'll see Copilot call your tool to get weather data, then respond with the results!
 
-## Step 5: Build an Interactive Assistant
+## Step 5: Handle Permissions (Deny-by-Default)
+
+The SDK uses a **deny-by-default** permission model. When Copilot needs to execute potentially dangerous operations (file writes, shell commands, URL fetches), it requests permission from your application. Without a permission handler, all such requests are automatically denied.
+
+For development or trusted environments, use `approve-all`:
+
+```clojure
+(require '[github.copilot-sdk :as copilot])
+
+(copilot/with-client-session [session {:model "gpt-5.2"
+                                       :on-permission-request copilot/approve-all}]
+  ;; Session can now execute bash, write files, etc.
+  (copilot/send-and-wait! session {:prompt "List files in the current directory"}))
+```
+
+For production, implement a custom handler to approve/deny requests based on your security requirements:
+
+```clojure
+(defn my-permission-handler [request]
+  (let [command (:full-command-text request)]
+    (if (safe-command? command)
+      {:kind :approved}
+      {:kind :denied :reason "Command not allowed"})))
+
+(copilot/with-client-session [session {:model "gpt-5.2"
+                                       :on-permission-request my-permission-handler}]
+  ;; Session will call my-permission-handler for each permission request
+  ...)
+```
+
+See the [`permission_bash.clj`](../examples/permission_bash.clj) example and [API Reference](./reference/API.md#permission-handling) for details on handling permission requests.
+
+## Step 6: Build an Interactive Assistant
 
 Let's put it all together into an interactive assistant:
 
@@ -223,7 +255,7 @@ Let's put it all together into an interactive assistant:
         (recur)))))
 ```
 
-## Step 6: List Available Models
+## Step 7: List Available Models
 
 Discover which models are available and their billing multipliers:
 

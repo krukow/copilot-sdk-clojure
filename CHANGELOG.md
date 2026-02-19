@@ -16,6 +16,9 @@ All notable changes to this project will be documented in this file. This change
 ### Fixed
 - Permission denial result `:kind` now consistently uses keywords (not strings) in default handler responses, matching specs and `approve-all` behavior
 
+### Changed (documentation)
+- `doc/getting-started.md` now includes Step 5 covering the deny-by-default permission model, `approve-all` handler, and custom permission handling
+
 ## [0.1.25.1] - 2026-02-18
 ### Fixed
 - Release pipeline: GPG signing now fails fast with a clear error when no key is available, instead of silently producing unsigned artifacts that Maven Central rejects
