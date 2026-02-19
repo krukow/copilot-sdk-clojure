@@ -46,6 +46,7 @@ tools:
     - "cat:*"
     - "jq:*"
     - "clojure:*"
+    - "which:*"
 
 steps:
   - uses: actions/setup-java@v5
