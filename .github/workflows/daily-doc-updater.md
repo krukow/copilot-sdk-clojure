@@ -23,6 +23,9 @@ safe-outputs:
     - copilot
     title-prefix: "[docs] "
 description: Automatically reviews and updates Clojure SDK documentation to ensure accuracy and completeness
+engine:
+  id: copilot
+  args: ["--log-level", "debug"]
 name: Daily Documentation Updater
 strict: true
 timeout-minutes: 45
