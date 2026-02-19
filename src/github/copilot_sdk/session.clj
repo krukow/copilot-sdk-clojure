@@ -163,7 +163,7 @@
    (fn []
      (let [handler (:permission-handler (session-state client session-id))]
        (if-not handler
-         {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}}
+         {:result {:kind :denied-no-approval-rule-and-could-not-request-from-user}}
          (try
            (let [result (handler request {:session-id session-id})
                  ;; If handler returns a channel, await it
@@ -176,16 +176,16 @@
 
                (and (map? result) (contains? result :result)
                     (map? (:result result)) (contains? (:result result) :kind))
-               result
+                result
 
-               :else
-               (do
-                 (log/warn "Invalid permission response for session " session-id ": " result)
-                 {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}})))
-            (catch Exception e
-              (log/error "Permission handler error for session " session-id ": " (ex-message e))
-              {:result {:kind "denied-no-approval-rule-and-could-not-request-from-user"}})))))
-    :io))
+                :else
+                (do
+                  (log/warn "Invalid permission response for session " session-id ": " result)
+                  {:result {:kind :denied-no-approval-rule-and-could-not-request-from-user}})))
+             (catch Exception e
+               (log/error "Permission handler error for session " session-id ": " (ex-message e))
+               {:result {:kind :denied-no-approval-rule-and-could-not-request-from-user}})))))
+     :io))
 
 (defn handle-user-input-request!
   "Handle an incoming user input request (ask_user). Returns a channel with the result.

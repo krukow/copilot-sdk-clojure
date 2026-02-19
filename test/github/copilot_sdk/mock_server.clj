@@ -411,6 +411,24 @@
   (send-session-event server session-id
                       (make-event server (name event-type) event-data :ephemeral? ephemeral?)))
 
+(defn inject-permission-request!
+  "Inject a permission request from the mock server.
+   Simulates the CLI asking for permission to execute a tool.
+   Returns a channel that delivers the permission response."
+  [server session-id permission-request]
+  (let [request-id (generate-id (:message-id server))
+        response-ch (chan 1)]
+    ;; We need to read the response after sending the request.
+    ;; Use the on-request hook to capture the response.
+    (write-message (:writer server)
+                   {:jsonrpc "2.0"
+                    :id request-id
+                    :method "permission.request"
+                    :params {:sessionId session-id
+                             :permissionRequest permission-request}})
+    ;; Return request-id so caller can match the response
+    request-id))
+
 (defn set-session-context!
   "Set context on a mock session (for testing list-sessions with context)."
   [server session-id context]

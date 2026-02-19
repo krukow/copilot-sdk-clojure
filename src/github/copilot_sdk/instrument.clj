@@ -32,6 +32,11 @@
   :args (s/cat :client ::specs/client)
   :ret nil?)
 
+(s/fdef github.copilot-sdk.client/approve-all
+  :args (s/cat :request ::specs/permission-request
+               :ctx map?)
+  :ret ::specs/permission-result)
+
 (s/fdef github.copilot-sdk.client/stop!
   :args (s/cat :client ::specs/client)
   :ret (s/coll-of any?))
@@ -238,6 +243,7 @@
   (stest/instrument '[github.copilot-sdk.client/client
                       github.copilot-sdk.client/state
                       github.copilot-sdk.client/start!
+                      github.copilot-sdk.client/approve-all
                       github.copilot-sdk.client/stop!
                       github.copilot-sdk.client/force-stop!
                       github.copilot-sdk.client/ping
@@ -284,6 +290,7 @@
   (stest/unstrument '[github.copilot-sdk.client/client
                       github.copilot-sdk.client/state
                       github.copilot-sdk.client/start!
+                      github.copilot-sdk.client/approve-all
                       github.copilot-sdk.client/stop!
                       github.copilot-sdk.client/force-stop!
                       github.copilot-sdk.client/ping
