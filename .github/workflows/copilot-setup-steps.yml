@@ -51,34 +51,28 @@ jobs:
           clojure -P
           # Also resolve bb.edn deps (org.clojure/clojure)
           bb clojure -P
+          # Copy the tools jar to ~/.deps.clj/ so bb can find it.
           # bb's deps.clj delegates to system clojure when it's on PATH,
-          # so the tools jar never gets written to ~/.deps.clj/. Inside the
-          # sandbox, system clojure isn't available, so bb needs the jar there.
+          # so bb clojure -P never writes the jar to ~/.deps.clj/.
           CLJ_VER=$(clojure --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-          echo "DEBUG: CLJ_VER=$CLJ_VER"
-          echo "DEBUG: CLOJURE_INSTALL_DIR=$CLOJURE_INSTALL_DIR"
-          echo "DEBUG: which clojure=$(which clojure)"
-          # Use CLOJURE_INSTALL_DIR env var (set by DeLaGuardo/setup-clojure),
-          # fall back to parsing the clojure wrapper script
           INSTALL_DIR="${CLOJURE_INSTALL_DIR:-}"
           if [ -z "$INSTALL_DIR" ]; then
             INSTALL_DIR=$(grep '^install_dir=' "$(which clojure)" 2>/dev/null | cut -d= -f2-)
           fi
-          echo "DEBUG: resolved INSTALL_DIR=$INSTALL_DIR"
           if [ -n "$CLJ_VER" ] && [ -n "$INSTALL_DIR" ]; then
             TOOLS_TARGET="$HOME/.deps.clj/$CLJ_VER/ClojureTools"
             SRC_JAR=$(find "$INSTALL_DIR" -name "clojure-tools-$CLJ_VER.jar" -print -quit 2>/dev/null)
-            echo "DEBUG: SRC_JAR=$SRC_JAR"
-            echo "DEBUG: TOOLS_TARGET=$TOOLS_TARGET"
             if [ -n "$SRC_JAR" ] && [ ! -f "$TOOLS_TARGET/clojure-tools-$CLJ_VER.jar" ]; then
               mkdir -p "$TOOLS_TARGET"
               cp "$SRC_JAR" "$TOOLS_TARGET/"
               echo "Copied tools jar to $TOOLS_TARGET"
             fi
-            ls -la "$TOOLS_TARGET/" 2>/dev/null || echo "DEBUG: TOOLS_TARGET dir does not exist"
-          else
-            echo "ERROR: Could not determine CLJ_VER or INSTALL_DIR"
           fi
+          # Tell bb's deps.clj where to find the tools jar using an absolute
+          # path. Inside the awf sandbox $HOME is /root, but the mount maps
+          # /home/runner/.deps.clj into the container, so we must use the
+          # absolute host path rather than relying on $HOME.
+          echo "DEPS_CLJ_TOOLS_DIR=$HOME/.deps.clj" >> "$GITHUB_ENV"
           # Ensure deps directories are readable by any user
           chmod -R a+rX ~/.m2/repository ~/.deps.clj 2>/dev/null || true
       - name: Install gh-aw extension
