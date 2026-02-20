@@ -82,6 +82,16 @@ Key conventions (from `doc/style.md`):
 
 ## Task Steps
 
+### 0. Mandatory Validation Preflight (Always)
+
+Run documentation validation at the start of every run, even if you later determine there are no documentation changes to make.
+
+```bash
+bb validate-docs
+```
+
+If this command fails, include the exact failure output in your final report and stop further documentation edits.
+
 ### 1. Scan Recent Activity (Last 24 Hours)
 
 Use the GitHub tools to:
