@@ -251,6 +251,32 @@ Now that you have the basics, explore these topics:
 - **[MCP Servers](./mcp/overview.md)** — Connect to external tools via MCP
 - **[Examples](../examples/README.md)** — More working examples
 
+### Permissions (deny-by-default)
+
+The SDK uses a **deny-by-default** permission model. When Copilot requests permission
+to run shell commands, write files, or fetch URLs, the SDK denies all requests unless
+you provide an `:on-permission-request` handler.
+
+Use `approve-all` to permit everything:
+
+```clojure
+(copilot/with-client-session [session {:model "gpt-5.2"
+                                       :on-permission-request copilot/approve-all}]
+  ...)
+```
+
+Or write a custom handler for fine-grained control. See [Permission Handling](./reference/API.md#permission-handling) in the API Reference.
+
+### Identifying Your Application
+
+Pass `:client-name` to identify your application in API requests (included in the User-Agent header):
+
+```clojure
+(copilot/with-client-session [session {:model "gpt-5.2"
+                                       :client-name "my-weather-app"}]
+  ...)
+```
+
 ### Key Concepts
 
 | Concept | Description |
