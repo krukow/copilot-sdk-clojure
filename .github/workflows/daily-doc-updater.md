@@ -33,6 +33,8 @@ sandbox:
     mounts:
     - "/home/runner/.m2:/home/runner/.m2:ro"
     - "/home/runner/.deps.clj:/home/runner/.deps.clj:ro"
+    - "/home/runner/.m2:/root/.m2:ro"
+    - "/home/runner/.deps.clj:/root/.deps.clj:ro"
 strict: true
 timeout-minutes: 45
 imports:

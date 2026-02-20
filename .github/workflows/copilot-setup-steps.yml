@@ -68,18 +68,9 @@ jobs:
               echo "Copied tools jar to $TOOLS_TARGET"
             fi
           fi
-          # Inside the awf sandbox $HOME is /root, but the mounts map
-          # /home/runner/.deps.clj and /home/runner/.m2 into the container
-          # at those same absolute paths. bb is a GraalVM native image so
-          # JAVA_TOOL_OPTIONS has no effect — we must use env vars that
-          # bb/tools.deps read directly.
-          #
-          # DEPS_CLJ_TOOLS_DIR: tells bb's deps.clj where the tools jar is
-          # CLJ_CONFIG: tells tools.deps where to find user deps.edn (which
-          #   contains :mvn/local-repo pointing to the mounted Maven cache)
-          echo '{:mvn/local-repo "/home/runner/.m2/repository"}' > "$HOME/.deps.clj/deps.edn"
-          echo "DEPS_CLJ_TOOLS_DIR=$HOME/.deps.clj" >> "$GITHUB_ENV"
-          echo "CLJ_CONFIG=$HOME/.deps.clj" >> "$GITHUB_ENV"
+          # Inside the awf sandbox $HOME is /root (container runs as root).
+          # The workflow mounts .m2 and .deps.clj to both /home/runner/ and
+          # /root/ paths, so bb finds them regardless of $HOME.
           # Ensure deps directories are readable by any user
           chmod -R a+rX ~/.m2/repository ~/.deps.clj 2>/dev/null || true
       - name: Install gh-aw extension
