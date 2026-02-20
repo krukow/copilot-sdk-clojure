@@ -951,6 +951,7 @@
                                  (util/clj->wire is))]
     (cond-> {}
       (:session-id config) (assoc :session-id (:session-id config))
+      (:client-name config) (assoc :client-name (:client-name config))
       (:model config) (assoc :model (:model config))
       wire-tools (assoc :tools wire-tools)
       wire-sys-msg (assoc :system-message wire-sys-msg)
@@ -998,6 +999,7 @@
         wire-infinite-sessions (when-let [is (:infinite-sessions config)]
                                  (util/clj->wire is))]
     (cond-> {:session-id session-id}
+      (:client-name config) (assoc :client-name (:client-name config))
       (:model config) (assoc :model (:model config))
       wire-tools (assoc :tools wire-tools)
       wire-sys-msg (assoc :system-message wire-sys-msg)
@@ -1037,6 +1039,7 @@
    
    Config options:
    - :session-id         - Custom session ID
+   - :client-name        - Client name to identify the application (included in User-Agent header)
    - :model              - Model to use (e.g., \"gpt-5.2\")
    - :tools              - Vector of tool definitions
    - :system-message     - System message config
@@ -1081,6 +1084,7 @@
   "Resume an existing session by ID.
    
    Config options (parity with create-session, upstream PR #376):
+   - :client-name        - Client name to identify the application (included in User-Agent header)
    - :model              - Change the model for the resumed session
    - :tools              - Tools exposed to the CLI server
    - :system-message     - System message configuration {:mode :content}

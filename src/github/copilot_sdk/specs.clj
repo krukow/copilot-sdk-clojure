@@ -195,8 +195,10 @@
 ;; Disable resume flag
 (s/def ::disable-resume? boolean?)
 
+(s/def ::client-name ::non-blank-string)
+
 (def session-config-keys
-  #{:session-id :model :tools :system-message
+  #{:session-id :client-name :model :tools :system-message
     :available-tools :excluded-tools :provider
     :on-permission-request :streaming? :mcp-servers
     :custom-agents :config-dir :skill-directories
@@ -206,7 +208,7 @@
 
 (s/def ::session-config
   (closed-keys
-   (s/keys :opt-un [::session-id ::model ::tools ::system-message
+   (s/keys :opt-un [::session-id ::client-name ::model ::tools ::system-message
                     ::available-tools ::excluded-tools ::provider
                     ::on-permission-request ::streaming? ::mcp-servers
                     ::custom-agents ::config-dir ::skill-directories
@@ -216,7 +218,7 @@
    session-config-keys))
 
 (def ^:private resume-session-config-keys
-  #{:model :tools :system-message :available-tools :excluded-tools
+  #{:client-name :model :tools :system-message :available-tools :excluded-tools
     :provider :streaming? :on-permission-request
     :mcp-servers :custom-agents :config-dir :skill-directories
     :disabled-skills :infinite-sessions :reasoning-effort
@@ -224,7 +226,7 @@
 
 (s/def ::resume-session-config
   (closed-keys
-   (s/keys :opt-un [::model ::tools ::system-message ::available-tools ::excluded-tools
+   (s/keys :opt-un [::client-name ::model ::tools ::system-message ::available-tools ::excluded-tools
                     ::provider ::streaming? ::on-permission-request
                     ::mcp-servers ::custom-agents ::config-dir ::skill-directories
                     ::disabled-skills ::infinite-sessions ::reasoning-effort

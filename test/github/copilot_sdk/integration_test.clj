@@ -626,6 +626,35 @@
       (is (= "direct" (:envValueMode create-params)))
       (is (= "direct" (:envValueMode resume-params))))))
 
+(deftest test-client-name-forwarded-on-wire
+  (testing "clientName is forwarded in session.create when set (upstream PR #510)"
+    (let [seen (atom {})
+          _ (mock/set-request-hook! *mock-server* (fn [method params]
+                                                    (when (#{"session.create"} method)
+                                                      (swap! seen assoc method params))))
+          _ (sdk/create-session *test-client* {:client-name "my-app"})
+          create-params (get @seen "session.create")]
+      (is (= "my-app" (:clientName create-params)))))
+
+  (testing "clientName is forwarded in session.resume when set (upstream PR #510)"
+    (let [seen (atom {})
+          session-id (sdk/session-id (sdk/create-session *test-client* {}))
+          _ (mock/set-request-hook! *mock-server* (fn [method params]
+                                                    (when (#{"session.resume"} method)
+                                                      (swap! seen assoc method params))))
+          _ (sdk/resume-session *test-client* session-id {:client-name "my-app"})
+          resume-params (get @seen "session.resume")]
+      (is (= "my-app" (:clientName resume-params)))))
+
+  (testing "clientName is omitted from wire when not set"
+    (let [seen (atom {})
+          _ (mock/set-request-hook! *mock-server* (fn [method params]
+                                                    (when (#{"session.create"} method)
+                                                      (swap! seen assoc method params))))
+          _ (sdk/create-session *test-client* {:model "gpt-5.2"})
+          create-params (get @seen "session.create")]
+      (is (not (contains? create-params :clientName))))))
+
 ;; -----------------------------------------------------------------------------
 ;; Permission Tests (upstream PR #509: deny-by-default)
 ;; -----------------------------------------------------------------------------

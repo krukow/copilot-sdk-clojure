@@ -214,6 +214,7 @@ Create a client and session together, ensuring both are cleaned up on exit.
 | Key | Type | Description |
 |-----|------|-------------|
 | `:session-id` | string | Custom session ID (optional) |
+| `:client-name` | string | Client name to identify the application (included in User-Agent header) |
 | `:model` | string | Model to use (`"gpt-5.2"`, `"claude-sonnet-4.5"`, etc.) |
 | `:tools` | vector | Custom tools exposed to the CLI |
 | `:system-message` | map | System message customization (see below) |
