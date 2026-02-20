@@ -49,9 +49,21 @@ jobs:
         run: |
           # Download Maven deps via system clojure
           clojure -P
-          # Populate ~/.deps.clj/ with the tools jar that bb expects —
-          # the system clojure stores its jar in the install dir, not ~/.deps.clj/
+          # Also resolve bb.edn deps (org.clojure/clojure)
           bb clojure -P
+          # bb's deps.clj delegates to system clojure when it's on PATH,
+          # so the tools jar never gets written to ~/.deps.clj/. Inside the
+          # sandbox, system clojure isn't available, so bb needs the jar there.
+          CLJ_VER=$(clojure --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          INSTALL_DIR=$(grep '^install_dir=' "$(which clojure)" 2>/dev/null | cut -d= -f2-)
+          if [ -n "$CLJ_VER" ] && [ -n "$INSTALL_DIR" ]; then
+            TOOLS_TARGET="$HOME/.deps.clj/$CLJ_VER/ClojureTools"
+            if [ ! -f "$TOOLS_TARGET/clojure-tools-$CLJ_VER.jar" ]; then
+              mkdir -p "$TOOLS_TARGET"
+              SRC_JAR=$(find "$INSTALL_DIR" -name "clojure-tools-$CLJ_VER.jar" -print -quit 2>/dev/null)
+              [ -n "$SRC_JAR" ] && cp "$SRC_JAR" "$TOOLS_TARGET/" && echo "Copied tools jar to $TOOLS_TARGET"
+            fi
+          fi
           # Ensure deps directories are readable by any user
           chmod -R a+rX ~/.m2/repository ~/.deps.clj 2>/dev/null || true
       - name: Install gh-aw extension
