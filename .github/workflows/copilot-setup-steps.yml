@@ -68,11 +68,12 @@ jobs:
               echo "Copied tools jar to $TOOLS_TARGET"
             fi
           fi
-          # Tell bb's deps.clj where to find the tools jar using an absolute
-          # path. Inside the awf sandbox $HOME is /root, but the mount maps
-          # /home/runner/.deps.clj into the container, so we must use the
-          # absolute host path rather than relying on $HOME.
+          # Inside the awf sandbox $HOME is /root, but the mounts map
+          # /home/runner/.deps.clj and /home/runner/.m2 into the container
+          # at those same absolute paths. Set env vars so bb's deps.clj
+          # and the tools JVM use the absolute host paths instead of $HOME.
           echo "DEPS_CLJ_TOOLS_DIR=$HOME/.deps.clj" >> "$GITHUB_ENV"
+          echo "CLJ_JVM_OPTS=-Dmaven.repo.local=$HOME/.m2/repository" >> "$GITHUB_ENV"
           # Ensure deps directories are readable by any user
           chmod -R a+rX ~/.m2/repository ~/.deps.clj 2>/dev/null || true
       - name: Install gh-aw extension
