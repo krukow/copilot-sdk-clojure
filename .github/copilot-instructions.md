@@ -49,7 +49,9 @@ This SDK must maintain **strict API parity** with the official Node.js SDK (`@gi
 
 ## Syncing with Upstream
 
-To check for upstream changes that may need porting:
+Upstream syncing is **automated** via the daily agentic workflow (`.github/workflows/upstream-sync.md`, runs weekdays). It discovers upstream `github/copilot-sdk` changes, plans idiomatic Clojure ports, implements them, runs full CI, and opens a draft PR for @krukow to review.
+
+To manually check for upstream changes that may need porting:
 
 1. Review merged PRs: https://github.com/github/copilot-sdk/pulls?q=is%3Apr+is%3Aclosed
 2. Compare with recent commits in this repository
