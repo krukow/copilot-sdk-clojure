@@ -202,20 +202,23 @@ Before creating the PR, review your own changes:
 
 ### Phase 7: Create the PR
 
-Create a pull request with:
+First, if the change is complex or warrants discussion, create a **tracking issue** describing:
+- The upstream changes being ported
+- Your analysis and implementation approach
+- Any design decisions or trade-offs
+
+Then **always proceed to implement and create a pull request**. Do not stop at the issue.
+
+Create the pull request with:
 
 - **Title**: `[upstream-sync] Port changes from copilot-sdk vX.Y.Z` (or specific PR titles if only a few)
 - **Body** including:
+  - `Closes #NN` (referencing the tracking issue, if one was created) so the issue auto-closes on merge
   - Summary of upstream changes ported
   - List of upstream PRs referenced (with links)
   - Changes skipped and why
   - Testing performed
   - Any notes for the reviewer
-
-If the changes are too complex or ambiguous to implement confidently, create an **issue** instead of a PR, describing:
-- The upstream changes that need attention
-- Why automated porting was not feasible
-- Suggested approach for manual implementation
 
 ### Phase 8: Update Cache
 
@@ -226,7 +229,7 @@ After creating the PR (or noop/issue), update cache-memory with:
 
 ## Guidelines
 
-- **Be conservative**: When in doubt, create an issue for human review rather than making a risky change.
+- **Always implement**: Do not stop at creating an issue. Always proceed to implement the changes and create a PR. Use issues as tracking items that the PR closes, not as alternatives to implementation.
 - **Small PRs**: If there are many upstream changes, prefer creating one focused PR per logical change rather than one massive PR.
 - **Respect the design philosophy**: This is an idiomatic Clojure library, not a line-by-line translation.
 - **Wire format matters**: Protocol/wire code must match upstream exactly. Clojure idioms apply to the API surface, not the wire format.
@@ -234,6 +237,5 @@ After creating the PR (or noop/issue), update cache-memory with:
 
 ## Safe Outputs
 
-- **If changes were ported**: Use `create-pull-request` with the implementation branch.
-- **If changes need human review**: Use `create-issue` describing what needs attention.
+- **If changes were ported**: Use `create-issue` first (if helpful for tracking), then `create-pull-request` with `Closes #NN` in the body.
 - **If no relevant changes found**: Call `noop` with a message like "No upstream changes require porting since last sync on YYYY-MM-DD."
