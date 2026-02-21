@@ -68,7 +68,14 @@
       (when github-token
         (.put env-map "COPILOT_SDK_AUTH_TOKEN" github-token)))
 
-    ;; Configure stdio
+    ;; Configure stdio — use explicit PIPE redirects for all three streams.
+    ;; On Windows, the JVM's ProcessImpl sets CREATE_NO_WINDOW when none of the
+    ;; child's stdio handles are inherited from the parent console. By ensuring
+    ;; PIPE (not INHERIT) for stdin, stdout, and stderr, we guarantee no
+    ;; console window appears — equivalent to upstream windowsHide: true (PR #329).
+    (.redirectInput builder ProcessBuilder$Redirect/PIPE)
+    (.redirectOutput builder ProcessBuilder$Redirect/PIPE)
+    (.redirectError builder ProcessBuilder$Redirect/PIPE)
     (.redirectErrorStream builder false)
 
     (let [process (.start builder)
