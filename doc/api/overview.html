@@ -118,9 +118,8 @@
 <tr><td> <code>:mcp-headers</code> </td><td> map </td><td> No </td><td> HTTP headers (e.g., for authentication) </td></tr>
 </tbody>
 </table>
-<h3><a href="#resume-time-reload" id="resume-time-reload"></a>Resume-Time Reload</h3>
-<p>When <code>:mcp-servers</code> is supplied to <code>resume-session</code> or <code>&lt;resume-session</code>, the SDK sends the configuration with <code>session.resume</code> and then applies the same converted map through <code>session.mcp.reloadWithConfig</code>. <code>join-session</code> inherits this behavior because it resumes the parent session internally.</p>
-<p>The reload is part of the resume contract: an RPC error or closed response fails the operation and removes the partially registered local session. There is no silent fallback for runtimes that do not support the reload method. Omitting <code>:mcp-servers</code> sends neither a reload request nor an empty configuration.</p>
+<h3><a href="#resume-time-configuration" id="resume-time-configuration"></a>Resume-Time Configuration</h3>
+<p>When <code>:mcp-servers</code> is supplied to <code>resume-session</code> or <code>&lt;resume-session</code>, the SDK sends the converted configuration as <code>mcpServers</code> in the <code>session.resume</code> request. <code>join-session</code> inherits this behavior because it resumes the parent session internally. Omitting <code>:mcp-servers</code> omits the wire key; an empty map sends an empty configuration.</p>
 <h3><a href="#disabling-mcp-servers" id="disabling-mcp-servers"></a>Disabling MCP Servers</h3>
 <p>Disable specific servers for a session without removing their <code>:mcp-servers</code> entry:</p>
 <pre><code class="language-clojure">(copilot/with-client-session [session

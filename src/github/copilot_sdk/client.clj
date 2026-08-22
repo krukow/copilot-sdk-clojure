@@ -3002,24 +3002,6 @@
             (session/remove-session! client session-id)
             (throw t)))))))
 
-(defn- mcp-reload-with-config-params
-  [session-id mcp-servers]
-  {:session-id session-id
-   :config {:mcp-servers (util/mcp-servers->wire mcp-servers)}})
-
-(def ^:private default-mcp-reload-timeout-ms 60000)
-(def ^:private mcp-reload-transport-margin-ms 5000)
-
-(defn- mcp-reload-timeout-ms
-  [mcp-servers]
-  (reduce
-   max
-   default-mcp-reload-timeout-ms
-   (keep (fn [{:keys [mcp-timeout]}]
-           (when mcp-timeout
-             (+ mcp-timeout mcp-reload-transport-margin-ms)))
-         (vals mcp-servers))))
-
 (defn- resume-session-result*
   [client session-id config]
   (validate-provider-config! config)
@@ -3038,12 +3020,6 @@
       (install-session-fs-handler! client session-id session config)
       (register-mcp-auth-interest! client session-id config)
       (let [result (proto/send-request! connection-io "session.resume" params)]
-        (when (contains? config :mcp-servers)
-          (proto/send-request!
-           connection-io
-           "session.mcp.reloadWithConfig"
-           (mcp-reload-with-config-params session-id (:mcp-servers config))
-           (mcp-reload-timeout-ms (:mcp-servers config))))
         (session/set-workspace-path! client session-id (:workspace-path result))
         (session/set-capabilities! client session-id (:capabilities result))
         (session/set-open-canvases! client session-id (:open-canvases result))
@@ -3077,9 +3053,7 @@
    - :tool-search        - Tool discovery config {:enabled :defer-threshold}
    - :provider           - Custom provider configuration (BYOK)
    - :streaming?         - Enable streaming responses
-   - :mcp-servers        - MCP server configurations. When present, resume applies the same
-                           config with session.mcp.reloadWithConfig after session.resume;
-                           reload failures fail the resume and clean up the local session.
+   - :mcp-servers        - MCP server configurations, applied as part of session.resume.
    - :custom-agents      - Custom agent configurations
    - :default-agent      - Built-in agent config, e.g. {:excluded-tools [\"private_tool\"]}
    - :config-directory   - Override configuration directory.
@@ -3340,41 +3314,14 @@
                     (session/remove-session! client session-id)
                     (ex-info (str "Failed to resume session: " (:message err))
                              {:error err :session-id session-id}))
-                (let [result (:result response)
-                      reload? (contains? config :mcp-servers)
-                      reload-response
-                      (when reload?
-                        (<! (proto/send-request-with-timeout
-                             connection-io
-                             "session.mcp.reloadWithConfig"
-                             (mcp-reload-with-config-params
-                              session-id
-                              (:mcp-servers config))
-                             (mcp-reload-timeout-ms
-                              (:mcp-servers config)))))]
-                  (cond
-                    (and reload? (nil? reload-response))
-                    (do
-                      (session/remove-session! client session-id)
-                      (ex-info "MCP configuration reload failed: RPC channel closed"
-                               {:session-id session-id}))
-
-                    (:error reload-response)
-                    (let [err (:error reload-response)]
-                      (session/remove-session! client session-id)
-                      (ex-info (str "Failed to reload MCP configuration: "
-                                    (:message err))
-                               {:error err :session-id session-id}))
-
-                    :else
-                    (do
-                      (session/set-workspace-path! client session-id (:workspace-path result))
-                      (session/set-capabilities! client session-id (:capabilities result))
-                      (session/set-open-canvases! client session-id (:open-canvases result))
-                      (let [r (<! (<apply-session-options-update! client session config))]
-                        (if (instance? Throwable r)
-                          r
-                          session)))))))))))))
+                (let [result (:result response)]
+                  (session/set-workspace-path! client session-id (:workspace-path result))
+                  (session/set-capabilities! client session-id (:capabilities result))
+                  (session/set-open-canvases! client session-id (:open-canvases result))
+                  (let [r (<! (<apply-session-options-update! client session config))]
+                    (if (instance? Throwable r)
+                      r
+                      session)))))))))))
 
 (defn- project-granted-environment-variables
   [requested-names grants]

@@ -433,13 +433,10 @@ Resume an existing session by ID. The `config` map accepts the same options as `
 | `:continue-pending-work?` | boolean | When true, the runtime re-emits any pending `permission.requested` and external tool calls so handlers can re-respond on resume; default false treats pending work as interrupted. Forwarded as `continuePendingWork` on `session.resume`. |
 | `:large-output` | map | Tool output handling config. Forwarded on `session.resume` as the official SDK's `largeOutput` field. |
 
-When `:mcp-servers` is present, the SDK first resumes the session and then calls
-`session.mcp.reloadWithConfig` with the same converted server configuration.
-This applies to blocking and async resume, and therefore to `join-session`.
-Reload errors propagate, and the partially registered local session is removed;
-the SDK does not silently fall back for older runtimes. Reload requests use a
-bounded timeout of at least 60 seconds, extended to the largest configured
-`:mcp-timeout` plus a five-second transport margin.
+When `:mcp-servers` is present, the SDK sends the converted server configuration
+as `mcpServers` in the `session.resume` request. This applies to blocking and
+async resume, and therefore to `join-session`. Omitting the key omits
+`mcpServers`; an empty map sends an empty configuration.
 
 When `:on-permission-request` is set to `default-join-session-permission-handler`, the SDK sends `requestPermission: false` on the wire, telling the CLI that this client does not handle permission requests. Any other handler sends `requestPermission: true`.
 

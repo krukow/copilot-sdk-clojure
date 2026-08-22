@@ -326,7 +326,7 @@
 <tr><td> <code>:large-output</code> </td><td> map </td><td> Tool output handling config. Forwarded on <code>session.resume</code> as the official SDK’s <code>largeOutput</code> field. </td></tr>
 </tbody>
 </table>
-<p>When <code>:mcp-servers</code> is present, the SDK first resumes the session and then calls <code>session.mcp.reloadWithConfig</code> with the same converted server configuration. This applies to blocking and async resume, and therefore to <code>join-session</code>. Reload errors propagate, and the partially registered local session is removed; the SDK does not silently fall back for older runtimes. Reload requests use a bounded timeout of at least 60 seconds, extended to the largest configured <code>:mcp-timeout</code> plus a five-second transport margin.</p>
+<p>When <code>:mcp-servers</code> is present, the SDK sends the converted server configuration as <code>mcpServers</code> in the <code>session.resume</code> request. This applies to blocking and async resume, and therefore to <code>join-session</code>. Omitting the key omits <code>mcpServers</code>; an empty map sends an empty configuration.</p>
 <p>When <code>:on-permission-request</code> is set to <code>default-join-session-permission-handler</code>, the SDK sends <code>requestPermission: false</code> on the wire, telling the CLI that this client does not handle permission requests. Any other handler sends <code>requestPermission: true</code>.</p>
 <pre><code class="language-clojure">;; Resume with a different model and reasoning effort
 (copilot/resume-session client "session-123"

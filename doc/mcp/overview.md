@@ -126,18 +126,13 @@ Here's a complete working example using the official [`@modelcontextprotocol/ser
 | `:mcp-defer-tools` | keyword | No | **Experimental, CLI-only:** tool-deferral policy `:auto` or `:never`. Wire-encoded as `deferTools` (upstream schema 1.0.63); this field is not exposed by the official Node SDK's `MCPServerConfig`. |
 | `:mcp-headers` | map | No | HTTP headers (e.g., for authentication) |
 
-### Resume-Time Reload
+### Resume-Time Configuration
 
 When `:mcp-servers` is supplied to `resume-session` or `<resume-session`, the
-SDK sends the configuration with `session.resume` and then applies the same
-converted map through `session.mcp.reloadWithConfig`. `join-session` inherits
-this behavior because it resumes the parent session internally.
-
-The reload is part of the resume contract: an RPC error or closed response
-fails the operation and removes the partially registered local session. There
-is no silent fallback for runtimes that do not support the reload method.
-Omitting `:mcp-servers` sends neither a reload request nor an empty
-configuration.
+SDK sends the converted configuration as `mcpServers` in the `session.resume`
+request. `join-session` inherits this behavior because it resumes the parent
+session internally. Omitting `:mcp-servers` omits the wire key; an empty map
+sends an empty configuration.
 
 ### Disabling MCP Servers
 
