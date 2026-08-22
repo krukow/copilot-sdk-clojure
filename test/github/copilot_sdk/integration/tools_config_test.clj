@@ -118,6 +118,26 @@
            (select-keys (second resume-request) [:sessionId :mcpServers])))
     (is (empty? reloads))))
 
+(deftest test-resume-mcp-server-omission-and-empty-map-wire-shape
+  (doseq [[label config expected-present?]
+          [["omitted input omits mcpServers" {} false]
+           ["empty input sends an empty mcpServers object"
+            {:mcp-servers {}}
+            true]]]
+    (testing label
+      (let [seed (sdk/create-session *test-client* {})
+            session-id (sdk/session-id seed)
+            resume-params (atom nil)
+            _ (mock/set-request-hook!
+               *mock-server*
+               (fn [method params]
+                 (when (= "session.resume" method)
+                   (reset! resume-params params))))
+            _ (sdk/resume-session *test-client* session-id config)]
+        (is (= expected-present? (contains? @resume-params :mcpServers)))
+        (when expected-present?
+          (is (= {} (:mcpServers @resume-params))))))))
+
 (deftest test-custom-agent-mcp-server-ids-on-wire
   (testing "custom-agent MCP server IDs and config shapes survive create and resume"
     (let [seen (atom {})
