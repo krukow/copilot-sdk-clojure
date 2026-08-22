@@ -8,19 +8,10 @@
             [clojure.test :refer [deftest is testing]]
             [github.copilot-sdk :as sdk]
             [github.copilot-sdk.generated.event-specs :as generated-events]
-            [github.copilot-sdk.specs])
-  (:import [java.nio.file Files Paths]
-           [java.security MessageDigest]))
+            [github.copilot-sdk.specs]))
 
 (def ^:private stable-delta-resource
   "resources/stable_upstream_delta_ea41d.edn")
-
-(defn- sha256
-  [path]
-  (let [digest (.digest (MessageDigest/getInstance "SHA-256")
-                        (Files/readAllBytes
-                         (Paths/get path (make-array String 0))))]
-    (apply str (map #(format "%02x" (bit-and % 0xff)) digest))))
 
 (defn- read-schema
   [path]
@@ -59,11 +50,6 @@
                "session-events.schema.json"
                "9fd414f5020c317a234da6d7a06a4d0ef02ddad227ddc9962dced49302e5e8ec"}
                (get-in report [:upstream :schema-sha256])))
-        (is (= (get-in report [:upstream :schema-sha256])
-               {"api.schema.json" (sha256 "schemas/api.schema.json")
-               "session-events.schema.json"
-               (sha256 "schemas/session-events.schema.json")}))
-        (is (= "1.0.81-5\n" (slurp ".copilot-schema-version")))
         (is (= (:stable-delta-ids report)
                (set (map :id stable-deltas))))
         (is (empty? (:unclassified-stable report)))

@@ -28,9 +28,9 @@ All notable changes to this project will be documented in this file. This change
   [upstream PR #2364](https://github.com/github/copilot-sdk/pull/2364))
 
 ### Changed (post-v1.0.12-preview.0 sync)
-- Updated the runtime schema pin from `1.0.80` to `1.0.81-5` and recertified
+- Updated the runtime schema pin from `1.0.80` to `1.0.81-6` and recertified
   the complete stable Node SDK public surface through upstream commit
-  [`ea41dadb199725766d5097f4592c17be3200035f`](https://github.com/github/copilot-sdk/commit/ea41dadb199725766d5097f4592c17be3200035f).
+  [`cc0438d66e3e68c333537cb935d9425d4e4ed8d5`](https://github.com/github/copilot-sdk/commit/cc0438d66e3e68c333537cb935d9425d4e4ed8d5).
   Experimental assisted-approval controls, ephemeral UI queries, factory
   lifecycle events, generated-only RPC declarations, and Node-specific package
   resolution remain intentionally excluded.
@@ -40,15 +40,19 @@ All notable changes to this project will be documented in this file. This change
   `:assisted-approval-model`. This replaces the removed aggregate allow-all
   booleans and `"off"` / `"auto"` / `"on"` mode fields.
 - `resume-session`, `<resume-session`, and `join-session` now apply supplied MCP
-  server configuration through `session.mcp.reloadWithConfig` after resume.
-  Reload failures and bounded timeouts propagate and clean up the partially
-  registered local session.
-  ([upstream PR #2358](https://github.com/github/copilot-sdk/pull/2358))
+  server configuration directly in `session.resume`, without a redundant
+  `session.mcp.reloadWithConfig` follow-up.
+  ([upstream PR #2367](https://github.com/github/copilot-sdk/pull/2367))
 
 ### Fixed (post-v1.0.12-preview.0 sync)
 - Create, resume, and join now send omitted command descriptions as `""`, and
   elicitation results omit absent content rather than serializing JSON `null`.
   ([upstream PR #2358](https://github.com/github/copilot-sdk/pull/2358))
+
+### Fixed (examples)
+- Scoped the manual pending-tool resume example to its declaration-only custom
+  tool so host-configured MCP tools cannot exhaust the selected model's prompt
+  budget before the example begins.
 
 ## [1.0.11.0] - 2026-08-16
 ### Added (v1.0.11 sync)
