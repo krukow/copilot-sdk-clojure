@@ -112,10 +112,10 @@
       },
       "login": {
         "rpcMethod": "account.login",
-        "description": "Stores authentication credentials after successful login (e.g., device code flow).",
+        "description": "Validates and stores authentication credentials. When login is omitted, resolves the authenticated user from the token before persistence.",
         "params": {
           "$ref": "#/definitions/AccountLoginRequest",
-          "description": "Credentials to store after successful authentication"
+          "description": "Credentials to validate and store. Omit login to resolve the authenticated user from the token."
         },
         "result": {
           "$ref": "#/definitions/AccountLoginResult",
@@ -10609,7 +10609,7 @@
         },
         "login": {
           "type": "string",
-          "description": "User login/username"
+          "description": "User login/username. When omitted, the runtime validates the token and resolves the login from GitHub."
         },
         "token": {
           "type": "string",
@@ -10618,11 +10618,10 @@
       },
       "required": [
         "host",
-        "login",
         "token"
       ],
       "additionalProperties": false,
-      "description": "Credentials to store after successful authentication",
+      "description": "Credentials to validate and store. Omit login to resolve the authenticated user from the token.",
       "title": "AccountLoginRequest"
     },
     "AccountLoginResult": {
@@ -26954,6 +26953,7 @@
         "cli_flag",
         "slash_command",
         "autopilot_confirmation",
+        "user_setting",
         "rpc"
       ],
       "description": "Optional source for permission-mode telemetry. Defaults to `rpc` when omitted for SDK callers.",
@@ -26962,6 +26962,7 @@
         "cli_flag": "The mode was set from a CLI command-line flag.",
         "slash_command": "The mode was set by a slash command.",
         "autopilot_confirmation": "The mode was set by confirming autopilot behavior.",
+        "user_setting": "The mode was set at startup by the `defaultPermissionMode` user setting.",
         "rpc": "The mode was set through an RPC caller."
       },
       "stability": "experimental"
@@ -27873,6 +27874,7 @@
         "cli_flag",
         "slash_command",
         "autopilot_confirmation",
+        "user_setting",
         "rpc"
       ],
       "description": "Optional source for allow-all telemetry. Defaults to `rpc` when omitted for SDK callers.",
@@ -27881,6 +27883,7 @@
         "cli_flag": "Allow-all was enabled from a CLI command-line flag.",
         "slash_command": "Allow-all was enabled by a slash command.",
         "autopilot_confirmation": "Allow-all was enabled by confirming autopilot behavior.",
+        "user_setting": "Allow-all was enabled at startup by the `defaultPermissionMode` user setting.",
         "rpc": "Allow-all was enabled through an RPC caller."
       }
     },

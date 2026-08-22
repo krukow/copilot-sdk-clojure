@@ -86,18 +86,13 @@
       (is (= "sse" (get-in resume-params [:mcpServers :srv-2 :type])))
       (is (= "https://mcp.resume.test" (get-in resume-params [:mcpServers :srv-2 :url])))
       (is (= ["*"] (get-in resume-params [:mcpServers :srv-2 :tools])))
-      (is (= {:sessionId session-id
-              :config {:mcpServers
-                       {:srv-2 {:type "sse"
-                                :url "https://mcp.resume.test"
-                                :tools ["*"]}}}}
-             reload-params))
+      (is (nil? reload-params))
       (is (= "agent-2" (get-in resume-params [:customAgents 0 :name])))
       ;; envValueMode is always sent as "direct" (upstream PR #484)
       (is (= "direct" (:envValueMode create-params)))
       (is (= "direct" (:envValueMode resume-params))))))
 
-(deftest test-async-resume-reloads-mcp-configuration
+(deftest test-async-resume-configures-mcp-in-resume-request-only
   (let [seed (sdk/create-session *test-client* {})
         session-id (sdk/session-id seed)
         requests (atom [])
@@ -112,70 +107,36 @@
                   {"srv" {:mcp-server-type :http
                           :mcp-url "https://mcp.async.test"
                           :mcp-tools ["*"]}}}))
+        resume-request (some #(when (= "session.resume" (first %)) %) @requests)
         reloads (filter #(= "session.mcp.reloadWithConfig" (first %)) @requests)]
     (is (not (instance? Throwable result)))
-    (is (= [["session.mcp.reloadWithConfig"
-             {:sessionId session-id
-              :config {:mcpServers
-                       {:srv {:type "http"
-                              :url "https://mcp.async.test"
-                              :tools ["*"]}}}}]]
-           reloads))))
+    (is (= {:sessionId session-id
+            :mcpServers
+            {:srv {:type "http"
+                   :url "https://mcp.async.test"
+                   :tools ["*"]}}}
+           (select-keys (second resume-request) [:sessionId :mcpServers])))
+    (is (empty? reloads))))
 
-(deftest test-sync-resume-cleans-up-after-mcp-reload-rpc-error
-  (let [seed (sdk/create-session *test-client* {})
-        session-id (sdk/session-id seed)]
-    (mock/set-request-hook!
-     *mock-server*
-     (fn [method _]
-       (when (= "session.mcp.reloadWithConfig" method)
-         (throw (ex-info "reload rejected" {:code -32042})))))
-    (is (thrown-with-msg?
-         clojure.lang.ExceptionInfo
-         #"reload rejected"
-         (sdk/resume-session
-          *test-client*
-          session-id
-          {:mcp-servers
-           {"srv" {:mcp-server-type :http
-                  :mcp-url "https://mcp.test"
-                  :mcp-tools ["*"]}}})))
-    (is (nil? (get-in @(:state *test-client*) [:sessions session-id])))))
-
-(deftest test-async-resume-cleans-up-after-mcp-reload-rpc-error
-  (let [seed (sdk/create-session *test-client* {})
-        session-id (sdk/session-id seed)]
-    (mock/set-request-hook!
-     *mock-server*
-     (fn [method _]
-       (when (= "session.mcp.reloadWithConfig" method)
-         (throw (ex-info "reload rejected" {:code -32042})))))
-    (let [result
-          (async/<!!
-           (sdk/<resume-session
-           *test-client*
-           session-id
-           {:mcp-servers
-            {"srv" {:mcp-server-type :http
-                    :mcp-url "https://mcp.test"
-                    :mcp-tools ["*"]}}}))]
-      (is (instance? clojure.lang.ExceptionInfo result))
-      (is (re-find #"reload rejected" (ex-message result))))
-    (is (nil? (get-in @(:state *test-client*) [:sessions session-id])))))
-
-(deftest test-mcp-reload-timeout-honors-server-startup-timeout
-  (let [timeout-fn (ns-resolve 'github.copilot-sdk.client
-                              'mcp-reload-timeout-ms)]
-    (is (some? timeout-fn))
-    (when timeout-fn
-      (is (= 60000 ((var-get timeout-fn) {})))
-      (is (= 60000
-            ((var-get timeout-fn)
-             {"fast" {:mcp-timeout 1000}})))
-      (is (= 305000
-            ((var-get timeout-fn)
-             {"slow" {:mcp-timeout 300000}
-              "fast" {:mcp-timeout 1000}}))))))
+(deftest test-resume-mcp-server-omission-and-empty-map-wire-shape
+  (doseq [[label config expected-present?]
+          [["omitted input omits mcpServers" {} false]
+           ["empty input sends an empty mcpServers object"
+            {:mcp-servers {}}
+            true]]]
+    (testing label
+      (let [seed (sdk/create-session *test-client* {})
+            session-id (sdk/session-id seed)
+            resume-params (atom nil)
+            _ (mock/set-request-hook!
+               *mock-server*
+               (fn [method params]
+                 (when (= "session.resume" method)
+                   (reset! resume-params params))))
+            _ (sdk/resume-session *test-client* session-id config)]
+        (is (= expected-present? (contains? @resume-params :mcpServers)))
+        (when expected-present?
+          (is (= {} (:mcpServers @resume-params))))))))
 
 (deftest test-custom-agent-mcp-server-ids-on-wire
   (testing "custom-agent MCP server IDs and config shapes survive create and resume"

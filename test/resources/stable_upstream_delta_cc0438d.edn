@@ -1,0 +1,178 @@
+{:base "ea41dadb199725766d5097f4592c17be3200035f"
+ :target "cc0438d66e3e68c333537cb935d9425d4e4ed8d5"
+ :target-position :post-v1.0.12-preview.0-main
+ :exact-commits
+ [{:sha "21d738ea2cad2b49bb40b125046a29c0880f1504"
+   :pull-request "https://github.com/github/copilot-sdk/pull/2367"
+   :classification :mixed
+   :status :internal-subset-ported
+   :reason "The Node resume implementation and runtime pin affect compatibility; generated RPC, language-specific, and test changes do not add stable package-root API."}
+  {:sha "cc0438d66e3e68c333537cb935d9425d4e4ed8d5"
+   :pull-request "https://github.com/github/copilot-sdk/pull/2370"
+   :classification :test-harness
+   :status :reviewed-no-port
+   :reason "Replay-cassette normalization is confined to the upstream shared test harness."}]
+ :public-surface-audit
+ {:package-root "nodejs/src/index.ts"
+  :inspected
+  ["nodejs/src/index.ts"
+   "nodejs/src/types.ts"
+   "nodejs/src/client.ts"
+   "nodejs/src/session.ts"
+   "nodejs/src/extension.ts"
+   "nodejs/src/toolSet.ts"
+   "nodejs/src/factory.ts"]
+  :stable-public-deltas []
+  :unclassified-deltas []}
+ :ported-internal-deltas
+ [{:id :resume/mcp-config-in-resume-only
+   :classification :internal
+   :status :ported
+   :upstream-paths ["nodejs/package.json" "nodejs/src/client.ts"]
+   :clojure-paths
+   [".copilot-schema-version"
+    "src/github/copilot_sdk.clj"
+    "src/github/copilot_sdk/client.clj"
+    "test/github/copilot_sdk/integration/tools_config_test.clj"
+    "doc/reference/API.md"
+    "doc/mcp/overview.md"
+    "CHANGELOG.md"]
+   :evidence
+   [:node-package-pin
+    :node-package-root
+    :resume-config-type
+    :resume-session-implementation
+    :resume-mcp-wire]
+   :contract
+   {:public-export :unchanged
+    :public-type :unchanged
+    :builders [:resume-session :<resume-session :join-session]
+    :wire
+    {:request "session.resume"
+     :field "mcpServers"
+     :follow-up-requests []
+     :omitted-input "omits mcpServers"
+     :empty-map-input "sends an empty mcpServers object"}
+    :idiom-specs :unchanged
+    :fdefs :unchanged
+    :api-surface-snapshot :unchanged
+    :tests
+    ["test/github/copilot_sdk/integration/tools_config_test.clj"]
+    :docs
+    ["src/github/copilot_sdk.clj"
+     "src/github/copilot_sdk/client.clj"
+     "doc/reference/API.md"
+     "doc/mcp/overview.md"
+     "CHANGELOG.md"]}}]
+ :intentional-exclusions
+ [{:id :generated-rpc-declarations
+   :classification :generated-only
+   :status :regenerated
+   :reason "The optional account.login field and permission-source enum members are generated RPC declarations not exported as stable Node package-root SDK types."
+   :evidence
+   [:generated-account-login
+    :generated-permission-mode-source
+    :generated-approve-all-source]}
+  {:id :language-specific-implementations
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Other language implementations mirror the canonical Node compatibility fix; the Clojure port is tracked by the internal resume delta."}
+  {:id :upstream-e2e-adjustments
+   :classification :test-harness
+   :status :reviewed-no-port
+   :reason "Transport- and platform-specific upstream E2E skip changes do not alter the stable SDK contract."
+   :evidence [:node-e2e-skip]}
+  {:id :replay-normalization
+   :classification :test-harness
+   :status :reviewed-no-port
+   :reason "Shell-interruption normalization changes only the upstream shared cassette replay harness."
+   :evidence [:replay-interruption-normalizer]}]
+ :classified-files
+ [{:classification :internal
+   :status :ported
+   :paths ["nodejs/package.json" "nodejs/src/client.ts"]}
+  {:classification :generated-only
+   :status :regenerated
+   :paths
+   ["dotnet/src/Generated/Rpc.cs"
+    "go/rpc/zrpc.go"
+    "java/scripts/codegen/package-lock.json"
+    "java/sdk/src/generated/java/com/github/copilot/generated/rpc/AccountLoginParams.java"
+    "java/sdk/src/generated/java/com/github/copilot/generated/rpc/PermissionModeSource.java"
+    "java/sdk/src/generated/java/com/github/copilot/generated/rpc/PermissionsSetApproveAllSource.java"
+    "java/sdk/src/generated/java/com/github/copilot/generated/rpc/ServerAccountApi.java"
+    "nodejs/package-lock.json"
+    "nodejs/samples/package-lock.json"
+    "nodejs/src/generated/rpc.ts"
+    "python/copilot/generated/rpc.py"
+    "rust/src/generated/api_types.rs"
+    "rust/src/generated/rpc.rs"]}
+  {:classification :language-specific
+   :status :reviewed-no-port
+   :paths
+   ["dotnet/src/Client.cs"
+    "go/client.go"
+    "java/pom.xml"
+    "java/scripts/codegen/package.json"
+    "java/sdk/src/main/java/com/github/copilot/CopilotClient.java"
+    "python/copilot/client.py"
+    "rust/src/session.rs"]}
+  {:classification :test-harness
+   :status :reviewed-no-port
+   :paths
+   ["dotnet/test/E2E/RpcServerMiscE2ETests.cs"
+    "go/internal/e2e/rpc_server_misc_e2e_test.go"
+    "nodejs/test/e2e/rpc_ui_ephemeral_query.e2e.test.ts"
+    "rust/tests/e2e/rpc_mcp_lifecycle.rs"
+    "rust/tests/e2e/rpc_server_misc.rs"
+    "test/harness/package-lock.json"
+    "test/harness/package.json"
+    "test/harness/replayingCapiProxy.test.ts"
+    "test/harness/replayingCapiProxy.ts"]}]
+ :source-evidence
+ {:node-package-pin
+  {:path "nodejs/package.json"
+   :symbol "\"@github/copilot\": \"^1.0.81-6\""}
+  :node-package-root
+  {:path "nodejs/src/index.ts"
+   :symbol "export { CopilotClient } from \"./client.js\";"}
+  :resume-config-type
+  {:path "nodejs/src/types.ts"
+   :symbol "export interface ResumeSessionConfig extends SessionConfigBase"}
+  :resume-session-implementation
+  {:path "nodejs/src/client.ts"
+   :symbol "private async resumeSessionInternal("}
+  :resume-mcp-wire
+  {:path "nodejs/src/client.ts"
+   :symbol "mcpServers: toWireMcpServers(config.mcpServers)"}
+  :generated-account-login
+  {:path "nodejs/src/generated/rpc.ts"
+   :symbol "export interface AccountLoginRequest"}
+  :generated-permission-mode-source
+  {:path "nodejs/src/generated/rpc.ts"
+   :symbol "export type PermissionModeSource"}
+  :generated-approve-all-source
+  {:path "nodejs/src/generated/rpc.ts"
+   :symbol "export type PermissionsSetApproveAllSource"}
+  :node-e2e-skip
+  {:path "nodejs/test/e2e/rpc_ui_ephemeral_query.e2e.test.ts"
+   :symbol "it.skipIf(isInProcessTransport || process.platform === \"darwin\")"}
+  :replay-interruption-normalizer
+  {:path "test/harness/replayingCapiProxy.ts"
+   :symbol "function normalizeInterruptedToolResult(result: string)"}}
+ :schema
+ {:runtime-pin "1.0.81-6"
+  :api
+  {:source "@github/copilot/1.0.81-6"
+   :sha256 "603b014acb7a5c93a4b3c1580394f301eb60453e516eef15e47cbb6522bad558"}
+  :session-events
+  {:source "@github/copilot/1.0.81-6"
+   :sha256 "9fd414f5020c317a234da6d7a06a4d0ef02ddad227ddc9962dced49302e5e8ec"}
+  :generated-clojure-output
+  {:session-event-schema-changed? false
+   :event-specs-changed? false
+   :coercion-source-changed? false}}
+ :version
+ {:sdk "1.0.11.0"
+  :changed? false
+  :release-required? false}}

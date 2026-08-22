@@ -710,9 +710,8 @@
    `:on-permission-request` is **optional** (since upstream PR #1308) — omit it to
    leave permission requests pending for manual resolution.
 
-   When `:mcp-servers` is present, resume applies the same configuration with
-   `session.mcp.reloadWithConfig` after `session.resume`. A reload failure fails
-   the resume and cleans up the local session.
+   When `:mcp-servers` is present, the configuration is applied by
+   `session.resume`.
 
    Example:
    ```clojure

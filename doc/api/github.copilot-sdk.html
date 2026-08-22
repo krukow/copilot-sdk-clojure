@@ -296,7 +296,7 @@
 <p><code>telemetry</code> is a map of string bucket names to JSON object maps.</p>
 </div></div></div><div class="public anchor" id="var-resume-factory.21"><h3>resume-factory!</h3><div class="usage"><code>(resume-factory! session run-id)</code><code>(resume-factory! session run-id options)</code></div><div class="doc"><div class="markdown"></div></div></div><div class="public anchor" id="var-resume-session"><h3>resume-session</h3><div class="usage"><code>(resume-session client session-id config)</code></div><div class="doc"><div class="markdown"><p>Resume an existing session by ID. Accepts the same config options as <code>create-session</code> (except <code>:session-id</code> and <code>:cloud</code>), including the experimental <code>:enable-mcp-apps</code> host opt-in, plus: - :disable-resume?  - When true, skip emitting the session.resume event (default: false)</p>
 <p><code>:on-permission-request</code> is <strong>optional</strong> (since upstream PR #1308) — omit it to leave permission requests pending for manual resolution.</p>
-<p>When <code>:mcp-servers</code> is present, resume applies the same configuration with <code>session.mcp.reloadWithConfig</code> after <code>session.resume</code>. A reload failure fails the resume and cleans up the local session.</p>
+<p>When <code>:mcp-servers</code> is present, the configuration is applied by <code>session.resume</code>.</p>
 <p>Example:</p>
 <pre><code class="language-clojure">(def session (copilot/resume-session client "session-123"
                {:on-permission-request copilot/approve-all}))

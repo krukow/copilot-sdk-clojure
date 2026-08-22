@@ -141,8 +141,13 @@ without copying temporary audit notes into evergreen docs. Add a concise
 Use the smallest targeted gates during iteration, then run:
 
 ```bash
+COPILOT_UPSTREAM_VALIDATION=true bb test
 bb ci:full
 ```
+
+The first command validates committed exact-pin evidence against the resolved
+local upstream checkout. Normal `bb test` and CI remain hermetic when that
+external checkout is unavailable.
 
 If authenticated end-to-end prerequisites are unavailable, run `bb ci` and
 state the limitation. Review example output, generated diffs, and the

@@ -43,7 +43,8 @@
    the upstream Node/Python/Rust samples exactly. `run` executes the flow once
    and fails loudly if a pending request is lost; there is no retry or fallback."
   (:require [clojure.core.async :refer [alts!! timeout]]
-            [github.copilot-sdk :as copilot :refer [evt]]))
+            [github.copilot-sdk :as copilot :refer [evt]]
+            [github.copilot-sdk.tool-set :as tool-set]))
 
 ;; See examples/README.md for usage
 
@@ -154,7 +155,9 @@
    1-second `pause!` before the next client mirrors the upstream samples'
    lifecycle."
   [{:keys [model] :or {model "claude-haiku-4.5"}}]
-  (let [config {:model model :tools [tool]}
+  (let [config {:model model
+                :tools [tool]
+                :available-tools [(tool-set/custom (:tool-name tool))]}
         ;; Lifecycle 1: ask for the tool, capture the pending permission, suspend.
         {:keys [session-id permission-id]}
         (with-suspended-client
