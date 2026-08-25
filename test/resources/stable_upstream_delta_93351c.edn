@@ -1,0 +1,161 @@
+{:upstream
+ {:repository "github/copilot-sdk"
+  :base-commit "cc0438d66e3e68c333537cb935d9425d4e4ed8d5"
+  :target-commit "93351c9217a65960c14a863fc0fa540afd93fa15"
+  :target-position :post-v1.0.12-preview.0-main
+  :target-package-version "0.0.0-dev"
+  :node-runtime-dependency
+  {:package "@github/copilot"
+   :version "^1.0.81-6"}}
+
+ :public-surface-audit
+ {:inspected
+  ["nodejs/src/index.ts"
+   "nodejs/src/types.ts"
+   "nodejs/src/client.ts"
+   "nodejs/src/session.ts"
+   "nodejs/src/extension.ts"
+   "nodejs/src/toolSet.ts"
+   "nodejs/src/factory.ts"
+   "nodejs/src/canvas.ts"
+   "nodejs/test"]
+  :baseline-node-tree "b8ba9a1ab52d10865c9ac21fdb242f9e5a02acc6"
+  :target-node-tree "b8ba9a1ab52d10865c9ac21fdb242f9e5a02acc6"
+  :changed-node-files []
+  :stable-public-deltas []
+  :unclassified-deltas []}
+
+ :stable-delta-ids #{}
+ :stable-deltas []
+
+ :commit-classifications
+ [{:commit "38b28f9c26ed2a977b6fd5467e97dd81435e0a9d"
+   :pull-request "https://github.com/github/copilot-sdk/pull/2382"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Python README heading cleanup does not change the Node SDK or the Clojure documentation contract."
+   :paths ["python/README.md"]}
+  {:commit "8bc107f78e1d66bf4406cc9fa5c644f1cd00e842"
+   :pull-request "https://github.com/github/copilot-sdk/pull/2286"
+   :classification :internal
+   :status :reviewed-no-port
+   :reason "The js-yaml lockfile bump changes monorepo code-generation tooling without changing schemas or generated SDK sources."
+   :paths ["scripts/codegen/package-lock.json"]}
+  {:commit "b6c004684fea1e66e4a89a04fd54e785a3f91c83"
+   :pull-request "https://github.com/github/copilot-sdk/pull/2312"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "The bundled-CLI quick start links the official SDK language prerequisites; Clojure prerequisites remain owned by this repository."
+   :paths ["docs/setup/bundled-cli.md"]}
+  {:commit "7c63e58b50576cb8067bf76ed23384dc959771f4"
+   :pull-request "https://github.com/github/copilot-sdk/pull/2316"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "The tsx dependency bump is confined to Java code-generation tooling."
+   :paths ["java/scripts/codegen/package-lock.json"
+           "java/scripts/codegen/package.json"]}
+  {:commit "ff2fc25f10819fe5771b866905bfbd9c2575bf56"
+   :pull-request "https://github.com/github/copilot-sdk/pull/2359"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Maven wrapper and dependency updates affect only the Java SDK build."
+   :paths ["java/.mvn/wrapper/maven-wrapper.properties"
+           "java/mvnw.cmd"
+           "java/pom.xml"]}
+  {:commit "87aee6336ee09f0cba797ba67a1c78f0d7518e71"
+   :pull-request "https://github.com/github/copilot-sdk/pull/2374"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Native-value tool-result serialization is a Python-specific adaptation, not a Node public-surface delta."
+   :paths ["python/copilot/tools.py"
+           "python/test_tools.py"]}
+  {:commit "6e6eb55f4d0f1ee222cfce3e64493781ef7c5be8"
+   :pull-request "https://github.com/github/copilot-sdk/pull/2345"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Native-host validation and interim artifact cleanup affect only Java packaging and CI."
+   :paths [".github/workflows/java-sdk-tests.yml"
+           "java/README.md"
+           "java/copilot-native/pom.xml"
+           "java/copilot-native/scripts/validate-native-host.mjs"
+           "java/copilot-native/scripts/validate-native-host.test.mjs"
+           "java/docs/adr/adr-007-native-bundling-strategy.md"]}
+  {:commit "5de3a128cc149c0a9855308e89a57ae036746609"
+   :pull-request "https://github.com/github/copilot-sdk/pull/2300"
+   :classification :internal
+   :status :reviewed-no-port
+   :reason "The Hono lockfile bump is confined to the shared upstream test harness."
+   :paths ["test/harness/package-lock.json"]}
+  {:commit "93351c9217a65960c14a863fc0fa540afd93fa15"
+   :pull-request "https://github.com/github/copilot-sdk/pull/2393"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Windows x64 in-process runtime support and native classifier publishing affect only the Java SDK and its CI."
+   :paths [".github/actions/java-test-report/action.yml"
+           ".github/workflows/java-publish-maven.yml"
+           ".github/workflows/java-publish-snapshot.yml"
+           ".github/workflows/java-sdk-tests.yml"
+           "java/README.md"
+           "java/copilot-native/pom.xml"
+           "java/copilot-native/scripts/create-native-classifier-test-fixture.mjs"
+           "java/copilot-native/scripts/fetch-native.test.mjs"
+           "java/copilot-native/scripts/validate-local-publication.mjs"
+           "java/copilot-native/scripts/validate-native-artifact.mjs"
+           "java/copilot-native/scripts/validate-native-artifact.test.mjs"
+           "java/copilot-native/scripts/validate-native-host.mjs"
+           "java/copilot-native/scripts/validate-native-host.test.mjs"
+           "java/docs/adr/adr-007-native-bundling-strategy.md"
+           "java/sdk/pom.xml"
+           "java/sdk/src/main/java/com/github/copilot/ffi/NativeRuntimeLoader.java"
+           "java/sdk/src/test/java/com/github/copilot/e2e/RewindIT.java"
+           "java/sdk/src/test/java/com/github/copilot/ffi/JnaNativeBindingTest.java"
+           "java/sdk/src/test/java/com/github/copilot/ffi/NativeRuntimeLoaderTest.java"]}]
+
+ :classified-files
+ [{:classification :internal
+   :status :reviewed-no-port
+   :paths ["scripts/codegen/package-lock.json"
+           "test/harness/package-lock.json"]}
+  {:classification :language-specific
+   :status :reviewed-no-port
+   :paths [".github/actions/java-test-report/action.yml"
+           ".github/workflows/java-publish-maven.yml"
+           ".github/workflows/java-publish-snapshot.yml"
+           ".github/workflows/java-sdk-tests.yml"
+           "docs/setup/bundled-cli.md"
+           "java/.mvn/wrapper/maven-wrapper.properties"
+           "java/README.md"
+           "java/copilot-native/pom.xml"
+           "java/copilot-native/scripts/create-native-classifier-test-fixture.mjs"
+           "java/copilot-native/scripts/fetch-native.test.mjs"
+           "java/copilot-native/scripts/validate-local-publication.mjs"
+           "java/copilot-native/scripts/validate-native-artifact.mjs"
+           "java/copilot-native/scripts/validate-native-artifact.test.mjs"
+           "java/copilot-native/scripts/validate-native-host.mjs"
+           "java/copilot-native/scripts/validate-native-host.test.mjs"
+           "java/docs/adr/adr-007-native-bundling-strategy.md"
+           "java/mvnw.cmd"
+           "java/pom.xml"
+           "java/scripts/codegen/package-lock.json"
+           "java/scripts/codegen/package.json"
+           "java/sdk/pom.xml"
+           "java/sdk/src/main/java/com/github/copilot/ffi/NativeRuntimeLoader.java"
+           "java/sdk/src/test/java/com/github/copilot/e2e/RewindIT.java"
+           "java/sdk/src/test/java/com/github/copilot/ffi/JnaNativeBindingTest.java"
+           "java/sdk/src/test/java/com/github/copilot/ffi/NativeRuntimeLoaderTest.java"
+           "python/README.md"
+           "python/copilot/tools.py"
+           "python/test_tools.py"]}]
+
+ :schema
+ {:runtime-pin "1.0.81-6"
+  :changed? false
+  :generated-clojure-output
+  {:session-event-schema-changed? false
+   :event-specs-changed? false
+   :coercion-source-changed? false}}
+
+ :version
+ {:sdk "1.0.11.0"
+  :changed? false
+  :release-required? false}}
