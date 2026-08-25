@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file. This change
 ## [Unreleased]
 
 ### Changed (upstream parity)
+- Recertified the complete stable Node SDK public surface through upstream
+  commit
+  [`93351c9217a65960c14a863fc0fa540afd93fa15`](https://github.com/github/copilot-sdk/commit/93351c9217a65960c14a863fc0fa540afd93fa15).
+  The `nodejs/` tree is byte-for-byte identical to the prior `cc0438d` oracle,
+  so no API, wire, schema, runtime, generated source, or version changes were
+  required. The intervening changes are documentation, dependency tooling, and
+  Python- or Java-specific work.
+  ([upstream PR #2382](https://github.com/github/copilot-sdk/pull/2382),
+  [upstream PR #2286](https://github.com/github/copilot-sdk/pull/2286),
+  [upstream PR #2312](https://github.com/github/copilot-sdk/pull/2312),
+  [upstream PR #2316](https://github.com/github/copilot-sdk/pull/2316),
+  [upstream PR #2359](https://github.com/github/copilot-sdk/pull/2359),
+  [upstream PR #2374](https://github.com/github/copilot-sdk/pull/2374),
+  [upstream PR #2345](https://github.com/github/copilot-sdk/pull/2345),
+  [upstream PR #2300](https://github.com/github/copilot-sdk/pull/2300),
+  [upstream PR #2393](https://github.com/github/copilot-sdk/pull/2393))
 - Recertified the stable public surface through upstream commit
   `eb7ba2411171f5e1fea9d38df01b436acdfb7271`; no stable API, wire, generated
   source, or runtime schema changes were found. Aligned the experimental Agent
