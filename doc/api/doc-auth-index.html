@@ -10,6 +10,7 @@
 <tbody>
 <tr><td> <a href="#github-signed-in-user">GitHub Signed-in User</a> </td><td> Interactive apps where users sign in with GitHub </td><td> Yes </td></tr>
 <tr><td> <a href="#oauth-github-app">OAuth GitHub App</a> </td><td> Apps acting on behalf of users via OAuth </td><td> Yes </td></tr>
+<tr><td> <a href="#session-scoped-token-provider">Session-scoped Token Provider</a> </td><td> Multi-user or long-lived sessions whose user tokens must refresh </td><td> Yes </td></tr>
 <tr><td> <a href="#environment-variables">Environment Variables</a> </td><td> CI/CD, automation, server-to-server </td><td> Yes </td></tr>
 <tr><td> <a href="byok.html">BYOK (Bring Your Own Key)</a> </td><td> Using your own API keys (Azure AI Foundry, OpenAI, etc.) </td><td> No </td></tr>
 </tbody>
@@ -53,6 +54,44 @@
   (copilot/disconnect! bob-session))
 </code></pre>
 <p>Session-level <code>:github-token</code> is sent only with <code>session.create</code> or <code>session.resume</code>. It does not change the client’s process environment or default authentication for other sessions.</p>
+<h2><a href="#session-scoped-token-provider" id="session-scoped-token-provider"></a>Session-scoped Token Provider</h2>
+<p>Use <code>:github-token-provider</code> when a session may outlive its current GitHub user access token. The callback is local to that session and can refresh credentials without restarting the client:</p>
+<pre><code class="language-clojure">(require '[github.copilot-sdk :as copilot])
+
+(defn token-provider
+  [{:keys [host session-id reason]}]
+  (let [{:keys [access-token expires-in]}
+        (fetch-user-token! {:host host
+                            :session-id session-id
+                            :refresh? (= :refresh reason)})]
+    {:kind :token
+     :access-token access-token
+     :expires-in expires-in
+     :token-type "Bearer"}))
+
+(copilot/with-client [client {}]
+  (let [session (copilot/create-session
+                  client
+                  {:github-token-provider token-provider
+                   :on-permission-request copilot/approve-all})]
+    (try
+      (copilot/send-and-wait! session {:prompt "Summarize this repository"})
+      (finally
+        (copilot/disconnect! session)))))
+</code></pre>
+<p>The callback receives:</p>
+<table>
+<thead>
+<tr><th> Key </th><th> Value </th></tr>
+</thead>
+<tbody>
+<tr><td> <code>:host</code> </td><td> GitHub host requesting the credential </td></tr>
+<tr><td> <code>:session-id</code> </td><td> Session ID when known; omitted during an initial cloud-session registration if the server assigns the ID </td></tr>
+<tr><td> <code>:reason</code> </td><td> <code>:initial</code> for the first credential or <code>:refresh</code> when the runtime requests renewal </td></tr>
+</tbody>
+</table>
+<p>Return <code>{:kind :token :access-token ... :expires-in ...}</code> with a positive expiry in seconds and optional <code>:token-type</code>, or return <code>{:kind :cancelled}</code>. Either result may be returned directly or through a core.async channel.</p>
+<p><code>:github-token-provider</code> and session <code>:github-token</code> are mutually exclusive. Only an opaque registration ID crosses the wire; the callback and token remain inside the SDK process. Failed create/resume calls roll back provisional registrations, a successful resume replaces the session’s previous provider, and disconnect, delete, or client stop removes the registration. (<a href="https://github.com/github/copilot-sdk/pull/2412">upstream PR #2412</a>)</p>
 <p><strong>Supported token types:</strong> - <code>gho_</code> — OAuth user access tokens - <code>ghu_</code> — GitHub App user access tokens - <code>github_pat_</code> — Fine-grained personal access tokens</p>
 <p><strong>Not supported:</strong> - <code>ghp_</code> — Classic personal access tokens (deprecated)</p>
 <p><strong>When to use:</strong> - Web applications where users sign in via GitHub - SaaS applications building on top of Copilot - Multi-user applications making requests on behalf of different users</p>
@@ -80,7 +119,7 @@
 <h2><a href="#authentication-priority" id="authentication-priority"></a>Authentication Priority</h2>
 <p>When multiple authentication methods are available, the CLI uses them in this priority order:</p>
 <ol>
-<li><strong>Session <code>:github-token</code></strong> — Token passed in <code>create-session</code> or <code>resume-session</code> config for that session</li>
+<li><strong>Session credential</strong> — <code>:github-token-provider</code> or <code>:github-token</code> passed in <code>create-session</code> or <code>resume-session</code> config for that session</li>
 <li><strong>Client <code>:github-token</code></strong> — Token passed directly to the client constructor</li>
 <li><strong>HMAC key</strong> — <code>CAPI_HMAC_KEY</code> or <code>COPILOT_HMAC_KEY</code> environment variables</li>
 <li><strong>Direct API token</strong> — <code>GITHUB_COPILOT_API_TOKEN</code> with <code>COPILOT_API_URL</code></li>

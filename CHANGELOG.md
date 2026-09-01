@@ -3,6 +3,36 @@ All notable changes to this project will be documented in this file. This change
 
 ## [Unreleased]
 
+### Added (stable 2980c78 sync)
+- Added session-scoped `:github-token-provider` authentication with initial and
+  refresh callbacks, core.async results, atomic replacement on resume, and
+  deterministic rollback and teardown. Only an opaque registration ID crosses
+  the wire.
+  ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412))
+- Added stable session options for mode-specific built-in skill allowlisting,
+  legacy versus elicitation `ask_user` variants, host-resolved feature flags,
+  and efficiency/balance/intelligence CAPI auto-routing tiers. Omitted optional
+  fields remain omitted, while explicit empty collections are preserved where
+  the Node SDK distinguishes them.
+  ([upstream PR #2410](https://github.com/github/copilot-sdk/pull/2410),
+  [upstream PR #2432](https://github.com/github/copilot-sdk/pull/2432),
+  [upstream PR #2437](https://github.com/github/copilot-sdk/pull/2437),
+  [upstream PR #2451](https://github.com/github/copilot-sdk/pull/2451))
+- Added managed bypass-policy values and permission response-capability
+  forwarding, made autopilot idle events non-terminal across synchronous and
+  asynchronous wait/stream helpers, and curated the stable
+  `session.mode_notice_delivered`, `model.call_finished`, and
+  `subagent.configured` events with open idiomatic payload specs.
+
+### Changed (stable 2980c78 sync)
+- Updated the runtime and schema pin to `1.0.83-1` and recertified the complete
+  stable Node SDK public surface through upstream commit
+  [`2980c7828d35754bfc2b334831efec309ab8a2eb`](https://github.com/github/copilot-sdk/commit/2980c7828d35754bfc2b334831efec309ab8a2eb).
+  Experimental Agent Factory additions and HydraFusion events, private runtime
+  launch internals, generated-only RPCs, and language-specific changes remain
+  intentionally excluded.
+  ([upstream PR #2467](https://github.com/github/copilot-sdk/pull/2467))
+
 ### Changed (upstream parity)
 - Recertified the complete stable Node SDK public surface through upstream
   commit

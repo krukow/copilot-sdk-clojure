@@ -8,6 +8,7 @@ The Copilot SDK for Clojure supports multiple authentication methods. Choose the
 |--------|----------|-------------------------------|
 | [GitHub Signed-in User](#github-signed-in-user) | Interactive apps where users sign in with GitHub | Yes |
 | [OAuth GitHub App](#oauth-github-app) | Apps acting on behalf of users via OAuth | Yes |
+| [Session-scoped Token Provider](#session-scoped-token-provider) | Multi-user or long-lived sessions whose user tokens must refresh | Yes |
 | [Environment Variables](#environment-variables) | CI/CD, automation, server-to-server | Yes |
 | [BYOK (Bring Your Own Key)](./byok.md) | Using your own API keys (Azure AI Foundry, OpenAI, etc.) | No |
 
@@ -77,6 +78,56 @@ Session-level `:github-token` is sent only with `session.create` or
 `session.resume`. It does not change the client's process environment or
 default authentication for other sessions.
 
+## Session-scoped Token Provider
+
+Use `:github-token-provider` when a session may outlive its current GitHub user
+access token. The callback is local to that session and can refresh credentials
+without restarting the client:
+
+```clojure
+(require '[github.copilot-sdk :as copilot])
+
+(defn token-provider
+  [{:keys [host session-id reason]}]
+  (let [{:keys [access-token expires-in]}
+        (fetch-user-token! {:host host
+                            :session-id session-id
+                            :refresh? (= :refresh reason)})]
+    {:kind :token
+     :access-token access-token
+     :expires-in expires-in
+     :token-type "Bearer"}))
+
+(copilot/with-client [client {}]
+  (let [session (copilot/create-session
+                  client
+                  {:github-token-provider token-provider
+                   :on-permission-request copilot/approve-all})]
+    (try
+      (copilot/send-and-wait! session {:prompt "Summarize this repository"})
+      (finally
+        (copilot/disconnect! session)))))
+```
+
+The callback receives:
+
+| Key | Value |
+|-----|-------|
+| `:host` | GitHub host requesting the credential |
+| `:session-id` | Session ID when known; omitted during an initial cloud-session registration if the server assigns the ID |
+| `:reason` | `:initial` for the first credential or `:refresh` when the runtime requests renewal |
+
+Return `{:kind :token :access-token ... :expires-in ...}` with a positive
+expiry in seconds and optional `:token-type`, or return `{:kind :cancelled}`.
+Either result may be returned directly or through a core.async channel.
+
+`:github-token-provider` and session `:github-token` are mutually exclusive.
+Only an opaque registration ID crosses the wire; the callback and token remain
+inside the SDK process. Failed create/resume calls roll back provisional
+registrations, a successful resume replaces the session's previous provider,
+and disconnect, delete, or client stop removes the registration.
+([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412))
+
 **Supported token types:**
 - `gho_` — OAuth user access tokens
 - `ghu_` — GitHub App user access tokens
@@ -139,7 +190,7 @@ See the [BYOK documentation](./byok.md) for complete details.
 
 When multiple authentication methods are available, the CLI uses them in this priority order:
 
-1. **Session `:github-token`** — Token passed in `create-session` or `resume-session` config for that session
+1. **Session credential** — `:github-token-provider` or `:github-token` passed in `create-session` or `resume-session` config for that session
 2. **Client `:github-token`** — Token passed directly to the client constructor
 3. **HMAC key** — `CAPI_HMAC_KEY` or `COPILOT_HMAC_KEY` environment variables
 4. **Direct API token** — `GITHUB_COPILOT_API_TOKEN` with `COPILOT_API_URL`
