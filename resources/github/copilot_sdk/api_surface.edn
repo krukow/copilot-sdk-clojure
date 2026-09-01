@@ -479,6 +479,7 @@
     :github.copilot-sdk.specs/approval-key
     :github.copilot-sdk.specs/approved?
     :github.copilot-sdk.specs/ask
+    :github.copilot-sdk.specs/ask-user-variant
     :github.copilot-sdk.specs/assistant-usage-transport
     :github.copilot-sdk.specs/assistant.message-data
     :github.copilot-sdk.specs/assistant.message_delta-data
@@ -500,6 +501,7 @@
     :github.copilot-sdk.specs/auto-mode-switch-response
     :github.copilot-sdk.specs/auto-restart?
     :github.copilot-sdk.specs/auto-start?
+    :github.copilot-sdk.specs/auto-tier
     :github.copilot-sdk.specs/available-tools
     :github.copilot-sdk.specs/azure-api-version
     :github.copilot-sdk.specs/azure-options
@@ -668,6 +670,7 @@
     :github.copilot-sdk.specs/factory-run-status
     :github.copilot-sdk.specs/factory.run_updated-data
     :github.copilot-sdk.specs/family
+    :github.copilot-sdk.specs/feature-flags
     :github.copilot-sdk.specs/features
     :github.copilot-sdk.specs/feedback
     :github.copilot-sdk.specs/file-or-directory-attachment
@@ -681,6 +684,10 @@
     :github.copilot-sdk.specs/github-telemetry-event
     :github.copilot-sdk.specs/github-telemetry-notification
     :github.copilot-sdk.specs/github-token
+    :github.copilot-sdk.specs/github-token-acquire-reason
+    :github.copilot-sdk.specs/github-token-provider
+    :github.copilot-sdk.specs/github-token-provider-args
+    :github.copilot-sdk.specs/github-token-provider-result
     :github.copilot-sdk.specs/granted-environment-variables
     :github.copilot-sdk.specs/handled?
     :github.copilot-sdk.specs/head-commit
@@ -694,6 +701,7 @@
     :github.copilot-sdk.specs/inbound-attachment
     :github.copilot-sdk.specs/inbound-attachments
     :github.copilot-sdk.specs/include-sub-agent-streaming-events?
+    :github.copilot-sdk.specs/included-builtin-skills
     :github.copilot-sdk.specs/infinite-sessions
     :github.copilot-sdk.specs/initial-cwd
     :github.copilot-sdk.specs/initial-message
@@ -798,6 +806,7 @@
     :github.copilot-sdk.specs/model-policy
     :github.copilot-sdk.specs/model-supports
     :github.copilot-sdk.specs/model.call_failure-data
+    :github.copilot-sdk.specs/model.call_finished-data
     :github.copilot-sdk.specs/models
     :github.copilot-sdk.specs/modified-time
     :github.copilot-sdk.specs/multiplier
@@ -858,6 +867,7 @@
     :github.copilot-sdk.specs/permission-kind
     :github.copilot-sdk.specs/permission-mode
     :github.copilot-sdk.specs/permission-request
+    :github.copilot-sdk.specs/permission-response-capability
     :github.copilot-sdk.specs/permission-result
     :github.copilot-sdk.specs/permission-result-kind
     :github.copilot-sdk.specs/permissions
@@ -977,6 +987,7 @@
     :github.copilot-sdk.specs/session.mcp_server_status_changed-data
     :github.copilot-sdk.specs/session.mcp_servers_loaded-data
     :github.copilot-sdk.specs/session.mode_changed-data
+    :github.copilot-sdk.specs/session.mode_notice_delivered-data
     :github.copilot-sdk.specs/session.model_change-data
     :github.copilot-sdk.specs/session.permissions_changed-data
     :github.copilot-sdk.specs/session.plan_changed-data
@@ -1021,6 +1032,7 @@
     :github.copilot-sdk.specs/storage-mode
     :github.copilot-sdk.specs/streaming?
     :github.copilot-sdk.specs/subagent.completed-data
+    :github.copilot-sdk.specs/subagent.configured-data
     :github.copilot-sdk.specs/subagent.failed-data
     :github.copilot-sdk.specs/subagent.started-data
     :github.copilot-sdk.specs/subject

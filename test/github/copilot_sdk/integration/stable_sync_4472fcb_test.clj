@@ -277,7 +277,15 @@
                :surface :tui}
               {:outcome "auto_approved"
                :source "unattended_fallback"
-               :surface "tui"}]]]
+               :surface "tui"}]
+             [{:outcome :auto-approved
+               :source :host-policy
+               :surface :sdk
+               :response-capability :headless}
+              {:outcome "auto_approved"
+               :source "host_policy"
+               :surface "sdk"
+               :response-capability "headless"}]]]
       (let [session
             (sdk/create-session
              *test-client*

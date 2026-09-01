@@ -254,6 +254,173 @@
       "title": "AgentInterruptedEvent",
       "visibility": "internal"
     },
+    "AssistantFusionPhaseCompletedEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "assistant.fusion_phase_completed",
+          "description": "Type discriminator. Always \"assistant.fusion_phase_completed\"."
+        },
+        "data": {
+          "$ref": "#/definitions/FusionPhaseCompletedData",
+          "description": "Experimental durable HydraFusion phase output and lossless replay checkpoint."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"assistant.fusion_phase_completed\". Experimental durable HydraFusion phase output and lossless replay checkpoint.",
+      "title": "AssistantFusionPhaseCompletedEvent",
+      "stability": "experimental"
+    },
+    "AssistantFusionPhaseFailedEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "assistant.fusion_phase_failed",
+          "description": "Type discriminator. Always \"assistant.fusion_phase_failed\"."
+        },
+        "data": {
+          "$ref": "#/definitions/FusionPhaseFailedData",
+          "description": "Experimental durable typed HydraFusion phase failure and degradation transition."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"assistant.fusion_phase_failed\". Experimental durable typed HydraFusion phase failure and degradation transition.",
+      "title": "AssistantFusionPhaseFailedEvent",
+      "stability": "experimental"
+    },
+    "AssistantFusionPhaseStartedEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true for events that are transient and not persisted to the session event log on disk."
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "assistant.fusion_phase_started",
+          "description": "Type discriminator. Always \"assistant.fusion_phase_started\"."
+        },
+        "data": {
+          "$ref": "#/definitions/FusionPhaseStartedData",
+          "description": "Experimental transient HydraFusion phase/model/role signal."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "ephemeral",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"assistant.fusion_phase_started\". Experimental transient HydraFusion phase/model/role signal.",
+      "title": "AssistantFusionPhaseStartedEvent",
+      "stability": "experimental"
+    },
     "AssistantIdleData": {
       "type": "object",
       "properties": {
@@ -479,6 +646,10 @@
           "$ref": "#/definitions/AssistantMessageServerTools",
           "description": "Neutral provider-tagged server-side tool-use payload (tool search, advisor) for verbatim round-tripping"
         },
+        "reasoningBlocks": {
+          "$ref": "#/definitions/AssistantMessageReasoningBlocks",
+          "description": "Neutral provider-tagged reasoning content blocks preserved verbatim for round-tripping. `reasoningText` and `reasoningOpaque` are a lossy derived view of these blocks, retained for display."
+        },
         "turnId": {
           "type": "string",
           "description": "Identifier for the agent loop turn that produced this message, matching the corresponding assistant.turn_start event"
@@ -491,6 +662,11 @@
         "citations": {
           "$ref": "#/definitions/Citations",
           "description": "Provider-agnostic citations linking spans of this message's content to the sources that support them. Experimental; only populated when citation emission is enabled.",
+          "stability": "experimental"
+        },
+        "fusion": {
+          "$ref": "#/definitions/FusionAttribution",
+          "description": "Experimental HydraFusion source attribution for this ordinary authoritative assistant message.",
           "stability": "experimental"
         }
       },
@@ -636,6 +812,29 @@
       "additionalProperties": false,
       "description": "Session event \"assistant.message\". Assistant response containing text content, optional tool requests, and interaction metadata",
       "title": "AssistantMessageEvent"
+    },
+    "AssistantMessageReasoningBlocks": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "Model provider that produced these reasoning blocks."
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "x-opaque-json": true
+          },
+          "description": "Provider-native reasoning items or content blocks preserved verbatim, in order. A single response can carry several, and provider signatures or identifiers may depend on their exact content and ordering."
+        }
+      },
+      "required": [
+        "provider"
+      ],
+      "additionalProperties": false,
+      "description": "Neutral provider-tagged reasoning content blocks preserved verbatim for round-tripping",
+      "title": "AssistantMessageReasoningBlocks",
+      "stability": "experimental"
     },
     "AssistantMessageServerTools": {
       "type": "object",
@@ -790,6 +989,10 @@
             "null"
           ],
           "description": "Resolved intention summary describing what this specific call does"
+        },
+        "caller": {
+          "$ref": "#/definitions/AssistantMessageToolRequestCaller",
+          "description": "Hosted program that requested this client tool call"
         }
       },
       "required": [
@@ -799,6 +1002,34 @@
       "additionalProperties": false,
       "description": "A tool invocation request from the assistant",
       "title": "AssistantMessageToolRequest"
+    },
+    "AssistantMessageToolRequestCaller": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/AssistantMessageToolRequestCallerType",
+          "description": "Kind of hosted caller that requested the client tool call."
+        },
+        "callerId": {
+          "type": "string",
+          "description": "Provider-assigned identifier for the hosted caller."
+        }
+      },
+      "required": [
+        "type",
+        "callerId"
+      ],
+      "additionalProperties": false,
+      "description": "Hosted program that requested this client tool call",
+      "title": "AssistantMessageToolRequestCaller"
+    },
+    "AssistantMessageToolRequestCallerType": {
+      "type": "string",
+      "enum": [
+        "program"
+      ],
+      "description": "Hosted program caller type",
+      "title": "AssistantMessageToolRequestCallerType"
     },
     "AssistantMessageToolRequestType": {
       "type": "string",
@@ -1563,6 +1794,12 @@
           "format": "duration",
           "description": "Time to first token in milliseconds. Only available for streaming requests"
         },
+        "outputTtftMs": {
+          "type": "number",
+          "minimum": 0,
+          "format": "duration",
+          "description": "Time to first observable model output in milliseconds. Includes text, reasoning, and tool-call output; only available for streaming requests that produce observable output."
+        },
         "interTokenLatencyMs": {
           "type": "number",
           "minimum": 0,
@@ -1705,6 +1942,11 @@
         "contentFilterTriggered": {
           "type": "boolean",
           "description": "Whether the model response was blocked or truncated by content filtering (finish_reason === 'content_filter'). For Anthropic models this corresponds to a 'refusal' stop reason."
+        },
+        "fusion": {
+          "$ref": "#/definitions/FusionAttribution",
+          "description": "Experimental HydraFusion attribution for this concrete model call's usage.",
+          "stability": "experimental"
         }
       },
       "required": [
@@ -3105,6 +3347,21 @@
         "paused": "Objective is paused and will not drive autopilot continuations.",
         "cap_reached": "Legacy objective state indicating the previous continuation cap was reached.",
         "completed": "Objective was completed by the agent."
+      }
+    },
+    "AutoTier": {
+      "type": "string",
+      "enum": [
+        "efficiency",
+        "balance",
+        "intelligence"
+      ],
+      "description": "Routing preference used when the session model is `auto`.",
+      "title": "AutoTier",
+      "x-enumDescriptions": {
+        "efficiency": "Optimize for efficiency.",
+        "balance": "Balance efficiency and intelligence.",
+        "intelligence": "Optimize for intelligence."
       }
     },
     "BackgroundTasksChangedData": {
@@ -4779,6 +5036,10 @@
         "summaryContent": {
           "type": "string",
           "description": "LLM-generated summary of the compacted conversation history"
+        },
+        "behaviorModelId": {
+          "type": "string",
+          "description": "Canonical model identifier used for model-specific behavior when replaying compaction"
         },
         "checkpointNumber": {
           "type": "integer",
@@ -6703,6 +6964,1238 @@
       "title": "FactoryRunUpdatedEvent",
       "stability": "experimental"
     },
+    "FusionAttribution": {
+      "type": "object",
+      "properties": {
+        "fusionId": {
+          "type": "string",
+          "description": "Stable identifier for the HydraFusion turn that produced the event."
+        },
+        "commitId": {
+          "type": "string",
+          "description": "Idempotency identifier for the authoritative commit, when the event belongs to the selected output."
+        },
+        "syntheticModel": {
+          "type": "string",
+          "description": "Synthetic HydraFusion model selected for the session."
+        },
+        "policy": {
+          "type": "string",
+          "description": "HydraFusion routing policy used for the turn."
+        },
+        "pattern": {
+          "type": "string",
+          "description": "HydraFusion orchestration pattern selected for the turn."
+        },
+        "phaseId": {
+          "type": "string",
+          "description": "Identifier of the concrete phase that produced the event."
+        },
+        "phaseKind": {
+          "type": "string",
+          "description": "Kind of concrete phase that produced the event."
+        },
+        "role": {
+          "type": "string",
+          "description": "Semantic role assigned to the concrete phase."
+        },
+        "sourceModel": {
+          "type": "string",
+          "description": "Concrete model that produced the attributed event."
+        },
+        "conversationScope": {
+          "type": "string",
+          "description": "Conversation scope in which the concrete phase executed."
+        },
+        "sourcePhaseId": {
+          "type": "string",
+          "description": "Phase whose output supplied the authoritative content, when different from the executing phase."
+        }
+      },
+      "required": [
+        "fusionId",
+        "syntheticModel",
+        "policy",
+        "pattern"
+      ],
+      "additionalProperties": false,
+      "description": "Experimental attribution linking an ordinary event to the HydraFusion turn, phase, and concrete source that produced it.",
+      "title": "FusionAttribution",
+      "stability": "experimental"
+    },
+    "FusionCommitKind": {
+      "type": "string",
+      "enum": [
+        "text",
+        "terminal_tool"
+      ],
+      "description": "Kind of authoritative final commit.",
+      "title": "FusionCommitKind",
+      "visibility": "internal",
+      "x-enumDescriptions": {
+        "text": "Authoritative final text commit.",
+        "terminal_tool": "Authoritative terminal tool-call commit."
+      },
+      "stability": "experimental"
+    },
+    "FusionCommitStartedData": {
+      "type": "object",
+      "properties": {
+        "fusionId": {
+          "type": "string"
+        },
+        "commitId": {
+          "type": "string"
+        },
+        "sourcePhaseId": {
+          "type": "string"
+        },
+        "sourceModel": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/FusionCommitKind"
+        },
+        "toolCallId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "fusionId",
+        "commitId",
+        "sourcePhaseId",
+        "sourceModel",
+        "kind",
+        "toolCallId"
+      ],
+      "additionalProperties": false,
+      "description": "Stable durable idempotency boundary for a HydraFusion final text or terminal commit.",
+      "title": "FusionCommitStartedData",
+      "visibility": "internal",
+      "stability": "experimental"
+    },
+    "FusionCommitStartedEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "session.fusion_commit_started",
+          "description": "Type discriminator. Always \"session.fusion_commit_started\"."
+        },
+        "data": {
+          "$ref": "#/definitions/FusionCommitStartedData",
+          "description": "Stable durable idempotency boundary for a HydraFusion final text or terminal commit."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"session.fusion_commit_started\". Stable durable idempotency boundary for a HydraFusion final text or terminal commit.",
+      "title": "FusionCommitStartedEvent",
+      "visibility": "internal",
+      "stability": "experimental"
+    },
+    "FusionCompletedData": {
+      "type": "object",
+      "properties": {
+        "fusionId": {
+          "type": "string",
+          "description": "Stable identifier for the completed HydraFusion turn."
+        },
+        "commitId": {
+          "type": "string",
+          "description": "Idempotency identifier for the authoritative final commit."
+        },
+        "turnId": {
+          "type": "string",
+          "description": "Identifier of the session turn associated with the completion."
+        },
+        "syntheticModel": {
+          "type": "string",
+          "description": "Synthetic HydraFusion model selected for the session."
+        },
+        "pattern": {
+          "$ref": "#/definitions/FusionPattern",
+          "description": "HydraFusion orchestration pattern executed for the turn."
+        },
+        "outcome": {
+          "type": "string",
+          "description": "Stable aggregate outcome of the HydraFusion turn."
+        },
+        "finalSourcePhaseId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Phase whose output supplied the authoritative final content."
+        },
+        "finalSourceModel": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Concrete model that supplied the authoritative final content."
+        },
+        "followUpModel": {
+          "type": "string",
+          "description": "Concrete model recommended for eligible follow-up turns."
+        },
+        "degradedReason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Reason the turn used a degraded route, when applicable."
+        },
+        "phaseCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of concrete phases attempted by the turn."
+        },
+        "requestCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total concrete model requests made across all phases."
+        },
+        "inputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total input tokens consumed across all phases."
+        },
+        "outputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total output tokens produced across all phases."
+        },
+        "cachedTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total cached input tokens reported across all phases."
+        },
+        "cacheWriteTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Total tokens written to prompt cache across all phases."
+        },
+        "totalNanoAiu": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Total normalized AI-unit cost reported across all phases, in nano-AIU."
+        },
+        "durationMs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Total elapsed execution time for the HydraFusion turn in milliseconds."
+        }
+      },
+      "required": [
+        "fusionId",
+        "commitId",
+        "turnId",
+        "syntheticModel",
+        "pattern",
+        "outcome",
+        "finalSourcePhaseId",
+        "finalSourceModel",
+        "followUpModel",
+        "degradedReason",
+        "phaseCount",
+        "requestCount",
+        "inputTokens",
+        "outputTokens",
+        "cachedTokens",
+        "totalNanoAiu",
+        "durationMs"
+      ],
+      "additionalProperties": false,
+      "description": "Experimental durable aggregate outcome of a HydraFusion turn.",
+      "title": "FusionCompletedData",
+      "stability": "experimental"
+    },
+    "FusionCompletedEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "session.fusion_completed",
+          "description": "Type discriminator. Always \"session.fusion_completed\"."
+        },
+        "data": {
+          "$ref": "#/definitions/FusionCompletedData",
+          "description": "Experimental durable aggregate outcome of a HydraFusion turn."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"session.fusion_completed\". Experimental durable aggregate outcome of a HydraFusion turn.",
+      "title": "FusionCompletedEvent",
+      "stability": "experimental"
+    },
+    "FusionConversationScope": {
+      "type": "string",
+      "enum": [
+        "root",
+        "review"
+      ],
+      "description": "Conversation scope in which a HydraFusion phase executes.",
+      "title": "FusionConversationScope",
+      "x-enumDescriptions": {
+        "root": "Canonical root conversation history.",
+        "review": "Isolated read-only review history that does not enter the root conversation."
+      },
+      "stability": "experimental"
+    },
+    "FusionFollowUpAction": {
+      "type": "string",
+      "enum": [
+        "reuse_primary",
+        "reroute"
+      ],
+      "description": "Server-recommended routing behavior for a later HydraFusion turn.",
+      "title": "FusionFollowUpAction",
+      "x-enumDescriptions": {
+        "reuse_primary": "Reuse the durable primary model without routing.",
+        "reroute": "Request a new routing decision."
+      },
+      "stability": "experimental"
+    },
+    "FusionFollowUpRecommendation": {
+      "type": "object",
+      "properties": {
+        "userTurn": {
+          "$ref": "#/definitions/FusionFollowUpAction",
+          "description": "Recommended routing action for the next user-message turn."
+        },
+        "compactionTurn": {
+          "$ref": "#/definitions/FusionFollowUpAction",
+          "description": "Recommended routing action for the next compaction turn."
+        }
+      },
+      "required": [
+        "userTurn",
+        "compactionTurn"
+      ],
+      "additionalProperties": false,
+      "description": "Durable server recommendation for subsequent HydraFusion turns.",
+      "title": "FusionFollowUpRecommendation",
+      "stability": "experimental"
+    },
+    "FusionHandoffData": {
+      "type": "object",
+      "properties": {
+        "fusionId": {
+          "type": "string"
+        },
+        "sourcePhaseId": {
+          "type": "string"
+        },
+        "targetPhaseId": {
+          "type": "string"
+        },
+        "targetModel": {
+          "type": "string"
+        },
+        "message": {
+          "x-opaque-json": true
+        }
+      },
+      "required": [
+        "fusionId",
+        "sourcePhaseId",
+        "targetPhaseId",
+        "targetModel",
+        "message"
+      ],
+      "additionalProperties": false,
+      "description": "Exact durable model-visible repair or revision handoff between HydraFusion phases.",
+      "title": "FusionHandoffData",
+      "visibility": "internal",
+      "stability": "experimental"
+    },
+    "FusionHandoffEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "session.fusion_handoff",
+          "description": "Type discriminator. Always \"session.fusion_handoff\"."
+        },
+        "data": {
+          "$ref": "#/definitions/FusionHandoffData",
+          "description": "Exact durable model-visible repair or revision handoff between HydraFusion phases."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"session.fusion_handoff\". Exact durable model-visible repair or revision handoff between HydraFusion phases.",
+      "title": "FusionHandoffEvent",
+      "visibility": "internal",
+      "stability": "experimental"
+    },
+    "FusionPattern": {
+      "type": "string",
+      "enum": [
+        "single",
+        "cascade",
+        "critique"
+      ],
+      "description": "Validated HydraFusion execution pattern.",
+      "title": "FusionPattern",
+      "x-enumDescriptions": {
+        "single": "Run one primary solver phase.",
+        "cascade": "Run a primary phase, a judge, and an optional repair.",
+        "critique": "Run a primary draft, a read-only critique, and a revision."
+      },
+      "stability": "experimental"
+    },
+    "FusionPhaseCompletedData": {
+      "type": "object",
+      "properties": {
+        "fusionId": {
+          "type": "string",
+          "description": "Identifier of the HydraFusion turn containing the phase."
+        },
+        "phaseId": {
+          "type": "string",
+          "description": "Stable identifier for the completed phase."
+        },
+        "phaseKind": {
+          "$ref": "#/definitions/FusionPhaseKind",
+          "description": "Kind of phase that completed."
+        },
+        "role": {
+          "type": "string",
+          "description": "Semantic role assigned to the completed phase."
+        },
+        "conversationScope": {
+          "$ref": "#/definitions/FusionConversationScope",
+          "description": "Conversation scope in which the phase executed."
+        },
+        "model": {
+          "type": "string",
+          "description": "Concrete model that executed the phase."
+        },
+        "status": {
+          "$ref": "#/definitions/FusionPhaseStatus",
+          "description": "Durable outcome status of the phase."
+        },
+        "content": {
+          "type": "string",
+          "description": "Provider-normalized textual output produced by the phase."
+        },
+        "verdict": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Structured judge or critic verdict, when the phase produces one."
+        },
+        "durationMs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Elapsed execution time for the phase in milliseconds."
+        },
+        "usage": {
+          "$ref": "#/definitions/FusionPhaseUsage",
+          "description": "Aggregate concrete-model usage consumed by the phase."
+        },
+        "projectionMessage": {
+          "description": "Exact provider-normalized message used to reconstruct canonical model history.",
+          "x-opaque-json": true,
+          "visibility": "internal"
+        },
+        "projectionMode": {
+          "$ref": "#/definitions/FusionProjectionMode",
+          "description": "Projection action for the exact internal message.",
+          "visibility": "internal"
+        },
+        "stagedTerminal": {
+          "$ref": "#/definitions/FusionStagedTerminal",
+          "description": "Terminal request held outside canonical state until selected by the final commit.",
+          "visibility": "internal"
+        }
+      },
+      "required": [
+        "fusionId",
+        "phaseId",
+        "phaseKind",
+        "role",
+        "conversationScope",
+        "model",
+        "status",
+        "content",
+        "verdict",
+        "durationMs",
+        "usage"
+      ],
+      "additionalProperties": false,
+      "description": "Experimental durable HydraFusion phase output and lossless replay checkpoint.",
+      "title": "FusionPhaseCompletedData",
+      "stability": "experimental"
+    },
+    "FusionPhaseFailedData": {
+      "type": "object",
+      "properties": {
+        "fusionId": {
+          "type": "string",
+          "description": "Identifier of the HydraFusion turn containing the phase."
+        },
+        "phaseId": {
+          "type": "string",
+          "description": "Stable identifier for the failed phase."
+        },
+        "phaseKind": {
+          "$ref": "#/definitions/FusionPhaseKind",
+          "description": "Kind of phase that failed."
+        },
+        "role": {
+          "type": "string",
+          "description": "Semantic role assigned to the failed phase."
+        },
+        "conversationScope": {
+          "$ref": "#/definitions/FusionConversationScope",
+          "description": "Conversation scope in which the phase executed."
+        },
+        "model": {
+          "type": "string",
+          "description": "Concrete model that attempted the phase."
+        },
+        "status": {
+          "$ref": "#/definitions/FusionPhaseStatus",
+          "description": "Durable outcome status of the phase."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Stable machine-readable reason for the phase failure."
+        },
+        "durationMs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Elapsed execution time before the phase failed, in milliseconds."
+        },
+        "usage": {
+          "$ref": "#/definitions/FusionPhaseUsage",
+          "description": "Aggregate concrete-model usage consumed before the failure."
+        },
+        "errorMessage": {
+          "type": "string",
+          "description": "Provider or execution error detail, when available."
+        },
+        "degradedToPhaseId": {
+          "type": "string",
+          "description": "Identifier of the fallback phase used to continue the turn after degradation."
+        }
+      },
+      "required": [
+        "fusionId",
+        "phaseId",
+        "phaseKind",
+        "role",
+        "conversationScope",
+        "model",
+        "status",
+        "reason",
+        "durationMs",
+        "usage"
+      ],
+      "additionalProperties": false,
+      "description": "Experimental durable typed HydraFusion phase failure and degradation transition.",
+      "title": "FusionPhaseFailedData",
+      "stability": "experimental"
+    },
+    "FusionPhaseKind": {
+      "type": "string",
+      "enum": [
+        "primary",
+        "judge",
+        "repair",
+        "draft",
+        "critic",
+        "revision",
+        "follow_up"
+      ],
+      "description": "HydraFusion phase kind.",
+      "title": "FusionPhaseKind",
+      "x-enumDescriptions": {
+        "primary": "Primary solver phase.",
+        "judge": "Read-only cascade judge phase.",
+        "repair": "Cascade repair phase.",
+        "draft": "Initial critique-pattern draft phase.",
+        "critic": "Read-only critique phase.",
+        "revision": "Critique-pattern revision phase.",
+        "follow_up": "Follow-up phase continuing from the resolved model."
+      },
+      "stability": "experimental"
+    },
+    "FusionPhaseStartedData": {
+      "type": "object",
+      "properties": {
+        "fusionId": {
+          "type": "string",
+          "description": "Identifier of the HydraFusion turn containing the phase."
+        },
+        "phaseId": {
+          "type": "string",
+          "description": "Stable identifier for the concrete phase."
+        },
+        "phaseKind": {
+          "$ref": "#/definitions/FusionPhaseKind",
+          "description": "Kind of phase being executed."
+        },
+        "pattern": {
+          "$ref": "#/definitions/FusionPattern",
+          "description": "HydraFusion orchestration pattern containing the phase."
+        },
+        "role": {
+          "type": "string",
+          "description": "Semantic role assigned to the phase."
+        },
+        "conversationScope": {
+          "$ref": "#/definitions/FusionConversationScope",
+          "description": "Conversation scope in which the phase executes."
+        },
+        "model": {
+          "type": "string",
+          "description": "Concrete model executing the phase."
+        }
+      },
+      "required": [
+        "fusionId",
+        "phaseId",
+        "phaseKind",
+        "pattern",
+        "role",
+        "conversationScope",
+        "model"
+      ],
+      "additionalProperties": false,
+      "description": "Experimental transient HydraFusion phase/model/role signal.",
+      "title": "FusionPhaseStartedData",
+      "stability": "experimental"
+    },
+    "FusionPhaseStatus": {
+      "type": "string",
+      "enum": [
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "description": "Durable outcome status of a HydraFusion phase.",
+      "title": "FusionPhaseStatus",
+      "x-enumDescriptions": {
+        "succeeded": "The phase completed successfully.",
+        "failed": "The phase failed.",
+        "cancelled": "The phase was cancelled."
+      },
+      "stability": "experimental"
+    },
+    "FusionPhaseUsage": {
+      "type": "object",
+      "properties": {
+        "requestCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of concrete model requests made by the phase."
+        },
+        "inputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total input tokens consumed by the phase."
+        },
+        "outputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total output tokens produced by the phase."
+        },
+        "cachedTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total cached input tokens reported for the phase."
+        },
+        "cacheWriteTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Total tokens written to prompt cache during the phase."
+        },
+        "totalNanoAiu": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Total normalized AI-unit cost reported for the phase, in nano-AIU."
+        }
+      },
+      "required": [
+        "requestCount",
+        "inputTokens",
+        "outputTokens",
+        "cachedTokens",
+        "totalNanoAiu"
+      ],
+      "additionalProperties": false,
+      "description": "Aggregate concrete-model usage for one HydraFusion phase.",
+      "title": "FusionPhaseUsage",
+      "stability": "experimental"
+    },
+    "FusionProjectionMode": {
+      "type": "string",
+      "enum": [
+        "append",
+        "staged",
+        "none"
+      ],
+      "description": "How a durable phase checkpoint contributes its exact message to canonical root history.",
+      "title": "FusionProjectionMode",
+      "visibility": "internal",
+      "x-enumDescriptions": {
+        "append": "Append the exact root message immediately.",
+        "staged": "Hold a terminal message outside canonical history until the final commit selects it.",
+        "none": "Do not project the checkpoint into root history."
+      },
+      "stability": "experimental"
+    },
+    "FusionResolvedData": {
+      "type": "object",
+      "properties": {
+        "fusionId": {
+          "type": "string",
+          "description": "Stable identifier for the resolved HydraFusion turn."
+        },
+        "turnId": {
+          "type": "string",
+          "description": "Identifier of the session turn associated with the route."
+        },
+        "contractVersion": {
+          "type": "integer",
+          "description": "Version of the validated HydraFusion event contract."
+        },
+        "syntheticModel": {
+          "type": "string",
+          "description": "Synthetic HydraFusion model selected for the session."
+        },
+        "policy": {
+          "type": "string",
+          "description": "HydraFusion routing policy used to resolve the plan."
+        },
+        "routeSource": {
+          "type": "string",
+          "description": "Router implementation that supplied the plan."
+        },
+        "planVersion": {
+          "type": "string",
+          "description": "Version of the validated execution-plan format."
+        },
+        "policyVersion": {
+          "type": "string",
+          "description": "Version of the local routing policy."
+        },
+        "modelUniverseVersion": {
+          "type": "string",
+          "description": "Version of the executable model universe used for selection."
+        },
+        "ruleId": {
+          "type": "string",
+          "description": "Identifier of the local policy rule that matched."
+        },
+        "ruleIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero-based index of the local policy rule that matched."
+        },
+        "ruleName": {
+          "type": "string",
+          "description": "Human-readable name of the local policy rule that matched."
+        },
+        "scores": {
+          "$ref": "#/definitions/FusionScores",
+          "description": "Validated capability scores used to select the route."
+        },
+        "pattern": {
+          "$ref": "#/definitions/FusionPattern",
+          "description": "Validated orchestration pattern selected for the turn."
+        },
+        "primaryModel": {
+          "type": "string",
+          "description": "Concrete model selected for the primary solver phase."
+        },
+        "secondaryModel": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Concrete model selected for the review or judge phase, when required."
+        },
+        "fallbackModel": {
+          "type": "string",
+          "description": "Concrete model used when the planned primary model cannot execute."
+        },
+        "followUpModel": {
+          "type": "string",
+          "description": "Concrete model recommended for eligible follow-up turns."
+        },
+        "followUp": {
+          "$ref": "#/definitions/FusionFollowUpRecommendation",
+          "description": "Router recommendation controlling reuse or rerouting on later turns."
+        },
+        "routingLatencyMs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Elapsed time in milliseconds required to resolve and validate the route."
+        }
+      },
+      "required": [
+        "fusionId",
+        "turnId",
+        "contractVersion",
+        "syntheticModel",
+        "policy",
+        "pattern",
+        "primaryModel",
+        "secondaryModel",
+        "fallbackModel",
+        "followUpModel"
+      ],
+      "additionalProperties": false,
+      "description": "Experimental durable validated HydraFusion route and turn policy.",
+      "title": "FusionResolvedData",
+      "stability": "experimental"
+    },
+    "FusionResolvedEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "session.fusion_resolved",
+          "description": "Type discriminator. Always \"session.fusion_resolved\"."
+        },
+        "data": {
+          "$ref": "#/definitions/FusionResolvedData",
+          "description": "Experimental durable validated HydraFusion route and turn policy."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"session.fusion_resolved\". Experimental durable validated HydraFusion route and turn policy.",
+      "title": "FusionResolvedEvent",
+      "stability": "experimental"
+    },
+    "FusionRouteFailedData": {
+      "type": "object",
+      "properties": {
+        "attemptId": {
+          "type": "string",
+          "description": "Identifier of the routing attempt that failed."
+        },
+        "syntheticModel": {
+          "type": "string",
+          "description": "Synthetic HydraFusion model selected for the session."
+        },
+        "policy": {
+          "type": "string",
+          "description": "HydraFusion routing policy requested for the turn."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Stable machine-readable reason for the routing failure."
+        },
+        "errorMessage": {
+          "type": "string",
+          "description": "Provider or validation error detail, when available."
+        },
+        "fallbackModel": {
+          "type": "string",
+          "description": "Concrete model selected as the deterministic fallback."
+        },
+        "routingLatencyMs": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Elapsed routing time in milliseconds before the failure."
+        }
+      },
+      "required": [
+        "attemptId",
+        "syntheticModel",
+        "policy",
+        "reason",
+        "fallbackModel"
+      ],
+      "additionalProperties": false,
+      "description": "Experimental durable HydraFusion routing failure and the deterministic concrete fallback selected for the turn.",
+      "title": "FusionRouteFailedData",
+      "stability": "experimental"
+    },
+    "FusionRouteFailedEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "session.fusion_route_failed",
+          "description": "Type discriminator. Always \"session.fusion_route_failed\"."
+        },
+        "data": {
+          "$ref": "#/definitions/FusionRouteFailedData",
+          "description": "Experimental durable HydraFusion routing failure and the deterministic concrete fallback selected for the turn."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"session.fusion_route_failed\". Experimental durable HydraFusion routing failure and the deterministic concrete fallback selected for the turn.",
+      "title": "FusionRouteFailedEvent",
+      "stability": "experimental"
+    },
+    "FusionRouteStartedData": {
+      "type": "object",
+      "properties": {
+        "attemptId": {
+          "type": "string",
+          "description": "Identifier for this routing attempt before a durable Fusion turn exists."
+        },
+        "turnKind": {
+          "$ref": "#/definitions/FusionTurnKind",
+          "description": "Kind of turn being routed."
+        },
+        "syntheticModel": {
+          "type": "string",
+          "description": "Synthetic HydraFusion model selected for the session."
+        },
+        "policy": {
+          "type": "string",
+          "description": "HydraFusion routing policy requested for the turn."
+        }
+      },
+      "required": [
+        "attemptId",
+        "turnKind"
+      ],
+      "additionalProperties": false,
+      "description": "Experimental transient signal that HydraFusion routing has started for an eligible turn.",
+      "title": "FusionRouteStartedData",
+      "stability": "experimental"
+    },
+    "FusionRouteStartedEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true for events that are transient and not persisted to the session event log on disk."
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "session.fusion_route_started",
+          "description": "Type discriminator. Always \"session.fusion_route_started\"."
+        },
+        "data": {
+          "$ref": "#/definitions/FusionRouteStartedData",
+          "description": "Experimental transient signal that HydraFusion routing has started for an eligible turn."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "ephemeral",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"session.fusion_route_started\". Experimental transient signal that HydraFusion routing has started for an eligible turn.",
+      "title": "FusionRouteStartedEvent",
+      "stability": "experimental"
+    },
+    "FusionScores": {
+      "type": "object",
+      "properties": {
+        "reasoning": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Reasoning capability score returned by the authenticated router."
+        },
+        "codeGen": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Code-generation capability score returned by the authenticated router."
+        },
+        "debugging": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Debugging capability score returned by the authenticated router."
+        },
+        "toolUse": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Tool-use capability score returned by the authenticated router."
+        }
+      },
+      "required": [
+        "reasoning",
+        "codeGen",
+        "debugging",
+        "toolUse"
+      ],
+      "additionalProperties": false,
+      "description": "Validated HydraFusion routing capability scores.",
+      "title": "FusionScores",
+      "stability": "experimental"
+    },
+    "FusionStagedTerminal": {
+      "type": "object",
+      "properties": {
+        "assistantMessage": {
+          "x-opaque-json": true
+        },
+        "toolName": {
+          "type": "string"
+        },
+        "toolCallId": {
+          "type": "string"
+        },
+        "arguments": {
+          "type": "string"
+        },
+        "phaseId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "assistantMessage",
+        "toolName",
+        "toolCallId",
+        "arguments",
+        "phaseId"
+      ],
+      "additionalProperties": false,
+      "description": "Internal durable terminal request staged by a HydraFusion phase until an idempotent final commit selects it.",
+      "title": "FusionStagedTerminal",
+      "visibility": "internal",
+      "stability": "experimental"
+    },
+    "FusionTurnKind": {
+      "type": "string",
+      "enum": [
+        "user",
+        "compaction"
+      ],
+      "description": "Kind of turn for which HydraFusion routing is running.",
+      "title": "FusionTurnKind",
+      "x-enumDescriptions": {
+        "user": "A user-message turn.",
+        "compaction": "A conversation-compaction turn."
+      },
+      "stability": "experimental"
+    },
     "GitHubMcpToolConfig": {
       "type": "object",
       "properties": {
@@ -6932,6 +8425,10 @@
         "error": {
           "$ref": "#/definitions/HookEndError",
           "description": "Error details when the hook failed"
+        },
+        "parentToolCallId": {
+          "type": "string",
+          "description": "Tool call ID of the parent tool invocation when this event originates from a sub-agent"
         }
       },
       "required": [
@@ -7107,8 +8604,12 @@
           "description": "Type of hook being invoked (e.g., \"preToolUse\", \"postToolUse\", \"sessionStart\")"
         },
         "input": {
-          "description": "Input data passed to the hook",
+          "description": "Input data passed to the hook. For postToolUse hooks the retained copy served by session.eventLog.read (and by a resumed session) elides the tool result's inline `contents`/`uiResource` and replaces an over-long `textResultForLlm` with a `[copilot:elided ...]` marker, to keep a multi-megabyte payload out of the durable event log; the live subscription stream still delivers the full value. Read the adjacent tool.execution_complete event for the tool result itself.",
           "x-opaque-json": true
+        },
+        "parentToolCallId": {
+          "type": "string",
+          "description": "Tool call ID of the parent tool invocation when this event originates from a sub-agent"
         }
       },
       "required": [
@@ -7179,6 +8680,10 @@
         "aborted": {
           "type": "boolean",
           "description": "True when the preceding agentic loop was cancelled via abort signal"
+        },
+        "mode": {
+          "$ref": "#/definitions/SessionMode",
+          "description": "The session mode the agent was operating in when it went idle, when the mode is known. Lets turn-scoped consumers distinguish an autopilot continuation boundary (where the agent keeps working after this idle) from a genuine turn completion."
         }
       },
       "additionalProperties": false,
@@ -7376,7 +8881,8 @@
         "approve_all",
         "assisted_approval",
         "unrestricted_paths",
-        "unrestricted_urls"
+        "unrestricted_urls",
+        "server_wide_mcp_approval"
       ],
       "description": "For a `bypass_permissions_blocked` action, which permission-escalation primitive was refused",
       "title": "ManagedSettingsEnforcedEscalation",
@@ -7385,7 +8891,8 @@
         "approve_all": "Automatic approval of all tool permission requests.",
         "assisted_approval": "Assisted mode — keeps normal prompt paths and adds an LLM recommendation, distinct from allow-all.",
         "unrestricted_paths": "Unrestricted filesystem access outside the session's allowed directories.",
-        "unrestricted_urls": "Unrestricted URL fetch access."
+        "unrestricted_urls": "Unrestricted URL fetch access.",
+        "server_wide_mcp_approval": "A server-wide MCP \"Always Allow\" (or `--allow-tool <server>`) blanket that would auto-approve every tool from an MCP server. Capped to per-tool approval; each tool still prompts."
       }
     },
     "ManagedSettingsEnforcedEvent": {
@@ -7450,7 +8957,7 @@
       "properties": {
         "source": {
           "$ref": "#/definitions/ManagedSettingsResolvedSource",
-          "description": "Channel summary: `server`, `device`, or `client` when exactly one channel contributed; `mixed` when multiple channels contributed; otherwise `none`. Consult the per-channel booleans for exact provenance."
+          "description": "Channel summary: `server`, `device`, `client`, or `policyHelper` when exactly one channel contributed; `mixed` when multiple channels contributed; otherwise `none`. Consult the per-channel booleans for exact provenance."
         },
         "serverManaged": {
           "type": "boolean",
@@ -7464,9 +8971,17 @@
           "type": "boolean",
           "description": "Whether a session-local permissions layer injected by the SDK host was present"
         },
+        "policyHelperManaged": {
+          "type": "boolean",
+          "description": "Whether the policy-helper managed-settings layer was present. The policy helper is the weakest channel: it fills keys no enterprise source set and can never replace one."
+        },
         "failClosed": {
           "type": "boolean",
           "description": "Whether managed policy could not be determined (e.g. a failed server fetch) and the session fell back to the fail-closed restriction. When true, restrictions such as disabling bypass-permissions are enforced even though `settings` may be absent."
+        },
+        "sandboxEnabledByUndeterminedPolicy": {
+          "type": "boolean",
+          "description": "Whether the effective sandbox policy forces the sandbox on *only* because managed policy could not be determined, rather than because the policy requires it. Lets clients tell a user whose `--no-sandbox` was overridden that the sandbox stayed on as a fail-closed fallback, instead of attributing it to an administrator who set no such policy."
         },
         "bypassPermissionsDisabled": {
           "type": "boolean",
@@ -7497,7 +9012,7 @@
         "managedKeys"
       ],
       "additionalProperties": false,
-      "description": "Enterprise managed-settings resolution: the effective managed settings the session applied and which channels contributed, so SDK clients can show users what is enterprise-managed. Fires whenever managed policy is (re)applied — at session start, on resume, and on account switch. This is an ephemeral live snapshot (delivered to subscribers but not persisted to the session event log), because at session start it resolves before `session.start` is emitted. Device values take precedence over server values per ordinary key, while permissions compose restrictively across device, server, and SDK-client layers. The account-scoped `getManagedSettings()` API does not include session-local client injection. Marked experimental while the managed-settings surface stabilizes.",
+      "description": "Enterprise managed-settings resolution: the effective managed settings the session applied and which channels contributed, so SDK clients can show users what is enterprise-managed. Fires whenever managed policy is (re)applied — at session start, on resume, and on account switch. This is an ephemeral live snapshot (delivered to subscribers but not persisted to the session event log), because at session start it resolves before `session.start` is emitted. Device values take precedence over server values, then the policy helper, per ordinary key, while permissions compose restrictively across device, server, policy-helper, and SDK-client layers. The account-scoped `getManagedSettings()` API does not include session-local client injection. Marked experimental while the managed-settings surface stabilizes.",
       "title": "ManagedSettingsResolvedData",
       "stability": "experimental"
     },
@@ -7542,7 +9057,7 @@
         },
         "data": {
           "$ref": "#/definitions/ManagedSettingsResolvedData",
-          "description": "Enterprise managed-settings resolution: the effective managed settings the session applied and which channels contributed, so SDK clients can show users what is enterprise-managed. Fires whenever managed policy is (re)applied — at session start, on resume, and on account switch. This is an ephemeral live snapshot (delivered to subscribers but not persisted to the session event log), because at session start it resolves before `session.start` is emitted. Device values take precedence over server values per ordinary key, while permissions compose restrictively across device, server, and SDK-client layers. The account-scoped `getManagedSettings()` API does not include session-local client injection. Marked experimental while the managed-settings surface stabilizes."
+          "description": "Enterprise managed-settings resolution: the effective managed settings the session applied and which channels contributed, so SDK clients can show users what is enterprise-managed. Fires whenever managed policy is (re)applied — at session start, on resume, and on account switch. This is an ephemeral live snapshot (delivered to subscribers but not persisted to the session event log), because at session start it resolves before `session.start` is emitted. Device values take precedence over server values, then the policy helper, per ordinary key, while permissions compose restrictively across device, server, policy-helper, and SDK-client layers. The account-scoped `getManagedSettings()` API does not include session-local client injection. Marked experimental while the managed-settings surface stabilizes."
         }
       },
       "required": [
@@ -7554,7 +9069,7 @@
         "data"
       ],
       "additionalProperties": false,
-      "description": "Session event \"session.managed_settings_resolved\". Enterprise managed-settings resolution: the effective managed settings the session applied and which channels contributed, so SDK clients can show users what is enterprise-managed. Fires whenever managed policy is (re)applied — at session start, on resume, and on account switch. This is an ephemeral live snapshot (delivered to subscribers but not persisted to the session event log), because at session start it resolves before `session.start` is emitted. Device values take precedence over server values per ordinary key, while permissions compose restrictively across device, server, and SDK-client layers. The account-scoped `getManagedSettings()` API does not include session-local client injection. Marked experimental while the managed-settings surface stabilizes.",
+      "description": "Session event \"session.managed_settings_resolved\". Enterprise managed-settings resolution: the effective managed settings the session applied and which channels contributed, so SDK clients can show users what is enterprise-managed. Fires whenever managed policy is (re)applied — at session start, on resume, and on account switch. This is an ephemeral live snapshot (delivered to subscribers but not persisted to the session event log), because at session start it resolves before `session.start` is emitted. Device values take precedence over server values, then the policy helper, per ordinary key, while permissions compose restrictively across device, server, policy-helper, and SDK-client layers. The account-scoped `getManagedSettings()` API does not include session-local client injection. Marked experimental while the managed-settings surface stabilizes.",
       "title": "ManagedSettingsResolvedEvent",
       "stability": "experimental"
     },
@@ -7564,6 +9079,7 @@
         "server",
         "device",
         "client",
+        "policyHelper",
         "mixed",
         "none"
       ],
@@ -7573,7 +9089,8 @@
         "server": "Only the server/account channel contributed.",
         "device": "Only the device MDM/plist/registry/file channel contributed.",
         "client": "Only session-local SDK-host injection contributed.",
-        "mixed": "More than one channel contributed. Ordinary keys resolve device over server per key, while permissions compose restrictively across all present layers.",
+        "policyHelper": "A policy helper registered by device or server policy contributed. Device registration takes priority when present.",
+        "mixed": "More than one channel contributed. Ordinary keys resolve device over server over policy helper per key, while permissions compose restrictively across all present layers.",
         "none": "No managed policy is in force (no channel contributed)."
       }
     },
@@ -8904,6 +10421,11 @@
         "requestFingerprint": {
           "$ref": "#/definitions/ModelCallFailureRequestFingerprint",
           "description": "Content-free structural summary of the failing request. Contains only counts and shape flags (no prompt content), so it is safe for unrestricted telemetry. Populated only for client-error (4xx) failures."
+        },
+        "fusion": {
+          "$ref": "#/definitions/FusionAttribution",
+          "description": "Experimental HydraFusion attribution for this failed concrete model call.",
+          "stability": "experimental"
         }
       },
       "required": [
@@ -9060,6 +10582,120 @@
         "websocket": "WebSocket transport."
       }
     },
+    "ModelCallFinishedData": {
+      "type": "object",
+      "properties": {
+        "turnId": {
+          "type": "string",
+          "description": "Agent-loop iteration within the interaction that initiated the model dispatch"
+        },
+        "interactionId": {
+          "type": "string",
+          "description": "Identifier of the user interaction that owns the model dispatch, matching assistant.turn_start.interactionId when available"
+        },
+        "dispatchDurationMs": {
+          "type": "number",
+          "minimum": 0,
+          "format": "duration",
+          "description": "Monotonic elapsed time spent in the logical model dispatch, including any internal transport reconnect or fallback and excluding orchestrator retry backoff, tool execution, confirmations, and post-response processing"
+        },
+        "outcome": {
+          "$ref": "#/definitions/ModelCallFinishedOutcome",
+          "description": "Final outcome after post-response acceptance processing"
+        },
+        "containsBuiltInFileEditRequest": {
+          "type": "boolean",
+          "description": "Whether an accepted successful response requested the exact name and command semantics of a built-in file edit tool, including an external tool explicitly replacing that built-in name. Absent when the logical dispatch did not produce an accepted response."
+        },
+        "editClassifierVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Version of the built-in file-edit semantic classifier used for this event"
+        }
+      },
+      "required": [
+        "turnId",
+        "dispatchDurationMs",
+        "outcome",
+        "editClassifierVersion"
+      ],
+      "additionalProperties": false,
+      "description": "Final lifecycle outcome for one logical model dispatch. A logical dispatch may include internal reconnect or fallback work, so event count is not provider HTTP-request count.",
+      "title": "ModelCallFinishedData"
+    },
+    "ModelCallFinishedEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true for events that are transient and not persisted to the session event log on disk."
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "model.call_finished",
+          "description": "Type discriminator. Always \"model.call_finished\"."
+        },
+        "data": {
+          "$ref": "#/definitions/ModelCallFinishedData",
+          "description": "Final lifecycle outcome for one logical model dispatch. A logical dispatch may include internal reconnect or fallback work, so event count is not provider HTTP-request count."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "ephemeral",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"model.call_finished\". Final lifecycle outcome for one logical model dispatch. A logical dispatch may include internal reconnect or fallback work, so event count is not provider HTTP-request count.",
+      "title": "ModelCallFinishedEvent"
+    },
+    "ModelCallFinishedOutcome": {
+      "type": "string",
+      "enum": [
+        "success",
+        "error",
+        "cancelled",
+        "rejected"
+      ],
+      "description": "Final outcome of one logical model dispatch after response acceptance processing",
+      "title": "ModelCallFinishedOutcome",
+      "x-enumDescriptions": {
+        "success": "The provider response was accepted for continued agent processing.",
+        "error": "The dispatch ended with a provider or transport error.",
+        "cancelled": "The dispatch was cancelled before an accepted response was produced.",
+        "rejected": "The provider response was rejected during post-response acceptance processing."
+      }
+    },
     "ModelCallStartData": {
       "type": "object",
       "properties": {
@@ -9075,6 +10711,11 @@
           "type": "string",
           "description": "Previous response or interaction identifier included in the model request, when present",
           "visibility": "internal"
+        },
+        "fusion": {
+          "$ref": "#/definitions/FusionAttribution",
+          "description": "Experimental HydraFusion attribution for this concrete model call.",
+          "stability": "experimental"
         }
       },
       "required": [
@@ -9290,6 +10931,79 @@
         "automatic": "The runtime selected the model automatically, such as rate-limit recovery or refusal fallback.",
         "sdk": "An SDK or RPC caller selected the model."
       }
+    },
+    "ModeNoticeDeliveredData": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "$ref": "#/definitions/SessionMode",
+          "description": "Mode established by the delivered transition notice"
+        },
+        "content": {
+          "type": "string",
+          "description": "Model-visible transition notice persisted for a mid-turn delivery"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "additionalProperties": false,
+      "description": "Records that a mode transition notice reached the model so cache-stable mode tools can remain offered across resume.",
+      "title": "ModeNoticeDeliveredData"
+    },
+    "ModeNoticeDeliveredEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "session.mode_notice_delivered",
+          "description": "Type discriminator. Always \"session.mode_notice_delivered\"."
+        },
+        "data": {
+          "$ref": "#/definitions/ModeNoticeDeliveredData",
+          "description": "Records that a mode transition notice reached the model so cache-stable mode tools can remain offered across resume."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"session.mode_notice_delivered\". Records that a mode transition notice reached the model so cache-stable mode tools can remain offered across resume.",
+      "title": "ModeNoticeDeliveredEvent"
     },
     "OmittedBinaryOmittedReason": {
       "type": "string",
@@ -10193,6 +11907,10 @@
           "$ref": "#/definitions/PermissionAssistedApproval",
           "description": "Assisted-approval judge information for this request; present only in assisted mode.",
           "stability": "experimental"
+        },
+        "canOfferServerWideApproval": {
+          "type": "boolean",
+          "description": "Whether the host may offer a server-wide \"approve all tools from this server\" blanket. Absent is treated as true; the runtime sends false when managed policy disables bypass-permissions mode, which forbids the server-wide escalation while still allowing per-tool approval."
         }
       },
       "required": [
@@ -11954,6 +13672,10 @@
           ],
           "description": "Context tier currently selected at resume time; null when no tier is active"
         },
+        "autoTier": {
+          "$ref": "#/definitions/AutoTier",
+          "description": "Auto routing preference active at resume time"
+        },
         "sessionLimits": {
           "anyOf": [
             {
@@ -12200,6 +13922,21 @@
       "description": "Session event \"sampling.requested\". Sampling request from an MCP server; contains the server name and a requestId for correlation",
       "title": "SamplingRequestedEvent"
     },
+    "SandboxAttestation": {
+      "type": "string",
+      "enum": [
+        "spawn_succeeded",
+        "unsupported",
+        "builtin_policy_checked"
+      ],
+      "description": "Runtime observation backing an enforcement-state or denial claim. Absent on `enforcement_state` when no observation backs the state.",
+      "title": "SandboxAttestation",
+      "x-enumDescriptions": {
+        "spawn_succeeded": "A containment backend accepted and applied the spawn request.",
+        "unsupported": "The spawn was refused for lack of a usable containment backend.",
+        "builtin_policy_checked": "A runtime-owned policy check ran and returned a verdict. Attests the check, not that the caller honoured it."
+      }
+    },
     "SandboxBackend": {
       "type": "string",
       "enum": [
@@ -12215,6 +13952,21 @@
         "bubblewrap": "Linux Bubblewrap process sandbox.",
         "process_container": "Windows ProcessContainer sandbox.",
         "unsupported": "No supported process-containment backend is available."
+      }
+    },
+    "SandboxBypassSource": {
+      "type": "string",
+      "enum": [
+        "model_requested",
+        "user_prompted",
+        "prompt_unavailable"
+      ],
+      "description": "Where a request to run outside the process sandbox originated. Orthogonal to the outcome: the same verdict means a different thing depending on where the request came from.",
+      "title": "SandboxBypassSource",
+      "x-enumDescriptions": {
+        "model_requested": "The request originated in the tool call itself. Says nothing about whether a person saw it: the ordinary pre-execution permission prompt discloses the bypass and may have gated this one.",
+        "user_prompted": "The runtime raised its own escalation prompt after a sandboxed command looked blocked, and a person answered it.",
+        "prompt_unavailable": "The runtime attempted its own escalation after a sandboxed command looked blocked, but the permission flow produced no confirmed human answer. This includes unavailable or unreadable prompts, cancellation, and automated rule, hook, or content-exclusion denials."
       }
     },
     "SandboxControl": {
@@ -12235,7 +13987,7 @@
         "filesystem": "Filesystem read, write, and deny policy.",
         "network": "Outbound and local-network access policy.",
         "routing": "Selection of the sandbox or built-in enforcement route.",
-        "bypass": "User-visible elevation and unsandboxed rerun decisions.",
+        "bypass": "Decisions to run outside the process sandbox, whether requested by the model or resolved by a person.",
         "credentials": "Credential and keychain capability injection.",
         "platform": "Host-platform and backend support behavior."
       }
@@ -12438,6 +14190,163 @@
             "durationMs"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "control": {
+              "$ref": "#/definitions/SandboxControl",
+              "description": "Enforcement mechanism this decision describes"
+            },
+            "outcome": {
+              "$ref": "#/definitions/SandboxOutcome",
+              "description": "Observed enforcement state: `engaged`, `inactive`, or `failed`. Derived from runtime evidence, never from the configured posture or the compile-time target platform."
+            },
+            "toolCallId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Internal tool-call ID, used only to correlate the decision with its owning span. Omitted when the decision is not attributable to a tool call."
+            },
+            "platform": {
+              "$ref": "#/definitions/SandboxPlatform",
+              "description": "Host platform the sandbox is running on"
+            },
+            "backend": {
+              "$ref": "#/definitions/SandboxBackend",
+              "description": "Containment backend that engaged. `unsupported` for any state other than `engaged`, since no backend is known to have run."
+            },
+            "enforcementPoint": {
+              "$ref": "#/definitions/SandboxEnforcementPoint",
+              "description": "Runtime subsystem whose enforcement this describes"
+            },
+            "attestation": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SandboxAttestation",
+                  "description": "Runtime observation backing an enforcement-state or denial claim. Absent on `enforcement_state` when no observation backs the state."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Runtime observation backing the state. Omitted for `inactive`, which has nothing to attest."
+            },
+            "kind": {
+              "type": "string",
+              "const": "enforcement_state",
+              "description": "Sandbox decision variant discriminator."
+            }
+          },
+          "required": [
+            "kind",
+            "control",
+            "outcome",
+            "platform",
+            "backend",
+            "enforcementPoint"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "control": {
+              "$ref": "#/definitions/SandboxControl",
+              "description": "Sandbox control the denial belongs to. Follows from `denialClass`."
+            },
+            "outcome": {
+              "$ref": "#/definitions/SandboxOutcome",
+              "description": "Always `denied`."
+            },
+            "toolCallId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Tool call the denial belongs to, for span correlation only. Never exported as a telemetry attribute or metric dimension."
+            },
+            "platform": {
+              "$ref": "#/definitions/SandboxPlatform",
+              "description": "Host operating-system family"
+            },
+            "enforcementPoint": {
+              "$ref": "#/definitions/SandboxEnforcementPoint",
+              "description": "Runtime subsystem that performed the check"
+            },
+            "denialClass": {
+              "$ref": "#/definitions/SandboxDenialClass",
+              "description": "Bounded class of the refused access. The only part of the denial that crosses the telemetry boundary."
+            },
+            "attestation": {
+              "$ref": "#/definitions/SandboxAttestation",
+              "description": "Runtime observation backing the denial."
+            },
+            "kind": {
+              "type": "string",
+              "const": "access_denied",
+              "description": "Sandbox decision variant discriminator."
+            }
+          },
+          "required": [
+            "kind",
+            "control",
+            "outcome",
+            "platform",
+            "enforcementPoint",
+            "denialClass",
+            "attestation"
+          ],
+          "additionalProperties": false,
+          "description": "An enforcement check refused a specific access. Emitted per refusal with no deduplication, including when policy permits the caller to bypass the denial. Carries no backend: the built-in checks that produce this run in-process against the effective policy."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "control": {
+              "$ref": "#/definitions/SandboxControl",
+              "description": "Always `bypass`."
+            },
+            "outcome": {
+              "$ref": "#/definitions/SandboxOutcome",
+              "description": "Whether the bypass was granted: `approved` or `declined`. `declined` also covers the cases where nobody answered, since the sandboxed denial stands either way."
+            },
+            "toolCallId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Tool call the decision belongs to, for span correlation only. Never exported as a telemetry attribute or metric dimension."
+            },
+            "platform": {
+              "$ref": "#/definitions/SandboxPlatform",
+              "description": "Host operating-system family"
+            },
+            "enforcementPoint": {
+              "$ref": "#/definitions/SandboxEnforcementPoint",
+              "description": "Runtime subsystem the bypass applies to"
+            },
+            "source": {
+              "$ref": "#/definitions/SandboxBypassSource",
+              "description": "Where the request originated. Orthogonal to `outcome`."
+            },
+            "kind": {
+              "type": "string",
+              "const": "bypass_decided",
+              "description": "Sandbox decision variant discriminator."
+            }
+          },
+          "required": [
+            "kind",
+            "control",
+            "outcome",
+            "platform",
+            "enforcementPoint",
+            "source"
+          ],
+          "additionalProperties": false,
+          "description": "A request to run outside the process sandbox was resolved. This is what makes an `inactive` `enforcement_state` readable: without it, a command that ran unsandboxed because a person approved a bypass looks identical to one that ran unsandboxed because the session never had a sandbox. Reported only when a sandbox was in force, since bypassing a disabled sandbox bypasses nothing. Carries neither backend nor attestation: the verdict comes from the runtime's own permission flow or the local escalation prompt, not from a containment backend and not from the built-in policy check, so `source` is what records where it came from."
         }
       ],
       "description": "Payload of `sandbox.decision`, a bounded governance record of what the process sandbox was configured to do and whether it took effect. Discriminated by `kind`.",
@@ -12513,6 +14422,23 @@
         "unsupported_platform": "The host platform has no supported process-containment backend."
       }
     },
+    "SandboxDenialClass": {
+      "type": "string",
+      "enum": [
+        "filesystem_read",
+        "filesystem_write",
+        "network_outbound",
+        "network_local"
+      ],
+      "description": "Bounded class of access an enforcement check refused. The only part of a denial that crosses the telemetry boundary; the diagnostic text, matched rule, path, and host never do.",
+      "title": "SandboxDenialClass",
+      "x-enumDescriptions": {
+        "filesystem_read": "A read was refused because the effective policy does not grant it.",
+        "filesystem_write": "A write was refused. Distinct from `filesystem_read` because a read-only grant denies writes to a path it otherwise permits.",
+        "network_outbound": "An outbound connection was refused by `network.allowOutbound`.",
+        "network_local": "A connection to a local or loopback destination was refused by `network.allowLocalNetwork`."
+      }
+    },
     "SandboxEnforcementPoint": {
       "type": "string",
       "enum": [
@@ -12571,20 +14497,28 @@
     "SandboxOutcome": {
       "type": "string",
       "enum": [
-        "active",
+        "resolved",
         "inactive",
+        "engaged",
         "succeeded",
         "failed",
-        "degraded"
+        "degraded",
+        "denied",
+        "approved",
+        "declined"
       ],
-      "description": "Finite result of a sandbox decision",
+      "description": "Finite result of a sandbox decision. Each `SandboxDecisionData` variant uses a disjoint subset: `policy_resolved` is `resolved | degraded`, `spawn_completed` is `succeeded | failed`, `enforcement_state` is `engaged | inactive | failed`, `access_denied` is `denied`, and `bypass_decided` is `approved | declined`.",
       "title": "SandboxOutcome",
       "x-enumDescriptions": {
-        "active": "The resolved sandbox policy is active.",
-        "inactive": "The sandbox control is not active.",
+        "resolved": "The sandbox policy resolved successfully. Describes configuration only and makes no claim that a backend engaged.",
+        "inactive": "No sandbox governed the workload.",
+        "engaged": "A runtime-owned containment backend accepted the workload. Evidence of engagement, not of verified containment for the workload's lifetime.",
         "succeeded": "The sandbox operation completed successfully.",
         "failed": "The sandbox operation failed.",
-        "degraded": "The sandbox is active with one or more controls weakened by platform limitations."
+        "degraded": "The sandbox is active with one or more controls weakened by platform limitations.",
+        "denied": "An enforcement check refused the requested access.",
+        "approved": "A request to run outside the process sandbox was granted.",
+        "declined": "A request to run outside the process sandbox was not granted."
       }
     },
     "SandboxPlatform": {
@@ -12960,6 +14894,10 @@
           "description": "Session event \"session.mode_changed\". Agent mode change details including previous and new modes"
         },
         {
+          "$ref": "#/definitions/ModeNoticeDeliveredEvent",
+          "description": "Session event \"session.mode_notice_delivered\". Records that a mode transition notice reached the model so cache-stable mode tools can remain offered across resume."
+        },
+        {
           "$ref": "#/definitions/SessionLimitsChangedEvent",
           "description": "Session event \"session.session_limits_changed\". Session limits update details. Null clears the limits."
         },
@@ -13029,6 +14967,32 @@
           "description": "Session event \"session.task_complete\". Task completion notification with summary from the agent"
         },
         {
+          "$ref": "#/definitions/FusionRouteStartedEvent",
+          "description": "Session event \"session.fusion_route_started\". Experimental transient signal that HydraFusion routing has started for an eligible turn."
+        },
+        {
+          "$ref": "#/definitions/FusionRouteFailedEvent",
+          "description": "Session event \"session.fusion_route_failed\". Experimental durable HydraFusion routing failure and the deterministic concrete fallback selected for the turn."
+        },
+        {
+          "$ref": "#/definitions/FusionResolvedEvent",
+          "description": "Session event \"session.fusion_resolved\". Experimental durable validated HydraFusion route and turn policy."
+        },
+        {
+          "$ref": "#/definitions/FusionHandoffEvent",
+          "description": "Session event \"session.fusion_handoff\". Exact durable model-visible repair or revision handoff between HydraFusion phases.",
+          "visibility": "internal"
+        },
+        {
+          "$ref": "#/definitions/FusionCommitStartedEvent",
+          "description": "Session event \"session.fusion_commit_started\". Stable durable idempotency boundary for a HydraFusion final text or terminal commit.",
+          "visibility": "internal"
+        },
+        {
+          "$ref": "#/definitions/FusionCompletedEvent",
+          "description": "Session event \"session.fusion_completed\". Experimental durable aggregate outcome of a HydraFusion turn."
+        },
+        {
           "$ref": "#/definitions/UserMessageEvent",
           "description": "Session event \"user.message\". Payload of `user.message` with displayed and model-transformed content, attachments, source/delivery metadata, mode, and telemetry IDs."
         },
@@ -13053,6 +15017,18 @@
         {
           "$ref": "#/definitions/AssistantIntentEvent",
           "description": "Session event \"assistant.intent\". Agent intent description for current activity or plan"
+        },
+        {
+          "$ref": "#/definitions/AssistantFusionPhaseStartedEvent",
+          "description": "Session event \"assistant.fusion_phase_started\". Experimental transient HydraFusion phase/model/role signal."
+        },
+        {
+          "$ref": "#/definitions/AssistantFusionPhaseCompletedEvent",
+          "description": "Session event \"assistant.fusion_phase_completed\". Experimental durable HydraFusion phase output and lossless replay checkpoint."
+        },
+        {
+          "$ref": "#/definitions/AssistantFusionPhaseFailedEvent",
+          "description": "Session event \"assistant.fusion_phase_failed\". Experimental durable typed HydraFusion phase failure and degradation transition."
         },
         {
           "$ref": "#/definitions/AssistantServerToolProgressEvent",
@@ -13108,6 +15084,10 @@
           "description": "Session event \"model.call_failure\". Failed LLM API call metadata for telemetry"
         },
         {
+          "$ref": "#/definitions/ModelCallFinishedEvent",
+          "description": "Session event \"model.call_finished\". Final lifecycle outcome for one logical model dispatch. A logical dispatch may include internal reconnect or fallback work, so event count is not provider HTTP-request count."
+        },
+        {
           "$ref": "#/definitions/ModelCallStartEvent",
           "description": "Session event \"model.call_start\". Model API dispatch metadata for internal telemetry",
           "visibility": "internal"
@@ -13152,6 +15132,10 @@
         {
           "$ref": "#/definitions/SubagentStartedEvent",
           "description": "Session event \"subagent.started\". Sub-agent startup details including parent tool call and agent information"
+        },
+        {
+          "$ref": "#/definitions/SubagentConfiguredEvent",
+          "description": "Session event \"subagent.configured\". Resolved runtime configuration for a configured sub-agent"
         },
         {
           "$ref": "#/definitions/SubagentCompletedEvent",
@@ -13291,7 +15275,7 @@
         },
         {
           "$ref": "#/definitions/ManagedSettingsResolvedEvent",
-          "description": "Session event \"session.managed_settings_resolved\". Enterprise managed-settings resolution: the effective managed settings the session applied and which channels contributed, so SDK clients can show users what is enterprise-managed. Fires whenever managed policy is (re)applied — at session start, on resume, and on account switch. This is an ephemeral live snapshot (delivered to subscribers but not persisted to the session event log), because at session start it resolves before `session.start` is emitted. Device values take precedence over server values per ordinary key, while permissions compose restrictively across device, server, and SDK-client layers. The account-scoped `getManagedSettings()` API does not include session-local client injection. Marked experimental while the managed-settings surface stabilizes."
+          "description": "Session event \"session.managed_settings_resolved\". Enterprise managed-settings resolution: the effective managed settings the session applied and which channels contributed, so SDK clients can show users what is enterprise-managed. Fires whenever managed policy is (re)applied — at session start, on resume, and on account switch. This is an ephemeral live snapshot (delivered to subscribers but not persisted to the session event log), because at session start it resolves before `session.start` is emitted. Device values take precedence over server values, then the policy helper, per ordinary key, while permissions compose restrictively across device, server, policy-helper, and SDK-client layers. The account-scoped `getManagedSettings()` API does not include session-local client injection. Marked experimental while the managed-settings surface stabilizes."
         },
         {
           "$ref": "#/definitions/ManagedSettingsEnforcedEvent",
@@ -14469,6 +16453,10 @@
           ],
           "description": "Context tier selected at session creation time for models with tiered context pricing; null when no tier is selected (e.g., non-tiered model)"
         },
+        "autoTier": {
+          "$ref": "#/definitions/AutoTier",
+          "description": "Auto routing preference selected at session creation time"
+        },
         "sessionLimits": {
           "$ref": "#/definitions/SessionLimitsConfig",
           "description": "Session limits configured at session creation time, if any"
@@ -14578,6 +16566,26 @@
           "type": "string",
           "description": "Model used by the sub-agent"
         },
+        "firstDispatchedModel": {
+          "type": "string",
+          "description": "First model for which the sub-agent started an inference request, when one was dispatched"
+        },
+        "configuredModelPreference": {
+          "type": "string",
+          "description": "Concrete model the user configured for this sub-agent via `/subagents`, when present"
+        },
+        "explicitModelOverride": {
+          "type": "string",
+          "description": "Explicit model supplied by the parent agent on the task call, when present"
+        },
+        "explicitModelMatchesPreference": {
+          "type": "boolean",
+          "description": "Whether the explicit task-call model matched the user's configured preference"
+        },
+        "configuredModelMatchesActual": {
+          "type": "boolean",
+          "description": "Whether the first model actually dispatched matched the user's configured preference"
+        },
         "totalToolCalls": {
           "type": "integer",
           "minimum": 0,
@@ -14662,6 +16670,88 @@
       "description": "Session event \"subagent.completed\". Sub-agent completion details for successful execution",
       "title": "SubagentCompletedEvent"
     },
+    "SubagentConfiguredData": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Resolved model the sub-agent will run with"
+        },
+        "reasoningEffort": {
+          "type": "string",
+          "description": "Resolved reasoning effort, when configured for the model"
+        },
+        "contextTier": {
+          "type": "string",
+          "description": "Resolved context tier, when configured for the model"
+        },
+        "multiTurn": {
+          "type": "boolean",
+          "description": "Whether the sub-agent accepts follow-up turns"
+        }
+      },
+      "required": [
+        "model",
+        "multiTurn"
+      ],
+      "additionalProperties": false,
+      "description": "Resolved runtime configuration for a configured sub-agent",
+      "title": "SubagentConfiguredData"
+    },
+    "SubagentConfiguredEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "subagent.configured",
+          "description": "Type discriminator. Always \"subagent.configured\"."
+        },
+        "data": {
+          "$ref": "#/definitions/SubagentConfiguredData",
+          "description": "Resolved runtime configuration for a configured sub-agent"
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"subagent.configured\". Resolved runtime configuration for a configured sub-agent",
+      "title": "SubagentConfiguredEvent"
+    },
     "SubagentDeselectedData": {
       "type": "object",
       "properties": {},
@@ -14745,6 +16835,26 @@
         "model": {
           "type": "string",
           "description": "Model selected for the sub-agent, when known"
+        },
+        "firstDispatchedModel": {
+          "type": "string",
+          "description": "First model for which the sub-agent started an inference request, when one was dispatched"
+        },
+        "configuredModelPreference": {
+          "type": "string",
+          "description": "Concrete model the user configured for this sub-agent via `/subagents`, when present"
+        },
+        "explicitModelOverride": {
+          "type": "string",
+          "description": "Explicit model supplied by the parent agent on the task call, when present"
+        },
+        "explicitModelMatchesPreference": {
+          "type": "boolean",
+          "description": "Whether the explicit task-call model matched the user's configured preference"
+        },
+        "configuredModelMatchesActual": {
+          "type": "boolean",
+          "description": "Whether the first model actually dispatched matched the user's configured preference"
         },
         "totalToolCalls": {
           "type": "integer",
@@ -14942,6 +17052,22 @@
         "factoryRunId": {
           "type": "string",
           "description": "Root id of the factory run that spawned this sub-agent, when it was spawned by one."
+        },
+        "parentId": {
+          "type": "string",
+          "description": "Task-registry ID of the spawning sub-agent. Absent when the root session spawned this child."
+        },
+        "resumable": {
+          "type": "boolean",
+          "description": "Whether this sub-agent can be resumed. Currently always false."
+        },
+        "agentType": {
+          "type": "string",
+          "description": "Type of the sub-agent selected at spawn time."
+        },
+        "executionMode": {
+          "type": "string",
+          "description": "Whether the sub-agent runs synchronously or in the background."
         }
       },
       "required": [
@@ -16034,6 +18160,10 @@
         "outputTruncated": {
           "type": "boolean",
           "description": "Whether outputPreview is known to be incomplete or truncated"
+        },
+        "outputFilePath": {
+          "type": "string",
+          "description": "Path reported in the shell session's filesystem namespace when shell output exceeded the configured large-output threshold."
         }
       },
       "required": [
@@ -16159,6 +18289,11 @@
           "type": "string",
           "description": "Tool call ID of the parent tool invocation when this event originates from a sub-agent",
           "deprecated": true
+        },
+        "fusion": {
+          "$ref": "#/definitions/FusionAttribution",
+          "description": "Experimental HydraFusion attribution for this tool completion.",
+          "stability": "experimental"
         }
       },
       "required": [
@@ -16722,6 +18857,11 @@
           "type": "string",
           "description": "Tool call ID of the parent tool invocation when this event originates from a sub-agent",
           "deprecated": true
+        },
+        "fusion": {
+          "$ref": "#/definitions/FusionAttribution",
+          "description": "Experimental HydraFusion attribution for this tool execution.",
+          "stability": "experimental"
         }
       },
       "required": [

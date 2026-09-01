@@ -3,7 +3,7 @@
 
   The oracle is test/resources/optional_wire_contracts.edn, grounded in the
   exact upstream Node SDK baseline recorded there. Stable public config added
-  after that baseline is classified by stable_upstream_delta_811adc.edn and
+  after that baseline is classified by exact-pin stable-delta reports and
   tested in focused namespaces. Tests invoke the public Clojure API and capture
   JSON-RPC params after serialization."
   (:require [clojure.edn :as edn]
@@ -24,18 +24,37 @@
 
 (def contracts (:contracts contract-report))
 
-(def stable-delta-report
+(def stable-delta-811adc-report
   (-> "resources/stable_upstream_delta_811adc.edn"
       io/resource
       slurp
       edn/read-string))
 
+(def stable-delta-2980c78-report
+  (-> "resources/stable_upstream_delta_2980c78.edn"
+      io/resource
+      slurp
+      edn/read-string))
+
+(def post-2980-session-config
+  {:auth/github-token-provider
+   {:key :github-token-provider :scopes #{:create :resume}}
+   :mode/builtin-skill-isolation
+   {:key :included-builtin-skills :scopes #{:create :resume}}
+   :session/ask-user-variant
+   {:key :ask-user-variant :scopes #{:create :resume}}
+   :session/feature-flags
+   {:key :feature-flags :scopes #{:create :resume}}})
+
 (def post-baseline-public-config
-  (->> (:stable-deltas stable-delta-report)
-       (keep (fn [{:keys [id clojure]}]
-               (when (= :session-config/enable-file-change-tracking id)
-                 {:key (:public-key clojure)
-                  :scopes (:scopes clojure)})))))
+  (concat
+   (->> (:stable-deltas stable-delta-811adc-report)
+        (keep (fn [{:keys [id clojure]}]
+                (when (= :session-config/enable-file-change-tracking id)
+                  {:key (:public-key clojure)
+                   :scopes (:scopes clojure)}))))
+   (keep post-2980-session-config
+         (:stable-delta-ids stable-delta-2980c78-report))))
 
 (def fixtures
   {:fixture/handler (fn [& _])

@@ -843,17 +843,28 @@
                               (let [session (get-in state [:sessions session-id])]
                                 (if (or (nil? session) (:destroyed? session))
                                   state
-                                  (assoc-in state
-                                            [:sessions session-id]
-                                            (assoc session
-                                                   :destroyed? true
-                                                   :tool-handlers {}
-                                                   :permission-handler nil
-                                                   :user-input-handler nil
-                                                   :factories {}
-                                                   :factory-executions {}
-                                                   :hooks {}
-                                                   :config nil))))))]
+                                  (-> state
+                                      (assoc-in
+                                       [:sessions session-id]
+                                       (assoc session
+                                              :destroyed? true
+                                              :tool-handlers {}
+                                              :permission-handler nil
+                                              :user-input-handler nil
+                                              :factories {}
+                                              :factory-executions {}
+                                              :hooks {}
+                                              :config nil))
+                                      (update
+                                       :github-token-providers
+                                       (fn [registrations]
+                                         (into {}
+                                               (remove
+                                                (fn [[_ registration]]
+                                                  (and (:committed? registration)
+                                                       (= session-id
+                                                          (:session-id registration)))))
+                                               registrations))))))))]
     (cond
       (nil? (get-in old [:sessions session-id]))
       :absent
@@ -1139,10 +1150,11 @@
    :sdk "sdk"})
 
 (defn- permission-context->wire
-  [{:keys [outcome source surface]}]
-  {:outcome (permission-context-wire-values outcome)
-   :source (permission-context-wire-values source)
-   :surface (permission-context-wire-values surface)})
+  [{:keys [outcome source surface response-capability]}]
+  (cond-> {:outcome (permission-context-wire-values outcome)
+           :source (permission-context-wire-values source)
+           :surface (permission-context-wire-values surface)}
+    response-capability (assoc :response-capability (name response-capability))))
 
 (defn- normalize-permission-handler-result
   [result]
@@ -1620,6 +1632,11 @@
    how long to wait for `session.idle`; it does not abort in-flight agent work."
   60000)
 
+(defn- terminal-idle-event?
+  [event]
+  (and (= :copilot/session.idle (:type event))
+       (not (#{"autopilot" :autopilot} (get-in event [:data :mode])))))
+
 (defn send-and-wait!
   "Send a message and wait until the session becomes idle.
    Returns the final assistant message event, or nil if none received.
@@ -1690,7 +1707,7 @@
                    (reset! last-assistant-msg event)
                    (recur))
 
-                 (= :copilot/session.idle (:type event))
+                 (terminal-idle-event? event)
                  (do
                    (log/debug "send-and-wait! got session.idle, returning result for session " session-id)
                    @last-assistant-msg)
@@ -1761,7 +1778,7 @@
                    (close! out-ch)
                    (release-lock!))
 
-                 (= :copilot/session.idle (:type event))
+                 (terminal-idle-event? event)
                  (do
                    (emit! event)
                    (untap event-mult event-ch)
@@ -1868,7 +1885,8 @@
                       (nil? event)
                       (do (untap event-mult event-ch) (close! out-ch) (release-lock!))
 
-                      (#{:copilot/session.idle :copilot/session.error} (:type event))
+                      (or (terminal-idle-event? event)
+                          (= :copilot/session.error (:type event)))
                       (do (emit! event) (cleanup!))
 
                       :else

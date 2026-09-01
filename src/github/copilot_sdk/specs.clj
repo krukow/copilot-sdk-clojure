@@ -956,6 +956,7 @@
 (s/def ::custom-agents-local-only boolean?)
 (s/def ::coauthor-enabled boolean?)
 (s/def ::manage-schedule-enabled boolean?)
+(s/def ::included-builtin-skills (s/coll-of string? :kind vector?))
 
 ;; Reasoning summary mode (upstream PR #813 - pre-existing parity gap).
 ;; Wire enum: "none" | "concise" | "detailed". Mirrors upstream's ReasoningSummary type.
@@ -972,7 +973,45 @@
 ;; runtime side); set false to force the HTTP Responses transport. Sent verbatim
 ;; under the `capi` wire key.
 (s/def ::enable-web-socket-responses boolean?)
-(s/def ::capi (s/keys :opt-un [::enable-web-socket-responses]))
+(s/def ::auto-tier #{:efficiency :balance :intelligence})
+(s/def ::capi (s/keys :opt-un [::auto-tier ::enable-web-socket-responses]))
+
+;; Selects the model-facing shape of the built-in ask_user tool.
+(s/def ::ask-user-variant #{:legacy :elicitation})
+
+;; An explicit empty feature flag map is distinct from omission.
+(s/def ::feature-flags (s/map-of string? boolean?))
+
+;; Session-scoped GitHub credential callback (upstream PR #2412).
+(s/def ::github-token-provider fn?)
+(s/def ::github-token-acquire-reason #{:initial :refresh})
+(s/def ::github-token-provider-args
+  (s/and map?
+         #(every? #{:host :session-id :reason} (keys %))
+         #(contains? % :host)
+         #(contains? % :reason)
+         #(s/valid? ::non-blank-string (:host %))
+         #(or (nil? (:session-id %))
+              (s/valid? ::non-blank-string (:session-id %)))
+         #(s/valid? ::github-token-acquire-reason (:reason %))))
+(s/def ::github-token-provider-result
+  (s/and
+   map?
+   #(case (:kind %)
+      :token
+      (and (every? #{:kind :access-token :expires-in :token-type} (keys %))
+           (contains? % :access-token)
+           (contains? % :expires-in)
+           (s/valid? ::non-blank-string (:access-token %))
+           (number? (:expires-in %))
+           (pos? (:expires-in %))
+           (or (not (contains? % :token-type))
+               (s/valid? ::non-blank-string (:token-type %))))
+
+      :cancelled
+      (= #{:kind} (set (keys %)))
+
+      false)))
 
 ;; Session options (upstream PR #1865) — shared by create + resume/join.
 ;; excludedBuiltinAgents: names of built-in agents to hide from the session.
@@ -1028,7 +1067,9 @@
                     ::enable-insiders-mode? ::disable-form-deferral?])
    github-mcp-tool-config-keys))
 
-(s/def ::disable-bypass-permissions-mode #{:disable})
+(s/def ::disable-bypass-permissions-mode
+  (s/or :known #{:disable :allow-auto-only}
+        :future ::non-blank-string))
 (s/def ::deny (s/coll-of ::non-blank-string :kind vector?))
 (s/def ::ask (s/coll-of ::non-blank-string :kind vector?))
 (s/def ::allow (s/coll-of ::non-blank-string :kind vector?))
@@ -1099,7 +1140,8 @@
     :on-user-input-request :on-elicitation-request :hooks
     :on-exit-plan-mode :on-auto-mode-switch
     :working-directory :agent :on-event :create-session-fs-handler
-    :enable-config-discovery :enable-mcp-apps :model-capabilities :github-token
+    :enable-config-discovery :enable-mcp-apps :model-capabilities
+    :github-token :github-token-provider :ask-user-variant
     :enable-session-telemetry?
     :remote-session
     :cloud
@@ -1117,9 +1159,10 @@
     :custom-agents-local-only
     :coauthor-enabled
     :manage-schedule-enabled
+    :included-builtin-skills
     :capi
     :excluded-builtin-agents :enable-citations :session-limits
-    :providers :models :exp-assignments
+    :providers :models :exp-assignments :feature-flags
     :include-sub-agent-streaming-events?
     :enable-managed-settings? :managed-settings
     :enable-experimental-mode? :additional-directories :disabled-mcp-servers
@@ -1148,7 +1191,8 @@
                     ::on-user-input-request ::on-elicitation-request ::hooks
                     ::on-exit-plan-mode ::on-auto-mode-switch
                     ::working-directory ::agent ::on-event ::create-session-fs-handler
-                    ::enable-config-discovery ::enable-mcp-apps ::model-capabilities ::github-token
+                    ::enable-config-discovery ::enable-mcp-apps ::model-capabilities
+                    ::github-token ::github-token-provider ::ask-user-variant
                     ::enable-session-telemetry?
                     ::remote-session
                     ::cloud
@@ -1166,9 +1210,10 @@
                     ::custom-agents-local-only
                     ::coauthor-enabled
                     ::manage-schedule-enabled
+                    ::included-builtin-skills
                     ::capi
                     ::excluded-builtin-agents ::enable-citations ::session-limits
-                    ::providers ::models ::exp-assignments
+                    ::providers ::models ::exp-assignments ::feature-flags
                     ::include-sub-agent-streaming-events?
                     ::enable-managed-settings? ::managed-settings
                     ::enable-experimental-mode? ::additional-directories ::disabled-mcp-servers
@@ -1192,7 +1237,8 @@
     :on-user-input-request :on-elicitation-request :hooks :working-directory :disable-resume? :agent :on-event
     :on-exit-plan-mode :on-auto-mode-switch
     :continue-pending-work?
-    :create-session-fs-handler :enable-config-discovery :enable-mcp-apps :model-capabilities :github-token
+    :create-session-fs-handler :enable-config-discovery :enable-mcp-apps :model-capabilities
+    :github-token :github-token-provider :ask-user-variant
     :enable-session-telemetry?
     :remote-session
     :mcp-oauth-token-storage
@@ -1209,9 +1255,10 @@
     :custom-agents-local-only
     :coauthor-enabled
     :manage-schedule-enabled
+    :included-builtin-skills
     :capi
     :excluded-builtin-agents :enable-citations :session-limits
-    :providers :models :exp-assignments
+    :providers :models :exp-assignments :feature-flags
     :include-sub-agent-streaming-events?
     ;; Upstream PR #1604: resume/join may seed the open-canvases snapshot.
     :open-canvases
@@ -1240,7 +1287,8 @@
                     ::on-user-input-request ::on-elicitation-request ::hooks ::working-directory ::disable-resume? ::agent
                     ::on-exit-plan-mode ::on-auto-mode-switch
                     ::on-event ::create-session-fs-handler
-                    ::enable-config-discovery ::enable-mcp-apps ::model-capabilities ::github-token
+                    ::enable-config-discovery ::enable-mcp-apps ::model-capabilities
+                    ::github-token ::github-token-provider ::ask-user-variant
                     ::continue-pending-work?
                     ::enable-session-telemetry?
                     ::remote-session
@@ -1258,9 +1306,10 @@
                     ::custom-agents-local-only
                     ::coauthor-enabled
                     ::manage-schedule-enabled
+                    ::included-builtin-skills
                     ::capi
                     ::excluded-builtin-agents ::enable-citations ::session-limits
-                    ::providers ::models ::exp-assignments
+                    ::providers ::models ::exp-assignments ::feature-flags
                     ::include-sub-agent-streaming-events?
                     ::open-canvases
                     ::enable-managed-settings? ::managed-settings
@@ -1297,7 +1346,8 @@
                     ::on-user-input-request ::on-elicitation-request ::hooks ::working-directory ::disable-resume? ::agent
                     ::on-exit-plan-mode ::on-auto-mode-switch
                     ::on-event ::create-session-fs-handler
-                    ::enable-config-discovery ::enable-mcp-apps ::model-capabilities ::github-token
+                    ::enable-config-discovery ::enable-mcp-apps ::model-capabilities
+                    ::github-token ::github-token-provider ::ask-user-variant
                     ::continue-pending-work?
                     ::enable-session-telemetry?
                     ::remote-session
@@ -1315,9 +1365,10 @@
                     ::custom-agents-local-only
                     ::coauthor-enabled
                     ::manage-schedule-enabled
+                    ::included-builtin-skills
                     ::capi
                     ::excluded-builtin-agents ::enable-citations ::session-limits
-                    ::providers ::models ::exp-assignments
+                    ::providers ::models ::exp-assignments ::feature-flags
                     ::include-sub-agent-streaming-events?
                     ::open-canvases
                     ::enable-managed-settings? ::managed-settings
@@ -1615,7 +1666,12 @@
     :copilot/session.managed_settings_resolved
     :copilot/tool_search.activated
     ;; v1.0.9 + post-v1.0.9 sync (pinned schema 1.0.79-6).
-    :copilot/factory.run_updated})
+    :copilot/factory.run_updated
+    ;; v1.0.11 sync (pinned schema 1.0.83-1). HydraFusion events remain
+    ;; generated-only because upstream marks them experimental.
+    :copilot/session.mode_notice_delivered
+    :copilot/model.call_finished
+    :copilot/subagent.configured})
 
 ;; Session events
 (s/def ::already-in-use? boolean?)
@@ -2130,16 +2186,45 @@
 ;; Stable host-facing event payloads. These maps remain open so additive wire
 ;; fields continue to pass through, while the exported fields below retain their
 ;; caller-facing types.
+(defn- required-value?
+  [m key pred]
+  (and (contains? m key)
+       (pred (get m key))))
+
+(defn- optional-value?
+  [m key pred]
+  (or (not (contains? m key))
+      (pred (get m key))))
+
+(s/def ::session.mode_notice_delivered-data
+  (s/and map?
+         #(required-value? % :mode #{"interactive" "plan" "autopilot"})
+         #(optional-value? % :content string?)))
+
 (s/def ::model-call-failure-source #{"top_level" "subagent" "mcp_sampling"})
 (s/def ::model.call_failure-data
   (s/and (s/keys :req-un [::source]
                  :opt-un [::interaction-type])
          #(s/valid? ::model-call-failure-source (:source %))))
 
-(defn- optional-value?
-  [m key pred]
-  (or (not (contains? m key))
-      (pred (get m key))))
+(s/def ::model.call_finished-data
+  (s/and map?
+         #(required-value? % :turn-id string?)
+         #(optional-value? % :interaction-id string?)
+         #(required-value? % :dispatch-duration-ms
+                           (fn [duration]
+                             (and (number? duration)
+                                  (not (neg? duration)))))
+         #(required-value? % :outcome #{"success" "error" "cancelled" "rejected"})
+         #(optional-value? % :contains-built-in-file-edit-request boolean?)
+         #(required-value? % :edit-classifier-version pos-int?)))
+
+(s/def ::subagent.configured-data
+  (s/and map?
+         #(required-value? % :model string?)
+         #(optional-value? % :reasoning-effort string?)
+         #(optional-value? % :context-tier string?)
+         #(required-value? % :multi-turn boolean?)))
 
 (defn- notification-map?
   [m required allowed]
@@ -2178,7 +2263,7 @@
           #{:type :entry-id :sender-name :sender-type :summary}
           #{:type :entry-id :sender-name :sender-type :summary})
          (every? string?
-                ((juxt :entry-id :sender-name :sender-type :summary) kind)))
+                 ((juxt :entry-id :sender-name :sender-type :summary) kind)))
 
     "shell_completed"
     (and (notification-map?
@@ -2203,7 +2288,7 @@
           #{:type :source-path :trigger-file :trigger-tool}
           #{:type :source-path :trigger-file :trigger-tool :description})
          (every? string?
-                ((juxt :source-path :trigger-file :trigger-tool) kind))
+                 ((juxt :source-path :trigger-file :trigger-tool) kind))
          (optional-value? kind :description string?))
 
     "factory_completed"
@@ -2222,7 +2307,7 @@
          (nat-int? (:consumed-nano-aiu kind))
          (pos-int? (:attempt kind))
          (optional-value? kind :result-preview
-                         #(and (string? %) (<= (count %) 256)))
+                          #(and (string? %) (<= (count %) 256)))
          (optional-value? kind :failure opaque-json-value?)
          (optional-value? kind :retry-guidance string?))
 
@@ -2411,13 +2496,17 @@
   #{:judge-recommendation :human-response :host-policy :unattended-fallback})
 (s/def ::permission-decision-surface
   #{:tui :prompt-mode :copilot-app :sdk})
+(s/def ::permission-response-capability
+  #{:interactive :headless :none})
 
 (s/def ::permission-decision-context
   (s/and
-   (closed-keys map? #{:outcome :source :surface})
+   (closed-keys map? #{:outcome :source :surface :response-capability})
    #(s/valid? ::permission-decision-outcome (:outcome %))
    #(s/valid? ::permission-decision-source (:source %))
-   #(s/valid? ::permission-decision-surface (:surface %))))
+   #(s/valid? ::permission-decision-surface (:surface %))
+   #(or (not (contains? % :response-capability))
+        (s/valid? ::permission-response-capability (:response-capability %)))))
 
 (s/def ::attributed-permission-result
   (s/and

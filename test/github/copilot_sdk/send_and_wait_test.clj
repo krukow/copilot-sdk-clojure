@@ -83,8 +83,10 @@
 
 (defn- inject-idle!
   "Inject a `session.idle` event over the wire."
-  [{:keys [server session-id]}]
-  (mock/send-session-event! server session-id "session.idle" {} :ephemeral? true))
+  ([ctx]
+   (inject-idle! ctx {}))
+  ([{:keys [server session-id]} data]
+   (mock/send-session-event! server session-id "session.idle" data :ephemeral? true)))
 
 ;; -----------------------------------------------------------------------------
 ;; Timeout-selection harness (PAR-003 follow-up): drives `send-and-wait!` with a
@@ -193,6 +195,58 @@
           ;; No assistant message preceded idle in buffer order → returns nil.
           (is (nil? (deref pending 5000 ::timeout))))
         (finally (close))))))
+
+(deftest autopilot-idle-is-not-terminal-for-send-and-wait
+  (testing "send-and-wait! ignores autopilot idle and returns after the regular idle"
+    (let [{:keys [session release send-started close] :as ctx} (gated-send-context)]
+      (try
+        (let [pending (future (session/send-and-wait! session {:prompt "hi"} 5000))]
+          (is (true? (deref send-started 2000 ::timeout)))
+          (inject-idle! ctx {:mode "autopilot"})
+          (release)
+          (let [result (deref pending 5000 ::timeout)]
+            (is (= :copilot/assistant.message (:type result)))
+            (is (= "Mock response to: hi" (get-in result [:data :content])))))
+        (finally (close))))))
+
+(deftest autopilot-idle-is-not-terminal-for-async-sends
+  (testing "both async send paths remain open across autopilot idle"
+    (doseq [[label start]
+            [[:events #(session/send-async % {:prompt "hi" :timeout-ms 5000})]
+             [:with-id #(-> (session/send-async-with-id %
+                                                        {:prompt "hi" :timeout-ms 5000})
+                            :events-ch)]]]
+      (testing (name label)
+        (let [{:keys [session release send-started close] :as ctx} (gated-send-context)]
+          (try
+            (let [events-ch (future (start session))]
+              (is (true? (deref send-started 2000 ::timeout)))
+              (inject-idle! ctx {:mode :autopilot})
+              (release)
+              (let [events-ch (deref events-ch 5000 ::timeout)
+                    events (loop [acc []]
+                             (let [[event port] (async/alts!! [events-ch (async/timeout 5000)])]
+                               (cond
+                                 (not= port events-ch) ::timeout
+                                 (nil? event) acc
+                                 :else (recur (conj acc event)))))]
+                (is (vector? events) "the event stream must close after regular idle")
+                (is (some #(and (= :copilot/session.idle (:type %))
+                                (#{"autopilot" :autopilot}
+                                 (get-in % [:data :mode])))
+                          events))
+                (is (some #(= :copilot/assistant.message (:type %)) events))
+                (is (= :copilot/session.idle (:type (last events))))
+                (is (nil? (get-in (last events) [:data :mode])))))
+            (finally (close))))))))
+
+(deftest terminal-idle-recognizes-both-autopilot-representations
+  (is (false? (@#'session/terminal-idle-event?
+               {:type :copilot/session.idle :data {:mode "autopilot"}})))
+  (is (false? (@#'session/terminal-idle-event?
+               {:type :copilot/session.idle :data {:mode :autopilot}})))
+  (is (true? (@#'session/terminal-idle-event?
+              {:type :copilot/session.idle :data {}}))))
 
 ;; -----------------------------------------------------------------------------
 ;; Upstream scenario 3: a send rejection wins over an earlier session.error.

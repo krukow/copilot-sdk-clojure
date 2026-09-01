@@ -5,10 +5,7 @@
             [clojure.java.io :as io]
             [clojure.java.shell :as sh]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]])
-  (:import (java.math BigInteger)
-           (java.nio.file Files Paths)
-           (java.security MessageDigest)))
+            [clojure.test :refer [deftest is testing]]))
 
 (def ^:private report-resource
   "resources/stable_upstream_delta_cc0438d.edn")
@@ -48,12 +45,6 @@
     (->> (str/split-lines out)
          (remove str/blank?)
          vec)))
-
-(defn- sha256-file
-  [path]
-  (let [digest (MessageDigest/getInstance "SHA-256")
-        bytes (Files/readAllBytes (Paths/get path (make-array String 0)))]
-    (format "%064x" (BigInteger. 1 (.digest digest bytes)))))
 
 (defn- evidence-references
   [report]
@@ -102,19 +93,17 @@
             (is (zero? exit))
             (is (str/includes? out symbol))))))))
 
-(deftest current-runtime-schema-is-exact
+(deftest historical-runtime-contract-remains-represented
   (let [{:keys [schema version]} (read-report)
         api-schema (json/read-str (slurp "schemas/api.schema.json"))
         definitions (get api-schema "definitions")
         account-login (get definitions "AccountLoginRequest")
         permission-mode-source (get definitions "PermissionModeSource")
         approve-all-source (get definitions "PermissionsSetApproveAllSource")]
-    (is (= (:runtime-pin schema)
-           (str/trim (slurp ".copilot-schema-version"))))
-    (is (= (get-in schema [:api :sha256])
-           (sha256-file "schemas/api.schema.json")))
-    (is (= (get-in schema [:session-events :sha256])
-           (sha256-file "schemas/session-events.schema.json")))
+    (is (= "1.0.81-6" (:runtime-pin schema)))
+    (is (= "@github/copilot/1.0.81-6" (get-in schema [:api :source])))
+    (is (= "@github/copilot/1.0.81-6"
+           (get-in schema [:session-events :source])))
     (is (= #{"host" "token"} (set (get account-login "required"))))
     (is (contains? (get account-login "properties") "login"))
     (is (= false (get account-login "additionalProperties")))

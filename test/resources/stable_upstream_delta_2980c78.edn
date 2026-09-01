@@ -1,0 +1,448 @@
+{:upstream
+ {:base-commit "93351c9217a65960c14a863fc0fa540afd93fa15"
+  :target-commit "2980c7828d35754bfc2b334831efec309ab8a2eb"
+  :target-package-version "0.0.0-dev"
+  :node-runtime-dependency
+  {:package "@github/copilot"
+   :version "^1.0.83-1"}}
+
+ :commit-classifications
+ [{:commit "48b280ac0049eed2c00e3f0040783636c7aa82a9"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Adds Java Apple Silicon runtime packaging and transport support only."
+   :changed-path-count 13 :changed-paths-sha256 "31c64b263b519a9932b92f9177bdc4e58cc771ea76c5349f5659376216788d4a"}
+  {:commit "0afa524ce35b27236aac7d428ed9ca9c9d998e3c"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Updates Java preview-version documentation only."
+   :changed-path-count 2 :changed-paths-sha256 "354da747ec6ad569c57d155cf6495ad3b7e7c1afc122506d0ab3f8595f6003b9"}
+  {:commit "3c3ec41c670f0d64ae6f044719566e7ecef911b8"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Prepares a Java Maven preview release only."
+   :changed-path-count 3 :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+  {:commit "ced555f077335717743eb50279949af3301fa99c"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Advances Java Maven development versions only."
+   :changed-path-count 3 :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+  {:commit "ed1c2eaa134ed60faa99acb1870f0477c6943031"
+   :classification :mixed :status :ported
+   :reason "Updates runtime 1.0.81-10 across generated, internal, test, and stable Node public contracts; the stable permission and event deltas are ported."
+   :changed-path-count 89 :changed-paths-sha256 "4d81dd85fcff95dc8c9ed9d9115eed6bebbb0d49fe7eac560b4134e97423fc19"}
+  {:commit "017c9a3ba1c097dad39200a8409da7ca59b53293"
+   :classification :stable-public :status :ported
+   :reason "Defines mode-specific stable built-in skill isolation across SDK implementations."
+   :changed-path-count 21 :changed-paths-sha256 "e5094f433666a9f76585164ef04a5dae394d42dd77115293e5b8ba55ac3435b1"}
+  {:commit "7016935558b01b44d716013212d00f8d50b7a63c"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Changes Java publishing summaries only."
+   :changed-path-count 2 :changed-paths-sha256 "3b562e0eb2d675ea7755825dc2ddb7b22bc15ed65400ae1d150c5bcae763a019"}
+  {:commit "de17ac8ba101899eac555b4f70e4fb88eb00aeab"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Adds Java in-process transport test coverage only."
+   :changed-path-count 1 :changed-paths-sha256 "1e23b382a2b6e37a5d41a9a8c7c5c44fe8956af51068a1354bd3ec386f9a8196"}
+  {:commit "f0a575aaad366e93e93349544d91035d0fb2e511"
+   :classification :test-harness :status :reviewed-no-port
+   :reason "Stabilizes Python and Java E2E harness behavior without changing stable Node contracts."
+   :changed-path-count 6 :changed-paths-sha256 "c6724ea8445f8492d9ea74a40af031d6e2731d29e337fb5e1f7414dbe8f566f8"}
+  {:commit "83c179a3a82096dc8e0f524c03dfa95140f497c8"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Updates Java preview-version documentation only."
+   :changed-path-count 2 :changed-paths-sha256 "354da747ec6ad569c57d155cf6495ad3b7e7c1afc122506d0ab3f8595f6003b9"}
+  {:commit "69c503a80d24020e79bd4fb2f5bb179da92e0075"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Prepares a Java Maven preview release only."
+   :changed-path-count 3 :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+  {:commit "f0e388bf844fb377daae34e6841a5096020427a4"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Advances Java Maven development versions only."
+   :changed-path-count 3 :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+  {:commit "29141a4cc779191f9b292a280daaddd3597cacac"
+   :classification :stable-public :status :ported
+   :reason "Adds the stable session-scoped GitHub token-provider contract across SDKs."
+   :changed-path-count 54 :changed-paths-sha256 "90b77cab980ef147ad8a248ecf5f2c0a19b7641c49164bbc9e609940f54f386c"}
+  {:commit "3d630a790e3b1f8c74b4443d144a52429a232b28"
+   :classification :mixed :status :ported
+   :reason "Updates runtime 1.0.81-11 with generated protocol, tests, and stable permission-response and autopilot-idle behavior; stable deltas are ported."
+   :changed-path-count 44 :changed-paths-sha256 "3e73eba8c38d0ead30fd170026a71bdd150db99a05a880561b947144bfd346d8"}
+  {:commit "521aa26b29e35a25cd483c589b35ee4f0b7b8750"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Adds Java Linux ARM64 runtime support only."
+   :changed-path-count 12 :changed-paths-sha256 "fc6f6320905cc8b441ad5359f2bd254123cacbed6b9fb45077ff1d4e947cb780"}
+  {:commit "a671d9490b28b8e55cff19ab66376a9409588025"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Adds Java Windows ARM64 runtime support only."
+   :changed-path-count 12 :changed-paths-sha256 "fc6f6320905cc8b441ad5359f2bd254123cacbed6b9fb45077ff1d4e947cb780"}
+  {:commit "3ce052769fb00c24587c639b892d9d31dbf995fc"
+   :classification :generated-only :status :regenerated
+   :reason "Promotes runtime 1.0.81 and refreshes generated protocol plus language-specific tests; final target schemas were regenerated."
+   :changed-path-count 95 :changed-paths-sha256 "6189bdce2644412f00f9a447b588490cc9d89d7764f939e6c9d7d0fb7b59112e"}
+  {:commit "8715c1372abcf0135415710b6b04f3743f372a70"
+   :classification :generated-only :status :regenerated
+   :reason "Updates runtime 1.0.82-0 generated protocol and telemetry tests; final target schemas were regenerated."
+   :changed-path-count 25 :changed-paths-sha256 "ec3fa58c37bd750c7b28f8145df1adfd349ee4f74676813afef52f4edaaeac6e"}
+  {:commit "c2f08ff199d6a04908158a66803a6854b8de224d"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Updates Java preview-version documentation only."
+   :changed-path-count 2 :changed-paths-sha256 "354da747ec6ad569c57d155cf6495ad3b7e7c1afc122506d0ab3f8595f6003b9"}
+  {:commit "a94a1f2ddd7e015b3d3f7bbc94c7c2b1a28219e0"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Prepares a Java Maven preview release only."
+   :changed-path-count 3 :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+  {:commit "50ce37e19258524c6de82651652971e96d7ae5f3"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Advances Java Maven development versions only."
+   :changed-path-count 3 :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+  {:commit "53efb3593e65e5f04474099ffd3e00efa7777482"
+   :classification :generated-only :status :regenerated
+   :reason "Promotes runtime 1.0.82 and refreshes generated protocol plus language-specific tests; final target schemas were regenerated."
+   :changed-path-count 38 :changed-paths-sha256 "afdac82eee9fe44cc24e4a8d9e2782d3f9e47effa5408cc3523e155192869a87"}
+  {:commit "b79cef213bfc29d4573e21ec7037fa44c0f1d5d0"
+   :classification :generated-only :status :regenerated
+   :reason "Updates runtime 1.0.83-0 generated protocol; final target schemas were regenerated."
+   :changed-path-count 26 :changed-paths-sha256 "1681c2436478a087c3c6be3fdef0e5963e3a4724e77a983acbce663c1133ecc4"}
+  {:commit "01b27f16c52db654918d6d831c9ae5d24b47bf14"
+   :classification :experimental :status :reviewed-no-port
+   :reason "Extends the explicitly experimental Agent Factories API with pagination and completion controls."
+   :changed-path-count 9 :changed-paths-sha256 "57be8c24de1a7e62b36fa6066f9cdb1e08741425ad5f5f70857b4424f87ede55"}
+  {:commit "7a916f8af8fb11315e9d043156487f9076264145"
+   :classification :stable-public :status :ported
+   :reason "Adds the stable session ask-user variant option across SDKs."
+   :changed-path-count 35 :changed-paths-sha256 "5e51e23dd646ed512abe00c22851deec9bffaa51fe64cb39ddbaaf602fab9378"}
+  {:commit "128927eb6590394a1d8de5a646da07873e1523ce"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Updates Java preview-version documentation only."
+   :changed-path-count 2 :changed-paths-sha256 "354da747ec6ad569c57d155cf6495ad3b7e7c1afc122506d0ab3f8595f6003b9"}
+  {:commit "07ae7a18c078514c32d22a9cc37a82b4d083c335"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Prepares a Java Maven preview release only."
+   :changed-path-count 3 :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+  {:commit "6adcf00d433614d550563835b688012d5b9c5782"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Advances Java Maven development versions only."
+   :changed-path-count 3 :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+  {:commit "538b2dce30755ca53f60b5ad42d11a98addf8edb"
+   :classification :internal :status :reviewed-no-port
+   :reason "Replaces managed Node process launching with private Rust runtime artifact and FFI implementation details."
+   :changed-path-count 91 :changed-paths-sha256 "acab6a1be293e60031832950eca2413e9eecef375e4dc3abf638ddc729e277bf"}
+  {:commit "5a2a857bd711527cc7d7f0ef4bc545cc99e88d7f"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Updates Java preview-version documentation only."
+   :changed-path-count 2 :changed-paths-sha256 "354da747ec6ad569c57d155cf6495ad3b7e7c1afc122506d0ab3f8595f6003b9"}
+  {:commit "fc78bf6cbb114814141d936099190e320b55a89c"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Prepares a Java Maven preview release only."
+   :changed-path-count 3 :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+  {:commit "5b3a03e2d5615076598b9421cd2bced93f4612e8"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Advances Java Maven development versions only."
+   :changed-path-count 3 :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+  {:commit "759156077163205bbb7235c3467856ed69de9d10"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Changes Go bundler package detection only."
+   :changed-path-count 2 :changed-paths-sha256 "4ded46c88242a881cecbd386af92401cbe09fcf7d9f80efdff1b78fa3c413ef2"}
+  {:commit "80d09ff1660cd7be1be65a0045b82d71cd8841e7"
+   :classification :stable-public :status :ported
+   :reason "Adds stable session feature-flag overrides across SDKs."
+   :changed-path-count 19 :changed-paths-sha256 "5961aea948687e3eace852d5b5b4030012567c03b1d1748a37f00cb0a9ac4c0b"}
+  {:commit "913cb61302d6e27789c51dcacccfb193569eea73"
+   :classification :internal :status :reviewed-no-port
+   :reason "Corrects upstream deployment documentation only."
+   :changed-path-count 2 :changed-paths-sha256 "c6eeff08b0ea8eaa928551c5f652d7c2141bf176d747f9d8f991b0927071d10f"}
+  {:commit "6b0252cf0e8243d5c972d4dea00c1d8862b57d9f"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Changes Go bundler license handling only."
+   :changed-path-count 1 :changed-paths-sha256 "933253cba6fdb96f1e85d122adc2a298b12734b732069d1383d26160d6635d4c"}
+  {:commit "76f6b6daf7816441d44312f128755d327fbeff5e"
+   :classification :language-specific :status :reviewed-no-port
+   :reason "Changes Rust CLI ownership on Windows only."
+   :changed-path-count 6 :changed-paths-sha256 "9b083043d5793d1672e53813d61ee97f130e3d9cb10dd78cb889bd7891ade939"}
+  {:commit "edf11030e5893885508504cfcbae8310b0d528f1"
+   :classification :stable-public :status :ported
+   :reason "Adds stable automatic model-routing tier options across SDKs."
+   :changed-path-count 26 :changed-paths-sha256 "b6c06c63e75cc603e707e301905df9d421a0186d955cea21f931c011539eed74"}
+  {:commit "2980c7828d35754bfc2b334831efec309ab8a2eb"
+   :classification :mixed :status :ported
+   :reason "Pins runtime 1.0.83-1 and refreshes generated stable event, permission, and experimental HydraFusion contracts; stable deltas are ported and generated artifacts regenerated."
+   :changed-path-count 39 :changed-paths-sha256 "cc2d7f098d22d38b2df56860eb9366116c36dcdb01ffc176fc2871a7ba1e292c"}]
+
+ :changed-paths
+ {:count 365
+  :sha256 "abae40ae39c147606b2f06d64f594a99c6ae592045ba1a5b350e89b77c314fae"
+  :classification-rules
+  [{:classification :language-specific
+    :prefixes [".github/" "dotnet/" "go/" "java/" "python/" "rust/"]}
+   {:classification :internal
+    :paths ["CHANGELOG.md"]
+    :prefixes ["docs/"]}
+   {:classification :mixed
+    :prefixes ["nodejs/"]}
+   {:classification :generated-only
+    :prefixes ["scripts/"]}
+   {:classification :test-harness
+    :prefixes ["test/"]}]}
+
+ :stable-delta-ids
+ #{:auth/github-token-provider
+   :events/mode-notice-delivered
+   :events/model-call-finished
+   :events/subagent-configured
+   :mode/builtin-skill-isolation
+   :permissions/managed-bypass-policy
+   :permissions/response-capability
+   :session/ask-user-variant
+   :session/auto-tier
+   :session/autopilot-idle
+   :session/feature-flags}
+
+ :public-surface-audit
+ {:stable-public-deltas
+  [:auth/github-token-provider
+   :events/mode-notice-delivered
+   :events/model-call-finished
+   :events/subagent-configured
+   :mode/builtin-skill-isolation
+   :permissions/managed-bypass-policy
+   :permissions/response-capability
+   :session/ask-user-variant
+   :session/auto-tier
+   :session/autopilot-idle
+   :session/feature-flags]
+  :unclassified-deltas []
+  :inspected-paths
+  ["nodejs/src/index.ts"
+   "nodejs/src/types.ts"
+   "nodejs/src/client.ts"
+   "nodejs/src/session.ts"
+   "nodejs/src/extension.ts"
+   "nodejs/src/toolSet.ts"
+   "nodejs/src/factory.ts"
+   "nodejs/src/generated/rpc.ts"
+   "nodejs/src/generated/session-events.ts"
+   "nodejs/test/client.create-session.test.ts"
+   "nodejs/test/client.resume-session.test.ts"
+   "nodejs/test/session-send-and-wait.test.ts"
+   "nodejs/test/session-event-types.test.ts"
+   "nodejs/test/factory.e2e.test.ts"]}
+
+ :stable-deltas
+ [{:id :mode/builtin-skill-isolation
+   :classification :stable-public :status :ported
+   :evidence [:builtin-skill-option :builtin-skill-mode-patch]
+   :clojure-paths ["src/github/copilot_sdk/specs.clj"
+                   "src/github/copilot_sdk/client.clj"]
+   :contract
+   {:wire "includedBuiltinSkills is patched only through session.options.update; empty mode sends [], and CLI mode forwards only an explicit allowlist."
+    :tests ["test/github/copilot_sdk/integration/client_mode_test.clj"]
+    :docs ["doc/reference/API.md"]}}
+  {:id :auth/github-token-provider
+   :classification :stable-public :status :ported
+   :evidence [:github-token-provider-type :github-token-provider-export
+              :github-token-provider-registration :github-token-provider-acquire]
+   :clojure-paths ["src/github/copilot_sdk/specs.clj"
+                   "src/github/copilot_sdk/client.clj"
+                   "src/github/copilot_sdk/session.clj"]
+   :contract
+   {:wire "Only an opaque UUID registration ID crosses create/resume; reverse RPC invokes the provider, operation-scoped rollback preserves committed registrations, and teardown removes ownership exactly once."
+    :tests ["test/github/copilot_sdk/integration/schema_provider_test.clj"]
+    :docs ["doc/auth/index.md" "doc/reference/API.md"]}}
+  {:id :permissions/managed-bypass-policy
+   :classification :stable-public :status :ported
+   :evidence [:managed-bypass-policy-export :managed-bypass-policy-type
+              :managed-bypass-policy-builder]
+   :clojure-paths ["src/github/copilot_sdk/specs.clj"
+                   "src/github/copilot_sdk/client.clj"]
+   :contract
+   {:wire "managedPermissionPolicy is omitted when absent and forwarded unchanged when present; known values are disable and allow-auto-only."
+    :tests ["test/github/copilot_sdk/integration/permissions_oauth_test.clj"]
+    :docs ["doc/reference/API.md"]}}
+  {:id :permissions/response-capability
+   :classification :stable-public :status :ported
+   :evidence [:permission-response-capability-export
+              :permission-response-capability-result]
+   :clojure-paths ["src/github/copilot_sdk/specs.clj"
+                   "src/github/copilot_sdk/session.clj"]
+   :contract
+   {:wire "Interactive, headless, and none keywords serialize to exact wire strings and remain omitted when absent."
+    :tests ["test/github/copilot_sdk/integration/permissions_oauth_test.clj"]
+    :docs ["doc/reference/API.md"]}}
+  {:id :session/ask-user-variant
+   :classification :stable-public :status :ported
+   :evidence [:ask-user-variant-type :ask-user-variant-builder]
+   :clojure-paths ["src/github/copilot_sdk/specs.clj"
+                   "src/github/copilot_sdk/client.clj"]
+   :contract
+   {:wire "askUserVariant is omitted when absent and serialized as legacy or elicitation when provided on create and resume."
+    :tests ["test/github/copilot_sdk/integration/schema_provider_test.clj"]
+    :docs ["doc/reference/API.md"]}}
+  {:id :session/feature-flags
+   :classification :stable-public :status :ported
+   :evidence [:feature-flags-type :feature-flags-builder]
+   :clojure-paths ["src/github/copilot_sdk/specs.clj"
+                   "src/github/copilot_sdk/client.clj"]
+   :contract
+   {:wire "String-to-boolean feature flags preserve the distinction between omission and an explicit empty map."
+    :tests ["test/github/copilot_sdk/integration/schema_provider_test.clj"]
+    :docs ["doc/reference/API.md"]}}
+  {:id :session/auto-tier
+   :classification :stable-public :status :ported
+   :evidence [:auto-tier-type :auto-tier-builder]
+   :clojure-paths ["src/github/copilot_sdk/specs.clj"
+                   "src/github/copilot_sdk/client.clj"]
+   :contract
+   {:wire "Efficiency, balance, or intelligence is serialized under capi.autoTier on create and resume."
+    :tests ["test/github/copilot_sdk/integration/schema_provider_test.clj"]
+    :docs ["doc/reference/API.md"]}}
+  {:id :session/autopilot-idle
+   :classification :stable-public :status :ported
+   :evidence [:autopilot-idle-wait]
+   :clojure-paths ["src/github/copilot_sdk/session.clj"]
+   :contract
+   {:wire "session.idle is terminal for ordinary waits but not when the event mode is autopilot."
+    :tests ["test/github/copilot_sdk/send_and_wait_test.clj"]
+    :docs ["doc/reference/API.md"]}}
+  {:id :events/mode-notice-delivered
+   :classification :stable-public :status :ported
+   :evidence [:mode-notice-delivered-event]
+   :clojure-paths ["src/github/copilot_sdk.clj"
+                   "src/github/copilot_sdk/specs.clj"]
+   :contract
+   {:wire "Generated wire validation precedes coercion into an open typed idiom payload and curated public event set."
+    :tests ["test/github/copilot_sdk/integration/schema_provider_test.clj"]
+    :docs ["doc/reference/API.md"]}}
+  {:id :events/model-call-finished
+   :classification :stable-public :status :ported
+   :evidence [:model-call-finished-event]
+   :clojure-paths ["src/github/copilot_sdk.clj"
+                   "src/github/copilot_sdk/specs.clj"]
+   :contract
+   {:wire "Generated wire validation precedes coercion into an open typed idiom payload and curated public event set."
+    :tests ["test/github/copilot_sdk/integration/schema_provider_test.clj"]
+    :docs ["doc/reference/API.md"]}}
+  {:id :events/subagent-configured
+   :classification :stable-public :status :ported
+   :evidence [:subagent-configured-event]
+   :clojure-paths ["src/github/copilot_sdk.clj"
+                   "src/github/copilot_sdk/specs.clj"]
+   :contract
+   {:wire "Generated wire validation precedes coercion into an open typed idiom payload and curated public event set."
+    :tests ["test/github/copilot_sdk/integration/schema_provider_test.clj"]
+    :docs ["doc/reference/API.md"]}}]
+
+ :intentional-exclusions
+ [{:id :factory/pagination-and-completion
+   :classification :experimental
+   :evidence [:factory-list-runs-options]
+   :reason "Factory pagination, completion notification, and phase logging remain part of the explicitly experimental Agent Factories surface."}
+  {:id :events/hydra-fusion
+   :classification :experimental
+   :evidence [:hydra-fusion-event]
+   :reason "HydraFusion events are explicitly experimental transient routing signals and remain generated wire evidence rather than curated public idiom events."}
+  {:id :runtime/rust-wrapper
+   :classification :internal
+   :evidence [:runtime-artifact-materializer]
+   :reason "Node runtime artifact materialization and in-process Rust FFI launching are private implementation details, not stable SDK contracts."}
+  {:id :generated-rpc-only
+   :classification :generated-only
+   :evidence [:generated-factory-list-request]
+   :reason "Generated RPC additions are wire evidence only unless the stable Node package root, client, or session API deliberately exposes them."}
+  {:id :language-specific-implementations
+   :classification :language-specific
+   :evidence []
+   :reason "Go, Java, Python, Rust, and .NET implementation, packaging, examples, and CI changes do not independently define Clojure parity."}
+  {:id :release-and-test-harness
+   :classification :test-harness
+   :evidence []
+   :reason "Upstream release automation, repository metadata, documentation navigation, and cross-language test harness maintenance have no Clojure runtime equivalent."}]
+
+ :source-evidence
+ {:builtin-skill-option
+  {:path "nodejs/src/types.ts"
+   :symbol "includedBuiltinSkills?: string[];"}
+  :builtin-skill-mode-patch
+  {:path "nodejs/src/client.ts"
+   :symbol "patch.includedBuiltinSkills = config.includedBuiltinSkills ?? [];"}
+  :github-token-provider-type
+  {:path "nodejs/src/types.ts"
+   :symbol "export type GitHubTokenProvider = ("}
+  :github-token-provider-export
+  {:path "nodejs/src/index.ts"
+   :symbol "GitHubTokenProvider,"}
+  :github-token-provider-registration
+  {:path "nodejs/src/client.ts"
+   :symbol "private registerGitHubTokenProvider("}
+  :github-token-provider-acquire
+  {:path "nodejs/src/client.ts"
+   :symbol "private async acquireGitHubToken("}
+  :managed-bypass-policy-export
+  {:path "nodejs/src/index.ts"
+   :symbol "DisableBypassPermissionsModes,"}
+  :managed-bypass-policy-type
+  {:path "nodejs/src/types.ts"
+   :symbol "export const DisableBypassPermissionsModes = {"}
+  :managed-bypass-policy-builder
+  {:path "nodejs/src/client.ts"
+   :symbol "managedSettings: config.managedSettings,"}
+  :permission-response-capability-export
+  {:path "nodejs/src/types.ts"
+   :symbol "PermissionResponseCapability,"}
+  :permission-response-capability-result
+  {:path "nodejs/src/types.ts"
+   :symbol "export type PermissionRequestResult = PermissionDecisionRequest[\"result\"] | { kind: \"no-result\" };"}
+  :ask-user-variant-type
+  {:path "nodejs/src/types.ts"
+   :symbol "askUserVariant?: AskUserVariant;"}
+  :ask-user-variant-builder
+  {:path "nodejs/src/client.ts"
+   :symbol "askUserVariant: config.askUserVariant,"}
+  :feature-flags-type
+  {:path "nodejs/src/types.ts"
+   :symbol "featureFlags?: Record<string, boolean>;"}
+  :feature-flags-builder
+  {:path "nodejs/src/client.ts"
+   :symbol "featureFlags: config.featureFlags,"}
+  :auto-tier-type
+  {:path "nodejs/src/generated/session-events.ts"
+   :symbol "export type AutoTier ="}
+  :auto-tier-builder
+  {:path "nodejs/src/client.ts"
+   :symbol "capi: config.capi,"}
+  :autopilot-idle-wait
+  {:path "nodejs/src/session.ts"
+   :symbol "event.type === \"session.idle\" && event.data.mode !== \"autopilot\""}
+  :mode-notice-delivered-event
+  {:path "nodejs/src/generated/session-events.ts"
+   :symbol "export interface ModeNoticeDeliveredEvent {"}
+  :model-call-finished-event
+  {:path "nodejs/src/generated/session-events.ts"
+   :symbol "export interface ModelCallFinishedEvent {"}
+  :subagent-configured-event
+  {:path "nodejs/src/generated/session-events.ts"
+   :symbol "export interface SubagentConfiguredEvent {"}
+  :factory-list-runs-options
+  {:path "nodejs/src/factory.ts"
+   :symbol "export type FactoryListRunsOptions = FactoryListRunsRequest;"}
+  :hydra-fusion-event
+  {:path "nodejs/src/generated/session-events.ts"
+   :symbol "export interface FusionRouteStartedEvent {"}
+  :runtime-artifact-materializer
+  {:path "nodejs/src/runtimeArtifacts.ts"
+   :symbol "export function materializeRuntimeBundle("}
+  :generated-factory-list-request
+  {:path "nodejs/src/generated/rpc.ts"
+   :symbol "export interface FactoryListRunsRequest {"}}
+
+ :schema
+ {:runtime-pin "1.0.83-1"
+  :api
+  {:source "@github/copilot-linux-x64@1.0.83-1/schemas/api.schema.json"
+   :sha256 "c714ef6ab7f85888a5943c6fd2e577a2279f9b30d9d30caa8fb1c30dd43fbbd5"}
+  :session-events
+  {:source "@github/copilot-linux-x64@1.0.83-1/schemas/session-events.schema.json"
+   :sha256 "11d24b4e8de44590d70e261ebf15be18d91de14d674fdcfb1f2554ad43a48169"}
+  :generated-clojure-output
+  {:event-specs-sha256 "f30692af6b4e1f898e9c813326c8652ddf1fc41afa955e0b9b5cdcc071fa095c"
+   :coercions-sha256 "5688dbc7cc1f5cc3ef05eab7ffd3230b516c431e7ed344dad137f45eee359d33"}}
+
+ :version
+ {:sdk "1.0.11.0"
+  :changed? false
+  :release-required? false}}

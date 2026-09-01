@@ -104,8 +104,15 @@
   (event-types-with-schema-marker :stability "experimental"))
 
 (def ^:private intentionally-excluded-experimental-event-types
-  #{"factory.run_settled"
+  #{"assistant.fusion_phase_completed"
+    "assistant.fusion_phase_failed"
+    "assistant.fusion_phase_started"
+    "factory.run_settled"
     "factory.run_started"
+    "session.fusion_completed"
+    "session.fusion_resolved"
+    "session.fusion_route_failed"
+    "session.fusion_route_started"
     "ui.ephemeral_query"})
 
 ;; ---------------------------------------------------------------------------
@@ -214,6 +221,10 @@
     :agent-display-name "SubAgent"
     :agent-description "does things"}
 
+   "subagent.configured"
+   {:model "gpt-5.4"
+    :multi-turn true}
+
    "subagent.completed"
    {:tool-call-id "tc-1"
     :agent-name "subagent"
@@ -248,6 +259,10 @@
    "session.mode_changed"
    {:previous-mode "interactive"
     :new-mode "plan"}
+
+   "session.mode_notice_delivered"
+   {:mode "plan"
+    :content "Plan mode is active"}
 
    "session.plan_changed"
    {:operation "create"}
@@ -318,6 +333,12 @@
    "model.call_failure"
    {:source "top_level"
     :interaction-type "conversation-agent"}
+
+   "model.call_finished"
+   {:turn-id "t-1"
+    :dispatch-duration-ms 10
+    :outcome "success"
+    :edit-classifier-version 1}
 
    "system.notification"
    {:content "worker finished"
