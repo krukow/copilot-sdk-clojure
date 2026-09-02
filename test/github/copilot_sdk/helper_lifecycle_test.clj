@@ -184,6 +184,39 @@
          (is (nil? (async/<!! query-ch)))
          (is (= 1 @disconnects)))))))
 
+(deftest query-stream-helpers-remain-open-across-autopilot-idle
+  (let [autopilot-idle {:type :copilot/session.idle
+                        :data {:mode "autopilot"}}
+        terminal-idle {:type :copilot/session.idle
+                       :data {}}]
+    (testing "query-chan forwards autopilot idle and closes after terminal idle"
+      (let [events-ch (async/chan 2)
+            disconnects (atom 0)]
+        (call-with-controlled-query
+         {:events-ch events-ch
+          :disconnect-fn (fn [_session] (swap! disconnects inc))}
+         (fn []
+           (let [query-ch (h/query-chan "autopilot channel" :buffer 2)]
+             (is (true? (async/>!! events-ch autopilot-idle)))
+             (is (true? (async/>!! events-ch terminal-idle)))
+             (is (= autopilot-idle (async/<!! query-ch)))
+             (is (= terminal-idle (async/<!! query-ch)))
+             (is (nil? (async/<!! query-ch)))
+             (is (= 1 @disconnects)))))))
+
+    (testing "query-seq! includes autopilot idle and realizes through terminal idle"
+      (let [events-ch (async/chan 2)
+            disconnects (atom 0)]
+        (is (true? (async/>!! events-ch autopilot-idle)))
+        (is (true? (async/>!! events-ch terminal-idle)))
+        (call-with-controlled-query
+         {:events-ch events-ch
+          :disconnect-fn (fn [_session] (swap! disconnects inc))}
+         (fn []
+           (is (= [autopilot-idle terminal-idle]
+                  (doall (h/query-seq! "autopilot sequence"))))
+           (is (= 1 @disconnects))))))))
+
 (deftest query-chan-source-close-disconnects-once
   (let [events-ch (async/chan)
         disconnects (atom 0)]

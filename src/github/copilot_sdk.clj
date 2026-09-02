@@ -185,8 +185,9 @@
     :copilot/tool_search.activated
     ;; v1.0.9 + post-v1.0.9 sync (pinned schema 1.0.79-6).
     :copilot/factory.run_updated
-    ;; v1.0.11 sync (pinned schema 1.0.83-1). HydraFusion events remain
-    ;; generated-only because upstream marks them experimental.
+    ;; Stable events present at upstream pin 2980c78 (schema 1.0.83-1).
+    ;; HydraFusion events remain generated-only: upstream marks routing/phase
+    ;; signals experimental and handoff/commit checkpoints internal.
     :copilot/session.mode_notice_delivered
     :copilot/model.call_finished
     :copilot/subagent.configured})
@@ -243,7 +244,7 @@
     ;; resolution and enforcement.
     :copilot/session.managed_settings_enforced
     :copilot/session.managed_settings_resolved
-    ;; v1.0.11 sync (pinned schema 1.0.83-1): persisted mid-turn mode notices.
+    ;; Upstream pin 2980c78 (schema 1.0.83-1): persisted mid-turn mode notices.
     :copilot/session.mode_notice_delivered})
 
 (def assistant-events

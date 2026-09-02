@@ -4,6 +4,7 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as sh]
+            [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]])
   (:import (java.math BigInteger)
@@ -57,6 +58,7 @@
 
 (def ^:private expected-stable-delta-ids
   #{:auth/github-token-provider
+    :events/assistant-message-tool-request-caller
     :events/mode-notice-delivered
     :events/model-call-finished
     :events/subagent-configured
@@ -130,6 +132,132 @@
   (or (contains? (set paths) path)
       (some #(str/starts-with? path %) prefixes)))
 
+(defn- declaration-symbols
+  [source]
+  (into #{}
+        (map second)
+        (re-seq
+         #"(?m)^export\s+(?:(?:declare|abstract)\s+)*(?:type|interface|class|enum|const|function)\s+([A-Za-z_$][A-Za-z0-9_$]*)"
+         source)))
+
+(defn- export-list-symbols
+  [source]
+  (into
+   #{}
+   (comp
+    (map second)
+    (map #(str/replace % #"(?s)/\*.*?\*/|//[^\n]*" ""))
+    (mapcat #(str/split % #","))
+    (map str/trim)
+    (remove str/blank?)
+    (map #(str/replace % #"^type\s+" ""))
+    (map #(last (str/split % #"\s+as\s+")))
+    (map str/trim))
+   (re-seq #"(?s)export(?:\s+type)?\s*\{(.*?)\}\s*from" source)))
+
+(defn- exported-symbols
+  [source]
+  (set/union (declaration-symbols source)
+             (export-list-symbols source)))
+
+(defn- added-exported-symbols
+  [upstream base target path]
+  (set/difference
+   (exported-symbols (git-output upstream "show" (str target ":" path)))
+   (exported-symbols (git-output upstream "show" (str base ":" path)))))
+
+(defn- interface-fields
+  [source interface-name]
+  (let [pattern
+        (re-pattern
+         (str "(?ms)^export interface "
+              (java.util.regex.Pattern/quote interface-name)
+              "\\b[^\\{]*\\{(.*?)^\\}"))
+        body (second (re-find pattern source))]
+    (when-not body
+      (throw (ex-info "Upstream interface not found"
+                      {:interface interface-name})))
+    (into #{}
+          (map second)
+          (re-seq
+           #"(?m)^    (?:readonly\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\??:"
+           body))))
+
+(defn- added-interface-fields
+  [upstream base target path interface-name]
+  (set/difference
+   (interface-fields
+    (git-output upstream "show" (str target ":" path))
+    interface-name)
+   (interface-fields
+    (git-output upstream "show" (str base ":" path))
+    interface-name)))
+
+(defn- class-method-symbols
+  [source]
+  (into #{}
+        (map second)
+        (re-seq
+         #"(?m)^    (?:(?:private|public|protected|async|static)\s+)*([A-Za-z_$][A-Za-z0-9_$]*)\s*\("
+         source)))
+
+(defn- added-class-method-symbols
+  [upstream base target path]
+  (set/difference
+   (class-method-symbols
+    (git-output upstream "show" (str target ":" path)))
+   (class-method-symbols
+    (git-output upstream "show" (str base ":" path)))))
+
+(defn- delete-tree!
+  [file]
+  (when (.exists file)
+    (doseq [child (reverse (file-seq file))]
+      (io/delete-file child true))))
+
+(defn- published-schema-hashes
+  [{:keys [package version schemas]}]
+  (let [temp-root
+        (.toFile
+         (Files/createTempDirectory
+          "copilot-schema-artifact"
+          (make-array java.nio.file.attribute.FileAttribute 0)))]
+    (try
+      (let [{:keys [exit out err]}
+            (sh/sh "npm" "pack"
+                   "--ignore-scripts"
+                   "--silent"
+                   "--registry=https://registry.npmjs.org"
+                   (str package "@" version)
+                   :dir (.getPath temp-root))]
+        (when-not (zero? exit)
+          (throw (ex-info "Unable to download published Copilot schema artifact"
+                          {:package package
+                           :version version
+                           :exit exit
+                           :stderr err})))
+        (let [archive (io/file temp-root (str/trim out))
+              unpacked (io/file temp-root "unpacked")
+              extraction
+              (do
+                (.mkdirs unpacked)
+                (sh/sh "tar" "-xzf" (.getPath archive)
+                       "-C" (.getPath unpacked)))]
+          (when-not (zero? (:exit extraction))
+            (throw (ex-info "Unable to extract published Copilot schema artifact"
+                            {:package package
+                             :version version
+                             :exit (:exit extraction)
+                             :stderr (:err extraction)})))
+          (into {}
+                (map (fn [path]
+                       [path
+                        (sha256-file
+                         (.getPath (io/file unpacked path)))]))
+                (keys schemas))))
+      (finally
+        (delete-tree! temp-root)))))
+
 (defn- referenced-evidence
   [report]
   (set (concat
@@ -169,8 +297,21 @@
                  (git-lines upstream-repo "diff" "--name-only"
                             (str base-commit ".." target-commit)))]
             (is (= expected-commits actual-commits))
+            (is (= target-commit
+                   (str/trim
+                    (git-output upstream-repo "rev-parse" "HEAD")))
+                "validation must use an exact checkout of the certified target")
             (is (= (:count changed-paths) (count actual-paths)))
             (is (= (:sha256 changed-paths) (sha256-lines actual-paths)))
+            (is (= (:classification-counts changed-paths)
+                   (frequencies
+                    (map (fn [path]
+                           (:classification
+                            (first
+                             (filter #(path-rule-matches? path %)
+                                     (:classification-rules
+                                      changed-paths)))))
+                         actual-paths))))
             (doseq [path actual-paths]
               (testing path
                 (is (= 1 (count (filter #(path-rule-matches? path %)
@@ -190,7 +331,8 @@
   (let [report (read-report)]
     (is (some? report) "The post-93351c parity oracle must be committed")
     (when report
-      (let [{:keys [public-surface-audit stable-deltas source-evidence]} report
+      (let [{:keys [public-surface-audit stable-deltas intentional-exclusions
+                    source-evidence]} report
             stable-delta-ids (set (map :id stable-deltas))]
         (is (= expected-stable-delta-ids stable-delta-ids))
         (is (= stable-delta-ids (:stable-delta-ids report)))
@@ -204,24 +346,91 @@
                           (seq (get-in % [:contract :tests]))
                           (seq (get-in % [:contract :docs])))
                     stable-deltas))
+        (is (every? #(and (contains? allowed-classifications (:classification %))
+                          (not= :stable-public (:classification %))
+                          (seq (:evidence %))
+                          (string? (:reason %))
+                          (not (str/blank? (:reason %))))
+                    intentional-exclusions))
         (is (= (set (keys source-evidence))
                (referenced-evidence report)))
+        (let [exclusions (into {}
+                               (map (juxt :id identity))
+                               intentional-exclusions)]
+          (is (= #{"session.fusion_handoff"
+                   "session.fusion_commit_started"}
+                 (get-in exclusions
+                         [:events/hydra-fusion-internal :event-types])))
+          (is (= #{"session.fusion_route_started"
+                   "session.fusion_route_failed"
+                   "session.fusion_resolved"
+                   "session.fusion_completed"
+                   "assistant.fusion_phase_started"
+                   "assistant.fusion_phase_completed"
+                   "assistant.fusion_phase_failed"}
+                 (get-in exclusions
+                         [:events/hydra-fusion-experimental :event-types]))))
+        (doseq [{:keys [id clojure-paths contract]} stable-deltas
+                path (concat clojure-paths (:tests contract) (:docs contract))]
+          (testing (str (name id) " local path " path)
+            (is (.isFile (io/file path)))))
         (when-let [upstream-repo @upstream-repo]
+          (let [{:keys [base-commit target-commit]} (:upstream report)
+                inventory (:symbol-inventory report)]
+            (doseq [[path classifications]
+                    (:exported-symbols inventory)]
+              (let [expected (apply set/union #{} (vals classifications))
+                    actual (added-exported-symbols
+                            upstream-repo base-commit target-commit path)]
+                (is (= expected actual)
+                    (str "Added exported symbols drifted for " path))
+                (doseq [[left-class left] classifications
+                        [right-class right] classifications
+                        :when (neg? (compare (name left-class)
+                                             (name right-class)))]
+                  (is (empty? (set/intersection left right))
+                      (str "Symbol classifications overlap in " path
+                           ": " left-class " and " right-class)))))
+            (doseq [[interface-name expected]
+                    (:session-config-fields inventory)]
+              (is (= expected
+                     (added-interface-fields
+                      upstream-repo base-commit target-commit
+                      "nodejs/src/types.ts" interface-name))
+                  (str "Added config fields drifted for " interface-name)))
+            (doseq [[path expected] (:internal-methods inventory)]
+              (is (= expected
+                     (added-class-method-symbols
+                      upstream-repo base-commit target-commit path))
+                  (str "Added class methods drifted for " path))))
+          (doseq [path (:inspected-paths public-surface-audit)]
+            (testing (str "inspected path " path)
+              (is (zero?
+                   (:exit
+                    (sh/sh "git" "-C" upstream-repo "cat-file" "-e"
+                           (str (get-in report [:upstream :target-commit])
+                                ":" path)))))))
           (doseq [[evidence-id {:keys [path symbol]}] source-evidence]
             (testing (name evidence-id)
-              (let [{:keys [exit out]}
-                    (sh/sh "git" "-C" upstream-repo "grep" "-F"
-                           symbol
-                           (get-in report [:upstream :target-commit])
-                           "--" path)]
-                (is (zero? exit))
-                (is (str/includes? out symbol))))))))))
+              (if symbol
+                (let [{:keys [exit out]}
+                      (sh/sh "git" "-C" upstream-repo "grep" "-F"
+                             symbol
+                             (get-in report [:upstream :target-commit])
+                             "--" path)]
+                  (is (zero? exit))
+                  (is (str/includes? out symbol)))
+                (is (zero?
+                     (:exit
+                      (sh/sh "git" "-C" upstream-repo "cat-file" "-e"
+                             (str (get-in report [:upstream :target-commit])
+                                  ":" path)))))))))))))
 
 (deftest runtime-schema-and-version-are-exact
   (let [report (read-report)]
     (is (some? report) "The post-93351c parity oracle must be committed")
     (when report
-      (let [{:keys [upstream schema version]} report
+      (let [{:keys [upstream schema version published-schema-artifact]} report
             package-json
             (when-let [upstream-repo @upstream-repo]
               (json/read-str
@@ -243,6 +452,11 @@
                 :changed? false
                 :release-required? false}
                version))
+        (is (= (:sdk version)
+               (second
+                (re-find #"\(def version \"([^\"]+)\"\)"
+                         (slurp "build.clj"))))
+            "the certification version must match the build version")
         (when package-json
           (is (= (:target-package-version upstream)
                  (get package-json "version")))
@@ -250,4 +464,7 @@
                  (get-in package-json
                          ["dependencies"
                           (get-in upstream
-                                  [:node-runtime-dependency :package])]))))))))
+                                  [:node-runtime-dependency :package])])))
+          (is (= (:schemas published-schema-artifact)
+                 (published-schema-hashes published-schema-artifact))
+              "vendored schemas must match the exact published npm artifact"))))))

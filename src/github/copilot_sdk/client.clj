@@ -211,6 +211,7 @@
    :models-cache nil         ; nil, promise, or vector of models (cleared on stop)
    :lifecycle-handlers {}
    :github-token-providers {}
+   :github-token-provider-invocations {}
    :lifecycle-ch nil         ; serial dispatch channel for lifecycle handlers
    :stderr-buffer nil         ; atom of recent stderr lines (for error context)
    :negotiated-protocol-version 0})
@@ -423,6 +424,8 @@
 (declare stop!)
 (declare start!)
 (declare force-stop!)
+
+(declare purge-all-github-token-provider-resources!)
 (declare maybe-reconnect!)
 (declare negotiated-protocol-version)
 
@@ -819,7 +822,7 @@
           (recur))
         (do
           (log/debug "Notification channel closed")
-          (swap! (:state client) assoc :github-token-providers {})
+          (purge-all-github-token-provider-resources! client)
           (maybe-reconnect! client "connection-closed"))))))
 
 (defn notifications
@@ -908,12 +911,17 @@
   [v]
   (doto (chan 1) (async/put! v) (async/close!)))
 
-(defn- validate-github-token-auth!
+(defn- github-token-auth-conflict?
   [config]
-  (when (and (contains? config :github-token)
-             (contains? config :github-token-provider))
-    (throw (ex-info ":github-token and :github-token-provider are mutually exclusive"
-                    {}))))
+  (and (contains? config :github-token)
+       (contains? config :github-token-provider)))
+
+(defn- config-validation-message
+  [base-message config]
+  (if (github-token-auth-conflict? config)
+    (str base-message
+         ": :github-token and :github-token-provider are mutually exclusive")
+    base-message))
 
 (defn- register-github-token-provider!
   [client provider session-id]
@@ -926,6 +934,16 @@
               :committed? false})
       registration-id)))
 
+(defn- register-session-github-token-provider
+  [client config session-id]
+  (let [registration-id
+        (register-github-token-provider!
+         client (:github-token-provider config) session-id)]
+    [(cond-> config
+       registration-id
+       (assoc :github-token-provider-registration-id registration-id))
+     registration-id]))
+
 (defn- assign-github-token-provider!
   [client registration-id session-id]
   (when registration-id
@@ -937,55 +955,179 @@
                          session-id)
                state)))))
 
+(defn- close-removed-github-token-provider-invocations!
+  [old-state new-state]
+  (session/close-removed-github-token-provider-invocations!
+   old-state new-state)
+  new-state)
+
+(defn- purge-all-github-token-provider-resources!
+  [client]
+  (let [[old-state new-state]
+        (swap-vals! (:state client)
+                    session/purge-all-github-token-provider-resources)]
+    (close-removed-github-token-provider-invocations!
+     old-state new-state)))
+
 (defn- commit-github-token-provider!
   [client session-id registration-id]
-  (swap! (:state client)
+  (let [[old-state new-state]
+        (swap-vals!
+         (:state client)
          (fn [state]
-           (let [registrations
-                 (into {}
-                       (remove (fn [[_ registration]]
-                                 (and (:committed? registration)
-                                      (= session-id (:session-id registration)))))
-                       (:github-token-providers state))
-                 registrations
-                 (if-let [registration (and registration-id
-                                            (get registrations registration-id))]
-                   (assoc registrations registration-id
-                          (assoc registration
-                                 :session-id session-id
-                                 :committed? true))
-                   registrations)]
-             (assoc state :github-token-providers registrations)))))
+           (if registration-id
+             (if-let [registration
+                      (get-in state [:github-token-providers registration-id])]
+               (-> state
+                   (assoc-in
+                    [:github-token-providers registration-id :committed?]
+                    false)
+                   (session/purge-github-token-provider-resources
+                    session-id :committed-only)
+                   (assoc-in
+                    [:github-token-providers registration-id]
+                    (assoc registration
+                           :session-id session-id
+                           :committed? true)))
+               state)
+             (session/purge-github-token-provider-resources
+              state session-id :committed-only))))]
+    (close-removed-github-token-provider-invocations!
+     old-state new-state)))
 
 (defn- rollback-github-token-provider!
   [client registration-id]
   (when registration-id
-    (swap! (:state client) update :github-token-providers dissoc registration-id)))
+    (let [[old-state new-state]
+          (swap-vals!
+           (:state client)
+           session/purge-github-token-provider-registration
+           registration-id)]
+      (close-removed-github-token-provider-invocations!
+       old-state new-state))))
+
+(defn- begin-github-token-provider-invocation!
+  [client {:keys [registration-id host session-id reason] :as request}]
+  (let [invocation-id (str (java.util.UUID/randomUUID))
+        cancel-chan (chan)]
+    (loop []
+      (let [state-atom (:state client)
+            state @state-atom
+            {:keys [provider] :as registration}
+            (get-in state [:github-token-providers registration-id])]
+        (when-not registration
+          (throw
+           (ex-info
+            "No GitHub token provider registered"
+            {:type :github-token-provider-registration-not-found
+             :registration-id registration-id})))
+        (let [registered-session-id (:session-id registration)
+              supplied-session-id? (contains? request :session-id)
+              effective-session-id (if supplied-session-id?
+                                     session-id
+                                     registered-session-id)
+              args (cond-> {:host host
+                            :reason (when (or (string? reason)
+                                              (keyword? reason))
+                                      (keyword reason))}
+                     (or supplied-session-id? registered-session-id)
+                     (assoc :session-id effective-session-id))]
+          (when-not (s/valid? ::specs/github-token-provider-args args)
+            (throw
+             (ex-info
+              "Invalid GitHub token provider request"
+              {:type :github-token-provider-invalid-request
+               :registration-id registration-id
+               :session-id (or registered-session-id
+                               effective-session-id)})))
+          (when (and registered-session-id
+                     supplied-session-id?
+                     (not= registered-session-id session-id))
+            (throw
+             (ex-info
+              "GitHub token provider request session does not match registration"
+              {:type :github-token-provider-session-mismatch
+               :registration-id registration-id
+               :session-id registered-session-id})))
+          (let [invocation {:registration-id registration-id
+                            :session-id effective-session-id
+                            :cancel-chan cancel-chan}
+                next-state
+                (assoc-in state
+                          [:github-token-provider-invocations invocation-id]
+                          invocation)]
+            (if (compare-and-set! state-atom state next-state)
+              {:args args
+               :provider provider
+               :invocation-id invocation-id
+               :invocation invocation}
+              (recur))))))))
+
+(defn- claim-github-token-provider-invocation!
+  [client invocation-id]
+  (let [[old-state _]
+        (swap-vals! (:state client)
+                    update
+                    :github-token-provider-invocations
+                    dissoc
+                    invocation-id)]
+    (get-in old-state
+            [:github-token-provider-invocations invocation-id])))
+
+(defn- invoke-github-token-provider
+  [provider args cancel-chan]
+  (try
+    (let [returned (provider args)
+          [result port]
+          (if (satisfies? async-protocols/ReadPort returned)
+            (async/alts!! [returned cancel-chan])
+            [returned nil])]
+      (cond
+        (identical? port cancel-chan)
+        {:outcome :cancelled}
+
+        (instance? Throwable result)
+        {:outcome :failed :failure result}
+
+        :else
+        {:outcome :returned :result result}))
+    (catch Throwable failure
+      (when (instance? InterruptedException failure)
+        (.interrupt (Thread/currentThread)))
+      {:outcome :failed :failure failure})))
 
 (defn- github-token-provider-response
-  [client {:keys [registration-id host session-id reason]}]
-  (let [{:keys [provider] :as registration}
-        (get-in @(:state client) [:github-token-providers registration-id])]
-    (when-not registration
-      (throw
-       (ex-info
-        (str "No GitHub token provider registered for registration ID "
-             (pr-str registration-id))
-        {:registration-id registration-id})))
-    (let [effective-session-id (or session-id (:session-id registration))
-          args (cond-> {:host host
-                        :reason (if (keyword? reason) reason (keyword reason))}
-                 effective-session-id (assoc :session-id effective-session-id))
-          result (provider args)
-          result (if (satisfies? async-protocols/ReadPort result)
-                   (async/<!! result)
-                   result)]
-      (when (instance? Throwable result)
-        (throw result))
-      (when-not (s/valid? ::specs/github-token-provider-result result)
-        (throw (ex-info "GitHub token provider returned an invalid result"
-                        {:kind (:kind result)})))
-      (delivered-chan {:result result}))))
+  [client request]
+  (let [{:keys [args provider invocation-id invocation]}
+        (begin-github-token-provider-invocation! client request)
+        {:keys [outcome result failure]}
+        (invoke-github-token-provider
+         provider args (:cancel-chan invocation))]
+    (if (or (= :cancelled outcome)
+            (nil? (claim-github-token-provider-invocation!
+                   client invocation-id)))
+      (delivered-chan {:result {:kind :cancelled}})
+      (case outcome
+        :failed
+        (throw
+         (ex-info
+          "GitHub token provider callback failed"
+          {:type :github-token-provider-callback-failed
+           :registration-id (:registration-id invocation)
+           :session-id (:session-id invocation)
+           :exception-class (.getName (class failure))}))
+
+        :returned
+        (if-let [constraint
+                 (specs/github-token-provider-result-constraint result)]
+          (throw
+           (ex-info
+            "GitHub token provider returned an invalid result"
+            {:type :github-token-provider-invalid-result
+             :registration-id (:registration-id invocation)
+             :session-id (:session-id invocation)
+             :constraint constraint}))
+          (delivered-chan {:result result}))))))
 
 (defn- setup-request-handler!
   "Set up handler for incoming requests (hooks, user input, sessionFs, etc.).
@@ -1362,6 +1504,7 @@
    that failed leaves `:process` in place so the host keeps its only reference
    to a live process."
   [client {:keys [process wait-for-exit-ms] :or {process :none}}]
+  (purge-all-github-token-provider-resources! client)
   (let [router-failures (release-router! client)
         state @(:state client)
         {:keys [connection-io socket]} state
@@ -1397,8 +1540,7 @@
     (swap! (:state client) assoc
            :connection nil
            :connection-io nil
-           :socket nil
-           :github-token-providers {})
+           :socket nil)
     ;; Only drop the process handle once the child is confirmed gone. Clearing
     ;; it after a failed kill would discard the only reference to a live
     ;; process, leaving the host no way to retry or report it.
@@ -1918,10 +2060,16 @@
     (let [safe-config (redact-secrets config)
           unknown (specs/unknown-keys config specs/session-config-keys)
           explain (s/explain-data ::specs/session-config safe-config)
-          msg (if (seq unknown)
+          msg (cond
+                (seq unknown)
                 (format "Invalid session config: unknown keys %s. Valid keys are: %s"
                         (pr-str unknown)
                         (pr-str (sort specs/session-config-keys)))
+
+                (github-token-auth-conflict? config)
+                (config-validation-message "Invalid session config" config)
+
+                :else
                 (format "Invalid session config: %s"
                         (with-out-str (s/explain ::specs/session-config safe-config))))]
       (throw (ex-info msg {:config safe-config :unknown-keys unknown :explain explain}))))
@@ -2213,8 +2361,8 @@
              (cond-> {}
                (some? (:disable-bypass-permissions-mode permissions))
                (assoc :disableBypassPermissionsMode
-                      (let [policy (:disable-bypass-permissions-mode permissions)]
-                        (if (keyword? policy) (name policy) policy)))
+                      (some-> (:disable-bypass-permissions-mode permissions)
+                              name))
                (contains? permissions :deny) (assoc :deny (:deny permissions))
                (contains? permissions :ask) (assoc :ask (:ask permissions))
                (contains? permissions :allow) (assoc :allow (:allow permissions)))))))
@@ -2284,15 +2432,13 @@
                   (with-flag :coauthor-enabled :coauthor-enabled false)
                   (with-flag :manage-schedule-enabled :manage-schedule-enabled false))
         patch (cond-> patch
-                (contains? config :included-builtin-skills)
-                (assoc :included-builtin-skills (:included-builtin-skills config))
-
                 (= mode :empty)
                 (assoc :installed-plugins [])
 
-                (and (= mode :empty)
-                     (not (contains? config :included-builtin-skills)))
-                (assoc :included-builtin-skills []))]
+                (or (= mode :empty)
+                    (contains? config :included-builtin-skills))
+                (assoc :included-builtin-skills
+                       (get config :included-builtin-skills [])))]
     (when (seq patch) patch)))
 
 (defn- cleanup-failed-session-setup!
@@ -2922,7 +3068,9 @@
    - :tool-search        - Tool discovery config {:enabled :defer-threshold}
    - :provider           - Custom provider config (BYOK)
    - :capi               - Copilot API options {:enable-web-socket-responses boolean
-                                                :auto-tier :efficiency|:balance|:intelligence}
+                                                :auto-tier :efficiency|:balance|:intelligence}.
+                           Auto-tier applies on create and cold resume; a warm
+                           resume cannot change an already-resident session.
    - :feature-flags      - String-to-boolean feature flag map. Omission and {} are distinct.
    - :streaming?         - Enable streaming
    - :mcp-servers        - MCP server configs map
@@ -2938,22 +3086,26 @@
                            {:enabled :max-size-bytes :output-directory}.
                            :output-dir remains a deprecated alias.
    - :working-directory  - Working directory for the session (tool operations relative to this)
-    - :infinite-sessions  - Infinite session config for automatic context compaction
-                            {:enabled (default true)
-                             :background-compaction-threshold (0.0-1.0, default 0.80)
-                             :buffer-exhaustion-threshold (0.0-1.0, default 0.95)}
-    - :memory             - Persistent memory config {:enabled boolean} (upstream PR #1617).
-                            Sent on both create and resume; omitted when unset.
-    - :reasoning-effort   - Reasoning effort level: \"low\", \"medium\", \"high\", or \"xhigh\" (PR #302)
-    - :github-token       - Static GitHub token for this session (sent as gitHubToken).
-                            Mutually exclusive with :github-token-provider.
-    - :github-token-provider - Refreshable session credential callback. Receives
-                               {:host :session-id? :reason :initial|:refresh}; returns
-                               {:kind :token :access-token :expires-in :token-type?} or
-                               {:kind :cancelled}, directly or on a core.async channel.
-                               Only an opaque registration id is sent on the wire.
-    - :on-user-input-request - Handler for ask_user requests (PR #269)
-    - :ask-user-variant  - Built-in ask_user shape: :legacy or :elicitation.
+   - :infinite-sessions  - Infinite session config for automatic context compaction
+                           {:enabled (default true)
+                            :background-compaction-threshold (0.0-1.0, default 0.80)
+                            :buffer-exhaustion-threshold (0.0-1.0, default 0.95)}
+   - :memory             - Persistent memory config {:enabled boolean} (upstream PR #1617).
+                           Sent on both create and resume; omitted when unset.
+   - :reasoning-effort   - Reasoning effort level: \"low\", \"medium\", \"high\", or \"xhigh\" (PR #302)
+   - :github-token       - Static GitHub token for this session (sent as gitHubToken).
+                           Mutually exclusive with :github-token-provider.
+   - :github-token-provider - Refreshable session credential callback. Receives
+                              {:host :session-id? :reason :initial|:refresh}; returns
+                              {:kind :token :access-token :expires-in :token-type?} or
+                              {:kind :cancelled}, directly or on a core.async channel.
+                              Only an opaque registration id is sent in session
+                              configuration, but acquired credentials cross the
+                              JSON-RPC connection to the CLI. Use managed
+                              stdio/local transport or an explicitly protected
+                              tunnel for :cli-url; plaintext TCP exposes them.
+   - :on-user-input-request - Handler for ask_user requests (PR #269)
+   - :ask-user-variant  - Built-in ask_user shape: :legacy or :elicitation.
    - :on-elicitation-request - Handler for elicitation requests from the agent (upstream PRs #908, #960).
                                When provided, sends requestElicitation=true and enables the
                                elicitation capability. Single-arg handler receives an ElicitationContext
@@ -3023,9 +3175,10 @@
                            otherwise). Forwarded verbatim as `enableManagedSettings` — an explicit
                            `false` is sent on the wire. (upstream PR #1925)
    - :managed-settings   - Caller-supplied enterprise policy. Optional
-                           {:permissions {:disable-bypass-permissions-mode
-                                          :disable|:allow-auto-only|string
+                           {:permissions {:disable-bypass-permissions-mode keyword
                                           :deny [...] :ask [...] :allow [...]}}.
+                           The bypass-policy value is a simple nonblank keyword;
+                           known values are :disable and :allow-auto-only.
    - :request-extensions? - Boolean. Opt into extension management and dispatch for this
                             connection. Explicit false is preserved; omission sends no key.
    - :extension-sdk-path - String path override for the SDK injected into extension
@@ -3063,7 +3216,6 @@
   [client config]
   (log/debug "Creating session with config: " (select-keys config [:model :session-id]))
   (validate-session-config! config)
-  (validate-github-token-auth! config)
   (validate-tool-filters! config)
   (validate-empty-mode-session-requirements! client config)
   (ensure-connected! client)
@@ -3078,13 +3230,8 @@
         local-session-id (when-not defer-session-id?
                            (or caller-session-id
                                (str (java.util.UUID/randomUUID))))
-        registration-id (register-github-token-provider!
-                         client
-                         (:github-token-provider config)
-                         local-session-id)
-        config (cond-> config
-                 registration-id
-                 (assoc :github-token-provider-registration-id registration-id))]
+        [config registration-id]
+        (register-session-github-token-provider client config local-session-id)]
     (if defer-session-id?
       ;; Cloud session without a caller-supplied id (upstream PR #1479): omit
       ;; `sessionId` from the wire params and let the server assign one. The
@@ -3158,7 +3305,6 @@
 
 (defn- resume-session-result*
   [client session-id config]
-  (validate-github-token-auth! config)
   (validate-provider-config! config)
   (validate-tool-filters! config)
   (validate-empty-mode-session-requirements! client config)
@@ -3168,13 +3314,8 @@
         {:keys [connection-io]} @(:state client)
         trace-ctx (get-trace-context (:on-get-trace-context client))
         {:keys [transform-callbacks]} (extract-transform-callbacks (:system-message config))
-        registration-id (register-github-token-provider!
-                         client
-                         (:github-token-provider config)
-                         session-id)
-        config (cond-> config
-                 registration-id
-                 (assoc :github-token-provider-registration-id registration-id))
+        [config registration-id]
+        (register-session-github-token-provider client config session-id)
         params (merge trace-ctx (build-resume-session-params session-id config))]
     (try
       (let [session (pre-register-session client session-id config)]
@@ -3217,7 +3358,9 @@
    - :tool-search        - Tool discovery config {:enabled :defer-threshold}
    - :provider           - Custom provider configuration (BYOK)
    - :capi               - Copilot API options {:enable-web-socket-responses boolean
-                                                :auto-tier :efficiency|:balance|:intelligence}
+                                                :auto-tier :efficiency|:balance|:intelligence}.
+                           Auto-tier applies to a cold resume; a warm resume
+                           cannot change an already-resident session.
    - :feature-flags      - String-to-boolean feature flag map. Omission and {} are distinct.
    - :streaming?         - Enable streaming responses
    - :mcp-servers        - MCP server configurations, applied as part of session.resume.
@@ -3226,20 +3369,21 @@
    - :config-directory   - Override configuration directory.
                            :config-dir remains a deprecated alias.
    - :skill-directories  - Directories to load skills from
-    - :disabled-skills    - Skills to disable
-    - :included-builtin-skills - Allowlist of runtime-bundled skill names. Empty client mode
-                                 defaults to []; CLI mode omits it unless explicitly provided.
-    - :infinite-sessions  - Infinite session configuration
-    - :memory             - Persistent memory config {:enabled boolean} (upstream PR #1617).
-                            Parity with create-session; omitted when unset.
-    - :reasoning-effort   - Reasoning effort level: \"low\", \"medium\", \"high\", or \"xhigh\"
-    - :github-token       - Static GitHub token for this session (sent as gitHubToken).
-                            Mutually exclusive with :github-token-provider.
-    - :github-token-provider - Refreshable session credential callback. Same shape and
-                               lifecycle as create-session; a successful resume replaces the
-                               session's previous provider.
-    - :on-user-input-request - Handler for ask_user requests
-    - :ask-user-variant  - Built-in ask_user shape: :legacy or :elicitation.
+   - :disabled-skills    - Skills to disable
+   - :included-builtin-skills - Allowlist of runtime-bundled skill names. Empty client mode
+                                defaults to []; CLI mode omits it unless explicitly provided.
+   - :infinite-sessions  - Infinite session configuration
+   - :memory             - Persistent memory config {:enabled boolean} (upstream PR #1617).
+                           Parity with create-session; omitted when unset.
+   - :reasoning-effort   - Reasoning effort level: \"low\", \"medium\", \"high\", or \"xhigh\"
+   - :github-token       - Static GitHub token for this session (sent as gitHubToken).
+                           Mutually exclusive with :github-token-provider.
+   - :github-token-provider - Refreshable session credential callback. Same shape,
+                              lifecycle, and transport-security requirements as
+                              create-session; a successful resume replaces the
+                              session's previous provider.
+   - :on-user-input-request - Handler for ask_user requests
+   - :ask-user-variant  - Built-in ask_user shape: :legacy or :elicitation.
    - :on-elicitation-request - Handler for elicitation requests (upstream PRs #908, #960).
                                Single-arg handler receives an ElicitationContext map with
                                :session-id, :message, :requested-schema, :mode,
@@ -3284,7 +3428,9 @@
   [client session-id config]
   (when-not (s/valid? ::specs/resume-session-config config)
     (let [safe-config (redact-secrets config)]
-      (throw (ex-info "Invalid resume session config"
+      (throw (ex-info (config-validation-message
+                       "Invalid resume session config"
+                       config)
                       {:config safe-config
                        :explain (s/explain-data ::specs/resume-session-config safe-config)}))))
   (resume-session* client session-id config))
@@ -3317,7 +3463,6 @@
   [client config]
   (log/debug "Creating session (async) with config: " (select-keys config [:model :session-id]))
   (validate-session-config! config)
-  (validate-github-token-auth! config)
   (validate-tool-filters! config)
   (validate-empty-mode-session-requirements! client config)
   (ensure-connected! client)
@@ -3332,13 +3477,8 @@
         local-session-id (when-not defer-session-id?
                            (or caller-session-id
                                (str (java.util.UUID/randomUUID))))
-        registration-id (register-github-token-provider!
-                         client
-                         (:github-token-provider config)
-                         local-session-id)
-        config (cond-> config
-                 registration-id
-                 (assoc :github-token-provider-registration-id registration-id))
+        [config registration-id]
+        (register-session-github-token-provider client config local-session-id)
         fail! (fn [failure]
                 (rollback-github-token-provider! client registration-id)
                 failure)]
@@ -3475,10 +3615,11 @@
   [client session-id config]
   (when-not (s/valid? ::specs/resume-session-config config)
     (let [safe-config (redact-secrets config)]
-      (throw (ex-info "Invalid resume session config"
+      (throw (ex-info (config-validation-message
+                       "Invalid resume session config"
+                       config)
                       {:config safe-config
                        :explain (s/explain-data ::specs/resume-session-config safe-config)}))))
-  (validate-github-token-auth! config)
   (validate-provider-config! config)
   (validate-tool-filters! config)
   (validate-empty-mode-session-requirements! client config)
@@ -3488,13 +3629,8 @@
         {:keys [connection-io]} @(:state client)
         trace-ctx (get-trace-context (:on-get-trace-context client))
         {:keys [transform-callbacks]} (extract-transform-callbacks (:system-message config))
-        registration-id (register-github-token-provider!
-                         client
-                         (:github-token-provider config)
-                         session-id)
-        config (cond-> config
-                 registration-id
-                 (assoc :github-token-provider-registration-id registration-id))
+        [config registration-id]
+        (register-session-github-token-provider client config session-id)
         params (merge trace-ctx (build-resume-session-params session-id config))
         ;; Pre-register session before RPC so early events are captured
         session (try
@@ -3575,6 +3711,8 @@
 
    Config is the same as resume-session except `:extension-sdk-path` is not accepted.
    `:request-extensions?` and `:extension-info` are accepted.
+   `:github-token-provider` is accepted with the same callback contract,
+   lifecycle, and transport-security requirements as resume-session.
    `:on-permission-request` is **optional**;
    when omitted, a default handler is used that returns `{:kind :no-result}`, leaving any
    pending permission request unanswered (appropriate for most extensions that use
@@ -3595,7 +3733,9 @@
    Throws if SESSION_ID is not set in the environment."
   [config]
   (when-not (s/valid? ::specs/join-session-config config)
-    (throw (ex-info "Invalid join session config"
+    (throw (ex-info (config-validation-message
+                     "Invalid join session config"
+                     config)
                     {:config (redact-secrets config)
                      :explain (s/explain-data ::specs/join-session-config
                                               (redact-secrets config))})))
@@ -3696,19 +3836,12 @@
     (when-not (:success result)
       (throw (ex-info (str "Failed to delete session: " (:error result))
                       {:session-id session-id :error (:error result)})))
-    ;; Remove from local sessions and IO
-    (swap! (:state client) (fn [s]
-                             (-> s
-                                 (update :sessions dissoc session-id)
-                                 (update :session-io dissoc session-id)
-                                 (update :github-token-providers
-                                         (fn [registrations]
-                                           (into {}
-                                                 (remove
-                                                  (fn [[_ registration]]
-                                                    (= session-id
-                                                       (:session-id registration))))
-                                                 registrations))))))
+    (session/teardown-local! client session-id)
+    (swap! (:state client)
+           (fn [state]
+             (-> state
+                 (update :sessions dissoc session-id)
+                 (update :session-io dissoc session-id))))
     nil))
 
 (defn get-last-session-id

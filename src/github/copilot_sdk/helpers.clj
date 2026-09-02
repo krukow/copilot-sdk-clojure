@@ -251,6 +251,12 @@
         (finally
           (copilot/disconnect! sess))))))
 
+(defn- terminal-query-event?
+  [event]
+  (or (= :copilot/session.error (:type event))
+      (and (= :copilot/session.idle (:type event))
+           (not= "autopilot" (get-in event [:data :mode])))))
+
 (defn- query-seq-source
   [prompt & {:keys [client session max-events] :or {max-events 256}}]
   (when-not (nat-int? max-events)
@@ -273,7 +279,7 @@
                      (nil? event)
                      (do (finish!) nil)
 
-                     (#{:copilot/session.idle :copilot/session.error} (:type event))
+                     (terminal-query-event? event)
                      (do (finish!) (cons event nil))
 
                      :else
@@ -328,9 +334,11 @@
   "Execute a query and return a bounded lazy sequence of events.
 
    Cleanup (session disconnect) happens only when the sequence is realized all the
-   way to the end of the event stream: either a `:copilot/session.idle` /
-   `:copilot/session.error` event, or the events channel closing — detected when
-   the next read yields `nil` (the end-of-stream sentinel, not an emitted event).
+   way to the end of the event stream: either an ordinary
+   `:copilot/session.idle` event, a `:copilot/session.error` event, or the events
+   channel closing - detected when the next read yields `nil` (the end-of-stream
+   sentinel, not an emitted event). An idle event whose wire `:mode` is the string
+   `\"autopilot\"` is emitted as a nonterminal turn boundary.
    Consuming the whole seq to its natural end releases the session and its event
    tap.
 
@@ -377,8 +385,9 @@
      :session - Session options map
      :buffer - Channel buffer size (default: 256)
 
-   Returns a channel that yields event maps. The channel closes when
-   the session becomes idle or errors.
+   Returns a channel that yields event maps. The channel closes when the
+   session ordinarily becomes idle or errors. An idle event whose wire `:mode`
+   is the string `\"autopilot\"` is emitted without closing the channel.
 
    Examples:
      (let [ch (query-chan \"Tell me a story\" :session {:on-permission-request copilot/approve-all
@@ -411,7 +420,7 @@
           (if-let [event (<! events-ch)]
             (let [[accepted? port] (alts! [cancel-ch [out-ch event]] :priority true)]
               (if (and (identical? port out-ch) (true? accepted?))
-                (if (#{:copilot/session.idle :copilot/session.error} (:type event))
+                (if (terminal-query-event? event)
                   (do
                     (<! (force disconnect-ch))
                     (close! out-ch))

@@ -280,6 +280,12 @@
                :surface "tui"}]
              [{:outcome :auto-approved
                :source :host-policy
+               :surface :acp}
+              {:outcome "auto_approved"
+               :source "host_policy"
+               :surface "acp"}]
+             [{:outcome :auto-approved
+               :source :host-policy
                :surface :sdk
                :response-capability :headless}
               {:outcome "auto_approved"

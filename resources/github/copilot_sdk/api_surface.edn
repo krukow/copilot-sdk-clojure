@@ -478,8 +478,13 @@
     :github.copilot-sdk.specs/approval
     :github.copilot-sdk.specs/approval-key
     :github.copilot-sdk.specs/approved?
+    :github.copilot-sdk.specs/arguments
     :github.copilot-sdk.specs/ask
     :github.copilot-sdk.specs/ask-user-variant
+    :github.copilot-sdk.specs/assistant-message-tool-request
+    :github.copilot-sdk.specs/assistant-message-tool-request-caller
+    :github.copilot-sdk.specs/assistant-message-tool-request-caller-type
+    :github.copilot-sdk.specs/assistant-message-tool-request-type
     :github.copilot-sdk.specs/assistant-usage-transport
     :github.copilot-sdk.specs/assistant.message-data
     :github.copilot-sdk.specs/assistant.message_delta-data
@@ -522,6 +527,8 @@
     :github.copilot-sdk.specs/cache-price
     :github.copilot-sdk.specs/cache-read-tokens
     :github.copilot-sdk.specs/cache-write-tokens
+    :github.copilot-sdk.specs/caller
+    :github.copilot-sdk.specs/caller-id
     :github.copilot-sdk.specs/can-offer-session-approval
     :github.copilot-sdk.specs/can-persist-approval
     :github.copilot-sdk.specs/cancelled
@@ -714,6 +721,7 @@
     :github.copilot-sdk.specs/instant
     :github.copilot-sdk.specs/instruction-directories
     :github.copilot-sdk.specs/instructions
+    :github.copilot-sdk.specs/intention-summary
     :github.copilot-sdk.specs/inter-token-latency-ms
     :github.copilot-sdk.specs/interaction-id
     :github.copilot-sdk.specs/interaction-type
@@ -966,6 +974,7 @@
     :github.copilot-sdk.specs/session-fs-handler
     :github.copilot-sdk.specs/session-fs-provider
     :github.copilot-sdk.specs/session-id
+    :github.copilot-sdk.specs/session-idle-mode
     :github.copilot-sdk.specs/session-idle-timeout-seconds
     :github.copilot-sdk.specs/session-limits
     :github.copilot-sdk.specs/session-list-filter
@@ -1071,11 +1080,13 @@
     :github.copilot-sdk.specs/tool-name
     :github.copilot-sdk.specs/tool-parameters
     :github.copilot-sdk.specs/tool-references
+    :github.copilot-sdk.specs/tool-requests
     :github.copilot-sdk.specs/tool-result
     :github.copilot-sdk.specs/tool-result-object
     :github.copilot-sdk.specs/tool-search
     :github.copilot-sdk.specs/tool-telemetry
     :github.copilot-sdk.specs/tool-timeout-ms
+    :github.copilot-sdk.specs/tool-title
     :github.copilot-sdk.specs/tool.execution_complete-data
     :github.copilot-sdk.specs/tool.execution_progress-data
     :github.copilot-sdk.specs/tool.execution_start-data

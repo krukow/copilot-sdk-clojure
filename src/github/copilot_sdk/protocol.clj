@@ -995,23 +995,23 @@
    (send-request-with-timeout conn method params timeout-ms {}))
   ([conn method params timeout-ms opts]
    (let [state-atom (:state-atom conn)
-        response-ch (send-request conn method params opts)
-        result-ch (chan 1)
-        timeout-ch (async/timeout timeout-ms)]
+         response-ch (send-request conn method params opts)
+         result-ch (chan 1)
+         timeout-ch (async/timeout timeout-ms)]
      (async/go
        (let [[result port] (async/alts! [response-ch timeout-ch])]
-        (if (= port timeout-ch)
-          (do
-            (remove-pending-by-chan! state-atom response-ch)
-            (close! response-ch)
-            (async/>! result-ch
-                      {:error
-                       {:code -32000
-                        :message "Request timeout"
-                        :data {:method method :timeout-ms timeout-ms}}}))
-          (when (some? result)
-            (async/>! result-ch result)))
-        (close! result-ch)))
+         (if (= port timeout-ch)
+           (do
+             (remove-pending-by-chan! state-atom response-ch)
+             (close! response-ch)
+             (async/>! result-ch
+                       {:error
+                        {:code -32000
+                         :message "Request timeout"
+                         :data {:method method :timeout-ms timeout-ms}}}))
+           (when (some? result)
+             (async/>! result-ch result)))
+         (close! result-ch)))
      result-ch)))
 
 (defn send-request!

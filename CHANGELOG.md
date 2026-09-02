@@ -4,10 +4,13 @@ All notable changes to this project will be documented in this file. This change
 ## [Unreleased]
 
 ### Added (stable 2980c78 sync)
-- Added session-scoped `:github-token-provider` authentication with initial and
-  refresh callbacks, core.async results, atomic replacement on resume, and
-  deterministic rollback and teardown. Only an opaque registration ID crosses
-  the wire.
+- Added session-scoped `:github-token-provider` authentication for create,
+  resume, and join, with initial and refresh callbacks, core.async results,
+  atomic replacement on resume, and deterministic rollback and teardown.
+  Session configuration carries only an opaque registration ID; acquired
+  credentials cross the JSON-RPC connection to the CLI. Use managed stdio/local
+  transport or an explicitly protected `:cli-url` tunnel, never plaintext TCP.
+  Provider expiry must be an integer of at least 3,601 seconds.
   ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412))
 - Added stable session options for mode-specific built-in skill allowlisting,
   legacy versus elicitation `ask_user` variants, host-resolved feature flags,
@@ -19,18 +22,29 @@ All notable changes to this project will be documented in this file. This change
   [upstream PR #2437](https://github.com/github/copilot-sdk/pull/2437),
   [upstream PR #2451](https://github.com/github/copilot-sdk/pull/2451))
 - Added managed bypass-policy values and permission response-capability
-  forwarding, made autopilot idle events non-terminal across synchronous and
-  asynchronous wait/stream helpers, and curated the stable
-  `session.mode_notice_delivered`, `model.call_finished`, and
-  `subagent.configured` events with open idiomatic payload specs.
+  forwarding, and curated the stable `session.mode_notice_delivered`,
+  `model.call_finished`, and
+  `subagent.configured` events with open idiomatic payload specs. Assistant tool
+  requests now expose hosted-program caller attribution while preserving opaque
+  argument keys.
+  ([upstream PR #2401](https://github.com/github/copilot-sdk/pull/2401),
+  [upstream PR #2409](https://github.com/github/copilot-sdk/pull/2409),
+  [upstream PR #2467](https://github.com/github/copilot-sdk/pull/2467))
 
 ### Changed (stable 2980c78 sync)
+- **BREAKING:** Wait and stream APIs now treat `session.idle` events whose wire
+  `mode` is the string `"autopilot"` as nonterminal turn boundaries (upstream
+  PR #2157).
+- **BREAKING:** `:empty` client mode now disables runtime-bundled skills unless
+  explicitly allowlisted with `:included-builtin-skills`, matching upstream safe
+  defaults (upstream PR #1428).
 - Updated the runtime and schema pin to `1.0.83-1` and recertified the complete
   stable Node SDK public surface through upstream commit
   [`2980c7828d35754bfc2b334831efec309ab8a2eb`](https://github.com/github/copilot-sdk/commit/2980c7828d35754bfc2b334831efec309ab8a2eb).
-  Experimental Agent Factory additions and HydraFusion events, private runtime
-  launch internals, generated-only RPCs, and language-specific changes remain
-  intentionally excluded.
+  Experimental Agent Factory additions and HydraFusion routing/phase events,
+  private runtime launch internals, generated-only RPCs, and language-specific
+  changes remain intentionally excluded. Stable HydraFusion handoff and
+  commit-start events remain internal.
   ([upstream PR #2467](https://github.com/github/copilot-sdk/pull/2467))
 
 ### Changed (upstream parity)

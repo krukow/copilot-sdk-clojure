@@ -956,7 +956,7 @@
 (s/def ::custom-agents-local-only boolean?)
 (s/def ::coauthor-enabled boolean?)
 (s/def ::manage-schedule-enabled boolean?)
-(s/def ::included-builtin-skills (s/coll-of string? :kind vector?))
+(s/def ::included-builtin-skills (s/coll-of ::non-blank-string))
 
 ;; Reasoning summary mode (upstream PR #813 - pre-existing parity gap).
 ;; Wire enum: "none" | "concise" | "detailed". Mirrors upstream's ReasoningSummary type.
@@ -991,27 +991,41 @@
          #(contains? % :host)
          #(contains? % :reason)
          #(s/valid? ::non-blank-string (:host %))
-         #(or (nil? (:session-id %))
+         #(or (not (contains? % :session-id))
               (s/valid? ::non-blank-string (:session-id %)))
          #(s/valid? ::github-token-acquire-reason (:reason %))))
+
+(defn ^:no-doc github-token-provider-result-constraint
+  "Return the first violated provider-result constraint, or nil when valid."
+  [result]
+  (cond
+    (not (map? result))
+    :result-must-be-map
+
+    (not (#{:token :cancelled} (:kind result)))
+    :kind-must-be-token-or-cancelled
+
+    (= :cancelled (:kind result))
+    nil
+
+    (not (s/valid? ::non-blank-string (:access-token result)))
+    :access-token-must-be-non-blank-string
+
+    (not (integer? (:expires-in result)))
+    :expires-in-must-be-integer
+
+    (< (:expires-in result) 3601)
+    :expires-in-must-exceed-3600
+
+    (and (contains? result :token-type)
+         (not (s/valid? ::non-blank-string (:token-type result))))
+    :token-type-must-be-non-blank-string
+
+    :else
+    nil))
+
 (s/def ::github-token-provider-result
-  (s/and
-   map?
-   #(case (:kind %)
-      :token
-      (and (every? #{:kind :access-token :expires-in :token-type} (keys %))
-           (contains? % :access-token)
-           (contains? % :expires-in)
-           (s/valid? ::non-blank-string (:access-token %))
-           (number? (:expires-in %))
-           (pos? (:expires-in %))
-           (or (not (contains? % :token-type))
-               (s/valid? ::non-blank-string (:token-type %))))
-
-      :cancelled
-      (= #{:kind} (set (keys %)))
-
-      false)))
+  #(nil? (github-token-provider-result-constraint %)))
 
 ;; Session options (upstream PR #1865) — shared by create + resume/join.
 ;; excludedBuiltinAgents: names of built-in agents to hide from the session.
@@ -1048,10 +1062,16 @@
   (or (not (contains? config :extension-info))
       (s/valid? ::extension-identity (:extension-info config))))
 
+(defn- valid-github-token-auth?
+  [config]
+  (not (and (contains? config :github-token)
+            (contains? config :github-token-provider))))
+
 (defn- closed-session-config
   [keys-spec allowed-keys]
   (s/and (closed-keys keys-spec allowed-keys)
-         valid-extension-identity?))
+         valid-extension-identity?
+         valid-github-token-auth?))
 
 (s/def ::enable-all-tools? boolean?)
 (s/def ::additional-toolsets (s/coll-of ::non-blank-string :kind vector?))
@@ -1068,8 +1088,9 @@
    github-mcp-tool-config-keys))
 
 (s/def ::disable-bypass-permissions-mode
-  (s/or :known #{:disable :allow-auto-only}
-        :future ::non-blank-string))
+  (s/and keyword?
+         #(nil? (namespace %))
+         #(not (str/blank? (name %)))))
 (s/def ::deny (s/coll-of ::non-blank-string :kind vector?))
 (s/def ::ask (s/coll-of ::non-blank-string :kind vector?))
 (s/def ::allow (s/coll-of ::non-blank-string :kind vector?))
@@ -1667,8 +1688,8 @@
     :copilot/tool_search.activated
     ;; v1.0.9 + post-v1.0.9 sync (pinned schema 1.0.79-6).
     :copilot/factory.run_updated
-    ;; v1.0.11 sync (pinned schema 1.0.83-1). HydraFusion events remain
-    ;; generated-only because upstream marks them experimental.
+    ;; v1.0.11 sync (pinned schema 1.0.83-1). Stable HydraFusion events remain
+    ;; internal; routing and phase events remain experimental.
     :copilot/session.mode_notice_delivered
     :copilot/model.call_finished
     :copilot/subagent.configured})
@@ -1708,7 +1729,13 @@
   (s/keys :req-un [::error-type ::message]
           :opt-un [::stack ::status-code ::provider-call-id ::url]))
 
-(s/def ::session.idle-data map?)
+(s/def ::session-idle-mode #{"interactive" "autopilot" "plan"})
+(s/def ::session.idle-data
+  (s/and
+   map?
+   #(or (not (contains? % :aborted)) (boolean? (:aborted %)))
+   #(or (not (contains? % :mode))
+        (s/valid? ::session-idle-mode (:mode %)))))
 
 (s/def ::remote-session-id string?)
 
@@ -1801,6 +1828,29 @@
 (s/def ::chunk-count pos-int?)
 (s/def ::rte boolean?)
 (s/def ::interaction-type string?)
+(s/def ::arguments opaque-json-value?)
+(s/def ::intention-summary (s/nilable string?))
+(s/def ::tool-title string?)
+(s/def ::caller-id string?)
+(s/def ::assistant-message-tool-request-caller-type #{"program"})
+(s/def ::assistant-message-tool-request-type #{"function" "custom"})
+(s/def ::assistant-message-tool-request-caller
+  (s/and
+   map?
+   #(contains? % :caller-id)
+   #(contains? % :type)
+   #(string? (:caller-id %))
+   #(s/valid? ::assistant-message-tool-request-caller-type (:type %))))
+(s/def ::caller ::assistant-message-tool-request-caller)
+(s/def ::assistant-message-tool-request
+  (s/and
+   (s/keys :req-un [::tool-call-id ::name]
+           :opt-un [::arguments ::tool-title ::mcp-server-name ::mcp-tool-name
+                    ::intention-summary ::caller])
+   #(or (not (contains? % :type))
+        (s/valid? ::assistant-message-tool-request-type (:type %)))))
+(s/def ::tool-requests
+  (s/coll-of ::assistant-message-tool-request :kind vector?))
 (s/def ::assistant.message-data
   (s/keys :req-un [::message-id ::content]
           :opt-un [::tool-requests ::parent-tool-call-id ::encrypted-content
@@ -2495,7 +2545,7 @@
 (s/def ::permission-decision-source
   #{:judge-recommendation :human-response :host-policy :unattended-fallback})
 (s/def ::permission-decision-surface
-  #{:tui :prompt-mode :copilot-app :sdk})
+  #{:tui :prompt-mode :copilot-app :sdk :acp})
 (s/def ::permission-response-capability
   #{:interactive :headless :none})
 

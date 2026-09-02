@@ -221,7 +221,7 @@
           (try
             (let [events-ch (future (start session))]
               (is (true? (deref send-started 2000 ::timeout)))
-              (inject-idle! ctx {:mode :autopilot})
+              (inject-idle! ctx {:mode "autopilot"})
               (release)
               (let [events-ch (deref events-ch 5000 ::timeout)
                     events (loop [acc []]
@@ -232,19 +232,42 @@
                                  :else (recur (conj acc event)))))]
                 (is (vector? events) "the event stream must close after regular idle")
                 (is (some #(and (= :copilot/session.idle (:type %))
-                                (#{"autopilot" :autopilot}
-                                 (get-in % [:data :mode])))
+                                (= "autopilot" (get-in % [:data :mode])))
                           events))
                 (is (some #(= :copilot/assistant.message (:type %)) events))
                 (is (= :copilot/session.idle (:type (last events))))
                 (is (nil? (get-in (last events) [:data :mode])))))
             (finally (close))))))))
 
-(deftest terminal-idle-recognizes-both-autopilot-representations
+(deftest autopilot-idle-is-not-terminal-for-channel-convenience-wrappers
+  (testing "<send! and <send-and-wait! remain open across autopilot idle"
+    (doseq [[label start collect]
+            [[:content
+              #(session/<send! % {:prompt "hi" :timeout-ms 5000})
+              (fn [result-ch]
+                (first (async/alts!! [result-ch (async/timeout 5000)])))]
+             [:last-message
+              #(session/<send-and-wait! % {:prompt "hi" :timeout-ms 5000})
+              (fn [result-ch]
+                (first (async/alts!! [result-ch (async/timeout 5000)])))]]]
+      (testing (name label)
+        (let [{:keys [session release send-started close] :as ctx} (gated-send-context)]
+          (try
+            (let [result-ch (start session)]
+              (is (true? (deref send-started 2000 ::timeout)))
+              (inject-idle! ctx {:mode "autopilot"})
+              (release)
+              (let [result (collect result-ch)]
+                (if (= label :content)
+                  (is (= "Mock response to: hi" result))
+                  (do
+                    (is (= :copilot/assistant.message (:type result)))
+                    (is (= "Mock response to: hi" (get-in result [:data :content])))))))
+            (finally (close))))))))
+
+(deftest terminal-idle-recognizes-wire-autopilot-mode
   (is (false? (@#'session/terminal-idle-event?
                {:type :copilot/session.idle :data {:mode "autopilot"}})))
-  (is (false? (@#'session/terminal-idle-event?
-               {:type :copilot/session.idle :data {:mode :autopilot}})))
   (is (true? (@#'session/terminal-idle-event?
               {:type :copilot/session.idle :data {}}))))
 

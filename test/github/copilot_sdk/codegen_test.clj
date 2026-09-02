@@ -42,7 +42,7 @@
             [github.copilot-sdk.generated.coerce :as coerce]
             [github.copilot-sdk.generated.event-specs :as gen]
             [github.copilot-sdk :as sdk]
-            [github.copilot-sdk.specs])
+            [github.copilot-sdk.specs :as specs])
   (:import [java.time Instant]))
 
 ;; ---------------------------------------------------------------------------
@@ -138,7 +138,8 @@
     :message "boom"}
 
    "session.idle"
-   {}
+   {:aborted false
+    :mode "autopilot"}
 
    "session.info"
    {:info-type "general"
@@ -183,7 +184,15 @@
 
    "assistant.message"
    {:message-id "m-1"
-    :content "hi"}
+    :content "hi"
+    :tool-requests
+    [{:tool-call-id "tc-1"
+      :name "read_file"
+      :arguments {:filePath "README.md"}
+      :type "function"
+      :intention-summary "Read the project overview"
+      :caller {:caller-id "program-1"
+               :type "program"}}]}
 
    "assistant.message_delta"
    {:message-id "m-1"
@@ -408,6 +417,32 @@
     (doseq [event-type (keys fixtures)]
       (is (contains? gen/event-types event-type)
           (str event-type " missing from gen/event-types — schema may have moved")))))
+
+(deftest assistant-message-tool-request-caller-idiom-contract
+  (let [request (-> fixtures
+                    (get "assistant.message")
+                    :tool-requests
+                    first)]
+    (is (s/valid? ::specs/assistant-message-tool-request request))
+    (is (s/valid? ::specs/assistant-message-tool-request-caller
+                  (:caller request)))
+    (is (s/valid? ::specs/assistant-message-tool-request
+                  (assoc request :future-tool-field {:enabled true})))
+    (is (s/valid? ::specs/assistant-message-tool-request-caller
+                  (assoc (:caller request) :future-caller-field "value")))
+    (is (not (s/valid? ::specs/assistant-message-tool-request
+                       (assoc-in request [:caller :type] "assistant"))))
+    (is (not (s/valid? ::specs/assistant-message-tool-request
+                       (update request :caller dissoc :caller-id))))))
+
+(deftest session-idle-idiom-contract-is-forward-compatible
+  (is (s/valid? ::specs/session.idle-data
+                {:aborted false
+                 :mode "autopilot"
+                 :future-idle-field {:enabled true}}))
+  (is (not (s/valid? ::specs/session.idle-data
+                     {:mode :autopilot
+                      :future-idle-field true}))))
 
 (deftest public-event-types-match-generated-schema-set
   (testing "the public curated `event-types` set covers exactly the schema's public event types

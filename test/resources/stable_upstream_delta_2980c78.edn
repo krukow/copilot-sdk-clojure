@@ -167,21 +167,148 @@
  :changed-paths
  {:count 365
   :sha256 "abae40ae39c147606b2f06d64f594a99c6ae592045ba1a5b350e89b77c314fae"
+  :classification-counts
+  {:stable-public 6
+   :experimental 2
+   :internal 10
+   :generated-only 6
+   :language-specific 291
+   :test-harness 50}
   :classification-rules
   [{:classification :language-specific
     :prefixes [".github/" "dotnet/" "go/" "java/" "python/" "rust/"]}
    {:classification :internal
-    :paths ["CHANGELOG.md"]
+    :paths ["CHANGELOG.md"
+            "nodejs/package.json"
+            "nodejs/src/ffiRuntimeHost.ts"
+            "nodejs/src/runtimeArtifacts.ts"]
     :prefixes ["docs/"]}
-   {:classification :mixed
-    :prefixes ["nodejs/"]}
+   {:classification :stable-public
+    :paths ["nodejs/README.md"
+            "nodejs/src/client.ts"
+            "nodejs/src/extension.ts"
+            "nodejs/src/index.ts"
+            "nodejs/src/session.ts"
+            "nodejs/src/types.ts"]}
+   {:classification :experimental
+    :paths ["nodejs/docs/factories.md"
+            "nodejs/src/factory.ts"]}
    {:classification :generated-only
+    :paths ["nodejs/package-lock.json"
+            "nodejs/samples/package-lock.json"
+            "nodejs/src/generated/rpc.ts"
+            "nodejs/src/generated/session-events.ts"]
     :prefixes ["scripts/"]}
    {:classification :test-harness
-    :prefixes ["test/"]}]}
+    :prefixes ["nodejs/test/" "test/"]}]}
+
+ :symbol-inventory
+ {:exported-symbols
+  {"nodejs/src/index.ts"
+  {:stable-public
+   #{"AskUserVariant"
+     "AutoTier"
+     "DisableBypassPermissionsModes"
+     "GitHubTokenAcquireReason"
+     "GitHubTokenAcquireResult"
+     "GitHubTokenProvider"
+     "GitHubTokenProviderArgs"
+     "GitHubTokenProviderResult"
+     "PermissionResponseCapability"}
+   :experimental
+   #{"FactoryListRunsOptions"
+     "FactoryRunsPage"}}
+  "nodejs/src/types.ts"
+  {:stable-public
+   #{"AskUserVariant"
+     "AutoTier"
+     "DisableBypassPermissionsModes"
+     "GitHubTokenAcquireReason"
+     "GitHubTokenAcquireResult"
+     "GitHubTokenProvider"
+     "GitHubTokenProviderArgs"
+     "GitHubTokenProviderResult"
+     "PermissionResponseCapability"}}
+  "nodejs/src/generated/rpc.ts"
+  {:experimental
+   #{"ConnectClientInfo"
+     "FactoryToolResumeRequest"
+     "FactoryToolRunOptions"
+     "FactoryToolRunRequest"
+     "GitHubTokenAcquireReason"
+     "GitHubTokenAcquireRequest"
+     "GitHubTokenAcquireResult"
+     "GitHubTokenHandler"
+     "PermissionResponseCapability"
+     "SandboxConfigSource"
+     "SandboxEnforcementStatus"}
+   :internal
+   #{"ModelMessage"
+     "ModelWarningText"
+     "SettableAuthInfo"
+     "SettableTokenAuthInfo"
+     "TokenProviderAuthInfo"}}
+  "nodejs/src/generated/session-events.ts"
+  {:stable-public
+   #{"AssistantMessageToolRequestCaller"
+     "AssistantMessageToolRequestCallerType"
+     "AutoTier"
+     "ModeNoticeDeliveredData"
+     "ModeNoticeDeliveredEvent"
+     "ModelCallFinishedData"
+     "ModelCallFinishedEvent"
+     "ModelCallFinishedOutcome"
+     "SubagentConfiguredData"
+     "SubagentConfiguredEvent"}
+   :experimental
+   #{"AssistantFusionPhaseCompletedEvent"
+     "AssistantFusionPhaseFailedEvent"
+     "AssistantFusionPhaseStartedEvent"
+     "AssistantMessageReasoningBlocks"
+     "FusionAttribution"
+     "FusionCompletedData"
+     "FusionCompletedEvent"
+     "FusionConversationScope"
+     "FusionFollowUpAction"
+     "FusionFollowUpRecommendation"
+     "FusionPattern"
+     "FusionPhaseCompletedData"
+     "FusionPhaseFailedData"
+     "FusionPhaseKind"
+     "FusionPhaseStartedData"
+     "FusionPhaseStatus"
+     "FusionPhaseUsage"
+     "FusionProjectionMode"
+     "FusionResolvedData"
+     "FusionResolvedEvent"
+     "FusionRouteFailedData"
+     "FusionRouteFailedEvent"
+     "FusionRouteStartedData"
+     "FusionRouteStartedEvent"
+     "FusionScores"
+     "FusionStagedTerminal"
+     "FusionTurnKind"}}}
+  :session-config-fields
+  {"SessionConfigBase"
+  #{"askUserVariant"
+    "featureFlags"
+    "gitHubTokenProvider"
+    "includedBuiltinSkills"}
+  "CapiSessionOptions"
+  #{"autoTier"}}
+  :internal-methods
+  {"nodejs/src/client.ts"
+  #{"acquireGitHubToken"
+    "assignGitHubTokenProvider"
+    "commitGitHubTokenProvider"
+    "registerGitHubTokenProvider"}
+  "nodejs/src/session.ts"
+  #{"_runOnDisconnected"
+    "_setOnDisconnected"}}}
 
  :stable-delta-ids
  #{:auth/github-token-provider
+   :events/assistant-message-tool-request-caller
    :events/mode-notice-delivered
    :events/model-call-finished
    :events/subagent-configured
@@ -196,6 +323,7 @@
  :public-surface-audit
  {:stable-public-deltas
   [:auth/github-token-provider
+   :events/assistant-message-tool-request-caller
    :events/mode-notice-delivered
    :events/model-call-finished
    :events/subagent-configured
@@ -217,11 +345,10 @@
    "nodejs/src/factory.ts"
    "nodejs/src/generated/rpc.ts"
    "nodejs/src/generated/session-events.ts"
-   "nodejs/test/client.create-session.test.ts"
-   "nodejs/test/client.resume-session.test.ts"
+   "nodejs/test/client.test.ts"
    "nodejs/test/session-send-and-wait.test.ts"
    "nodejs/test/session-event-types.test.ts"
-   "nodejs/test/factory.e2e.test.ts"]}
+   "nodejs/test/e2e/factory.e2e.test.ts"]}
 
  :stable-deltas
  [{:id :mode/builtin-skill-isolation
@@ -241,7 +368,7 @@
                    "src/github/copilot_sdk/client.clj"
                    "src/github/copilot_sdk/session.clj"]
    :contract
-   {:wire "Only an opaque UUID registration ID crosses create/resume; reverse RPC invokes the provider, operation-scoped rollback preserves committed registrations, and teardown removes ownership exactly once."
+   {:wire "Create/resume/join sends only an opaque UUID registration ID in session config; reverse RPC invokes the local provider and returns the acquired credential over the JSON-RPC connection to the CLI. Managed stdio/local transport or an explicitly protected cli-url tunnel is required because plaintext TCP exposes credentials. Operation-scoped rollback preserves committed registrations, and teardown removes ownership exactly once."
     :tests ["test/github/copilot_sdk/integration/schema_provider_test.clj"]
     :docs ["doc/auth/index.md" "doc/reference/API.md"]}}
   {:id :permissions/managed-bypass-policy
@@ -299,6 +426,18 @@
    {:wire "session.idle is terminal for ordinary waits but not when the event mode is autopilot."
     :tests ["test/github/copilot_sdk/send_and_wait_test.clj"]
     :docs ["doc/reference/API.md"]}}
+  {:id :events/assistant-message-tool-request-caller
+   :classification :stable-public :status :ported
+   :evidence [:generated-session-events-root-export
+              :tool-request-caller-type
+              :tool-request-caller-field
+              :tool-request-caller-interface]
+   :clojure-paths ["src/github/copilot_sdk/generated/event_specs.clj"
+                   "src/github/copilot_sdk/specs.clj"]
+   :contract
+   {:wire "Assistant message tool requests accept function or custom request types, preserve opaque argument keys, and optionally identify a hosted program caller by callerId and type program."
+    :tests ["test/github/copilot_sdk/codegen_test.clj"]
+    :docs ["doc/reference/API.md"]}}
   {:id :events/mode-notice-delivered
    :classification :stable-public :status :ported
    :evidence [:mode-notice-delivered-event]
@@ -332,10 +471,23 @@
    :classification :experimental
    :evidence [:factory-list-runs-options]
    :reason "Factory pagination, completion notification, and phase logging remain part of the explicitly experimental Agent Factories surface."}
-  {:id :events/hydra-fusion
+  {:id :events/hydra-fusion-internal
+   :classification :internal
+   :event-types #{"session.fusion_handoff"
+                  "session.fusion_commit_started"}
+   :evidence [:hydra-fusion-internal-event]
+   :reason "HydraFusion handoff and commit-started events are explicitly internal durable protocol checkpoints and remain generated wire evidence rather than curated public idiom events."}
+  {:id :events/hydra-fusion-experimental
    :classification :experimental
+   :event-types #{"session.fusion_route_started"
+                  "session.fusion_route_failed"
+                  "session.fusion_resolved"
+                  "session.fusion_completed"
+                  "assistant.fusion_phase_started"
+                  "assistant.fusion_phase_completed"
+                  "assistant.fusion_phase_failed"}
    :evidence [:hydra-fusion-event]
-   :reason "HydraFusion events are explicitly experimental transient routing signals and remain generated wire evidence rather than curated public idiom events."}
+   :reason "HydraFusion routing and phase events are explicitly experimental transient signals and remain generated wire evidence rather than curated public idiom events."}
   {:id :runtime/rust-wrapper
    :classification :internal
    :evidence [:runtime-artifact-materializer]
@@ -346,11 +498,11 @@
    :reason "Generated RPC additions are wire evidence only unless the stable Node package root, client, or session API deliberately exposes them."}
   {:id :language-specific-implementations
    :classification :language-specific
-   :evidence []
+   :evidence [:python-client-implementation]
    :reason "Go, Java, Python, Rust, and .NET implementation, packaging, examples, and CI changes do not independently define Clojure parity."}
   {:id :release-and-test-harness
    :classification :test-harness
-   :evidence []
+   :evidence [:java-release-workflow :cross-language-e2e-harness]
    :reason "Upstream release automation, repository metadata, documentation navigation, and cross-language test harness maintenance have no Clojure runtime equivalent."}]
 
  :source-evidence
@@ -408,6 +560,18 @@
   :autopilot-idle-wait
   {:path "nodejs/src/session.ts"
    :symbol "event.type === \"session.idle\" && event.data.mode !== \"autopilot\""}
+  :generated-session-events-root-export
+  {:path "nodejs/src/index.ts"
+   :symbol "export type * from \"./generated/session-events.js\";"}
+  :tool-request-caller-type
+  {:path "nodejs/src/generated/session-events.ts"
+   :symbol "export type AssistantMessageToolRequestCallerType = \"program\";"}
+  :tool-request-caller-field
+  {:path "nodejs/src/generated/session-events.ts"
+   :symbol "caller?: AssistantMessageToolRequestCaller;"}
+  :tool-request-caller-interface
+  {:path "nodejs/src/generated/session-events.ts"
+   :symbol "export interface AssistantMessageToolRequestCaller {"}
   :mode-notice-delivered-event
   {:path "nodejs/src/generated/session-events.ts"
    :symbol "export interface ModeNoticeDeliveredEvent {"}
@@ -423,12 +587,21 @@
   :hydra-fusion-event
   {:path "nodejs/src/generated/session-events.ts"
    :symbol "export interface FusionRouteStartedEvent {"}
+   :hydra-fusion-internal-event
+   {:path "nodejs/src/generated/session-events.ts"
+   :symbol "export type FusionProjectionMode ="}
   :runtime-artifact-materializer
   {:path "nodejs/src/runtimeArtifacts.ts"
    :symbol "export function materializeRuntimeBundle("}
   :generated-factory-list-request
   {:path "nodejs/src/generated/rpc.ts"
-   :symbol "export interface FactoryListRunsRequest {"}}
+   :symbol "export interface FactoryListRunsRequest {"}
+   :python-client-implementation
+   {:path "python/copilot/client.py"}
+   :java-release-workflow
+   {:path ".github/workflows/java-publish-maven.yml"}
+   :cross-language-e2e-harness
+   {:path "python/e2e/testharness/context.py"}}
 
  :schema
  {:runtime-pin "1.0.83-1"
@@ -441,6 +614,15 @@
   :generated-clojure-output
   {:event-specs-sha256 "f30692af6b4e1f898e9c813326c8652ddf1fc41afa955e0b9b5cdcc071fa095c"
    :coercions-sha256 "5688dbc7cc1f5cc3ef05eab7ffd3230b516c431e7ed344dad137f45eee359d33"}}
+
+ :published-schema-artifact
+ {:package "@github/copilot-linux-x64"
+  :version "1.0.83-1"
+  :schemas
+  {"package/schemas/api.schema.json"
+  "c714ef6ab7f85888a5943c6fd2e577a2279f9b30d9d30caa8fb1c30dd43fbbd5"
+  "package/schemas/session-events.schema.json"
+  "11d24b4e8de44590d70e261ebf15be18d91de14d674fdcfb1f2554ad43a48169"}}
 
  :version
  {:sdk "1.0.11.0"

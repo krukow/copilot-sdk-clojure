@@ -835,36 +835,99 @@
            (vals (get-in @(:state client)
                          [:sessions session-id :factory-executions])))))
 
+(defn ^:no-doc purge-github-token-provider-registrations
+  "Remove registrations owned by session-id.
+
+   scope is :all for teardown, or :committed-only when rotating a provider
+   after a successful create/resume operation."
+  [registrations session-id scope]
+  (into {}
+        (remove
+         (fn [[_ registration]]
+           (and (= session-id (:session-id registration))
+                (case scope
+                  :all true
+                  :committed-only (:committed? registration)
+                  (throw (ex-info "Invalid GitHub token provider purge scope"
+                                  {:scope scope}))))))
+        (or registrations {})))
+
+(defn- purge-github-token-provider-invocations
+  [invocations registration-ids]
+  (into {}
+        (remove (fn [[_ invocation]]
+                  (contains? registration-ids
+                             (:registration-id invocation))))
+        (or invocations {})))
+
+(defn ^:no-doc purge-github-token-provider-resources
+  "Remove a session's provider registrations and their active invocations."
+  [state session-id scope]
+  (let [registrations (:github-token-providers state)
+        retained (purge-github-token-provider-registrations
+                  registrations session-id scope)
+        removed-ids (into #{}
+                          (remove #(contains? retained %))
+                          (keys registrations))]
+    (-> state
+        (assoc :github-token-providers retained)
+        (update :github-token-provider-invocations
+                purge-github-token-provider-invocations
+                removed-ids))))
+
+(defn ^:no-doc purge-github-token-provider-registration
+  "Remove one provider registration and its active invocations."
+  [state registration-id]
+  (-> state
+      (update :github-token-providers dissoc registration-id)
+      (update :github-token-provider-invocations
+              purge-github-token-provider-invocations
+              #{registration-id})))
+
+(defn ^:no-doc purge-all-github-token-provider-resources
+  "Remove every provider registration and active invocation."
+  [state]
+  (assoc state
+         :github-token-providers {}
+         :github-token-provider-invocations {}))
+
+(defn ^:no-doc close-removed-github-token-provider-invocations!
+  "Signal invocations removed by one atomic client-state transition."
+  [old-state new-state]
+  (doseq [[invocation-id {:keys [cancel-chan] :as invocation}]
+          (:github-token-provider-invocations old-state)
+          :when (not (identical?
+                      invocation
+                      (get-in new-state
+                              [:github-token-provider-invocations
+                               invocation-id])))]
+    (close! cancel-chan)))
+
 (defn ^:no-doc teardown-local!
   "Mark a session terminal and release resources without contacting the runtime."
   [client session-id]
-  (let [[old _] (swap-vals! (:state client)
-                            (fn [state]
-                              (let [session (get-in state [:sessions session-id])]
-                                (if (or (nil? session) (:destroyed? session))
-                                  state
-                                  (-> state
-                                      (assoc-in
-                                       [:sessions session-id]
-                                       (assoc session
-                                              :destroyed? true
-                                              :tool-handlers {}
-                                              :permission-handler nil
-                                              :user-input-handler nil
-                                              :factories {}
-                                              :factory-executions {}
-                                              :hooks {}
-                                              :config nil))
-                                      (update
-                                       :github-token-providers
-                                       (fn [registrations]
-                                         (into {}
-                                               (remove
-                                                (fn [[_ registration]]
-                                                  (and (:committed? registration)
-                                                       (= session-id
-                                                          (:session-id registration)))))
-                                               registrations))))))))]
+  (let [[old new]
+        (swap-vals!
+         (:state client)
+         (fn [state]
+           (let [session (get-in state [:sessions session-id])
+                 state (purge-github-token-provider-resources
+                        state session-id :all)]
+             (if (or (nil? session) (:destroyed? session))
+               state
+               (assoc-in
+                state
+                [:sessions session-id]
+                (assoc session
+                       :destroyed? true
+                       :tool-handlers {}
+                       :permission-handler nil
+                       :user-input-handler nil
+                       :factories {}
+                       :factory-executions {}
+                       :hooks {}
+                       :config nil))))))]
+    (close-removed-github-token-provider-invocations! old new)
     (cond
       (nil? (get-in old [:sessions session-id]))
       :absent
@@ -1147,7 +1210,8 @@
    :tui "tui"
    :prompt-mode "prompt_mode"
    :copilot-app "copilot_app"
-   :sdk "sdk"})
+   :sdk "sdk"
+   :acp "acp"})
 
 (defn- permission-context->wire
   [{:keys [outcome source surface response-capability]}]
@@ -1635,12 +1699,14 @@
 (defn- terminal-idle-event?
   [event]
   (and (= :copilot/session.idle (:type event))
-       (not (#{"autopilot" :autopilot} (get-in event [:data :mode])))))
+       (not= "autopilot" (get-in event [:data :mode]))))
 
 (defn send-and-wait!
   "Send a message and wait until the session becomes idle.
    Returns the final assistant message event, or nil if none received.
    Serialized per session to avoid mixing concurrent sends.
+   An idle event whose wire `:mode` is the string `\"autopilot\"` is a
+   nonterminal turn boundary, so the wait continues.
 
    Options: same as send!
 
@@ -1897,8 +1963,9 @@
       out-ch)))
 
 (defn send-async
-  "Send a message and return a channel that receives events until session.idle.
-   The channel closes after session.idle or session.error.
+  "Send a message and return a channel that receives events until an ordinary
+   session.idle or session.error. An idle event whose wire `:mode` is the
+   string `\"autopilot\"` is emitted without closing the channel.
    Serialized per session to avoid mixing concurrent sends.
    Safe for use inside go blocks — no blocking operations.
    
@@ -1936,7 +2003,8 @@
             (= :copilot/assistant.message (:type event))
             (recur (get-in event [:data :content]))
 
-            (#{:copilot/session.idle :copilot/session.error} (:type event))
+            (or (terminal-idle-event? event)
+                (= :copilot/session.error (:type event)))
             (when last-content
               (async/offer! out-ch last-content))
 
@@ -1974,7 +2042,8 @@
             (= :copilot/assistant.message (:type event))
             (recur event)
 
-            (#{:copilot/session.idle :copilot/session.error} (:type event))
+            (or (terminal-idle-event? event)
+                (= :copilot/session.error (:type event)))
             (when last-msg
               (async/offer! out-ch last-msg))
 

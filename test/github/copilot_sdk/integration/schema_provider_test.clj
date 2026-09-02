@@ -39,15 +39,14 @@
           config {:on-permission-request sdk/approve-all
                   :ask-user-variant :elicitation
                   :capi {:auto-tier :intelligence}
-                  :feature-flags {}}
+                  :feature-flags {"fusion" true}}
           session (sdk/create-session *test-client* config)
           _ (sdk/resume-session *test-client* (sdk/session-id session) config)]
       (doseq [method ["session.create" "session.resume"]]
         (let [params (get @seen method)]
           (is (= "elicitation" (:askUserVariant params)))
           (is (= {:autoTier "intelligence"} (:capi params)))
-          (is (= {} (:featureFlags params))
-              "explicit empty feature flags must not collapse to omission")))))
+          (is (= {:fusion true} (:featureFlags params)))))))
 
   (testing "omitted options remain absent from create and resume"
     (let [create-params (@#'client/build-create-session-params
@@ -58,6 +57,16 @@
         (is (not (contains? params :ask-user-variant)))
         (is (not (contains? params :capi)))
         (is (not (contains? params :feature-flags))))))
+
+  (testing "an explicitly empty feature flag map remains distinct from omission"
+    (doseq [params [(@#'client/build-create-session-params
+                     {:on-permission-request sdk/approve-all
+                      :feature-flags {}})
+                    (@#'client/build-resume-session-params
+                     "session"
+                     {:on-permission-request sdk/approve-all
+                      :feature-flags {}})]]
+      (is (= {} (:feature-flags params)))))
 
   (testing "new options are valid for create, resume, and join configurations"
     (let [config {:on-permission-request sdk/approve-all
@@ -70,6 +79,14 @@
                     ::specs/resume-session-config
                     ::specs/join-session-config]]
         (is (s/valid? spec config) (s/explain-str spec config))))))
+
+(deftest test-included-builtin-skills-spec
+  (testing "built-in skill inclusion accepts Clojure collections of non-blank names"
+    (doseq [skills [(list "search" "edit")
+                    #{"search" "edit"}]]
+      (is (s/valid? ::specs/included-builtin-skills skills)))
+    (doseq [skills [[""] [" "] [:search] "search"]]
+      (is (not (s/valid? ::specs/included-builtin-skills skills))))))
 
 (deftest test-upstream-1-0-79-event-schema
   (testing "generated and curated surfaces include new public events"
@@ -445,21 +462,21 @@
       (is (contains? sdk/session-events :copilot/session.managed_settings_enforced))
       (is (contains? sdk/session-events :copilot/session.managed_settings_resolved)))))
 
-(deftest test-v1-0-83-stable-and-experimental-events
+(deftest test-v1-0-83-event-classification
   (let [stable-events #{:copilot/session.mode_notice_delivered
                         :copilot/model.call_finished
                         :copilot/subagent.configured}
+        internal-events #{:copilot/session.fusion_handoff
+                          :copilot/session.fusion_commit_started}
         experimental-events #{:copilot/assistant.fusion_phase_started
                               :copilot/assistant.fusion_phase_completed
                               :copilot/assistant.fusion_phase_failed
                               :copilot/session.fusion_route_started
                               :copilot/session.fusion_route_failed
                               :copilot/session.fusion_resolved
-                              :copilot/session.fusion_handoff
-                              :copilot/session.fusion_commit_started
                               :copilot/session.fusion_completed}]
     (testing "all schema events have generated wire specs"
-      (doseq [event-type (into stable-events experimental-events)
+      (doseq [event-type (into stable-events (into internal-events experimental-events))
               :let [wire-type (name event-type)]]
         (is (contains? github.copilot-sdk.generated.event-specs/event-types wire-type)
             (str wire-type " must be generated from the pinned schema"))
@@ -473,10 +490,12 @@
         (is (s/valid? ::specs/event-type event-type)
             (str event-type " must satisfy the idiom event-type spec")))
       (is (contains? sdk/session-events :copilot/session.mode_notice_delivered)))
-    (testing "HydraFusion events remain generated-only"
-      (doseq [event-type experimental-events]
+    (testing "non-public HydraFusion events remain generated-only"
+      (doseq [[event-type classification]
+              (concat (map #(vector % "internal") internal-events)
+                      (map #(vector % "experimental") experimental-events))]
         (is (not (contains? sdk/event-types event-type))
-            (str event-type " is experimental upstream"))
+            (str event-type " is " classification " upstream"))
         (is (not (s/valid? ::specs/event-type event-type))
             (str event-type " must stay outside the public idiom spec"))))
     (testing "stable payloads have open, typed idiom specs"
@@ -737,7 +756,7 @@
             "resume-session rejects :provider + :providers")))))
 
 (deftest test-session-github-token-provider-static-conflict
-  (testing "a static GitHub token and provider are rejected before any session RPC"
+  (testing "all config specs and synchronous/asynchronous entry points reject conflicting token sources before RPC"
     (let [requests (atom [])
           _ (mock/set-request-hook! *mock-server*
                                     (fn [method _]
@@ -746,9 +765,18 @@
           config {:on-permission-request sdk/approve-all
                   :github-token "static"
                   :github-token-provider (fn [_] {:kind :cancelled})}]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"mutually exclusive"
-                            (sdk/create-session *test-client* config)))
+      (doseq [spec [::specs/session-config
+                    ::specs/resume-session-config
+                    ::specs/join-session-config]]
+        (is (not (s/valid? spec config))))
+      (doseq [invoke [#(sdk/create-session *test-client* config)
+                      #(sdk/<create-session *test-client* config)
+                      #(sdk/resume-session *test-client* "conflict" config)
+                      #(sdk/<resume-session *test-client* "conflict" config)
+                      #(sdk/join-session config)]]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #"mutually exclusive"
+                              (invoke))))
       (is (empty? @requests)))))
 
 (deftest test-session-github-token-provider-wire-and-callbacks
@@ -800,7 +828,9 @@
               {:host "github.example.com"
                :session-id "session-one"
                :reason :refresh}]
-             @observed)))))
+             @observed))
+      (is (empty? (:github-token-provider-invocations
+                   @(:state *test-client*)))))))
 
 (deftest test-session-github-token-provider-cloud-session-assignment
   (testing "cloud creation assigns the server-generated session ID before later token requests"
@@ -829,8 +859,9 @@
              (:session-id (deref observed 1000 nil)))))))
 
 (deftest test-session-github-token-provider-errors-and-rollback
-  (testing "callback failures are preserved and unknown registrations are rejected"
-    (let [failure (ex-info "credential broker failed" {:kind :credential})
+  (testing "callback failures are sanitized and unknown registrations remain descriptive"
+    (let [secret "credential-broker-secret"
+          failure (ex-info secret {:access-token "also-secret"})
           session (sdk/create-session
                    *test-client*
                    {:session-id "error-session"
@@ -840,13 +871,17 @@
                               :github-token-providers
                               keys
                               first)]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"credential broker failed"
-                            (mock/send-rpc-request! *mock-server*
-                                                    "gitHubToken.getToken"
-                                                    {:registrationId registration-id
-                                                     :host "github.com"
-                                                     :reason "initial"})))
+      (let [error (try
+                    (mock/send-rpc-request! *mock-server*
+                                            "gitHubToken.getToken"
+                                            {:registrationId registration-id
+                                             :host "github.com"
+                                             :reason "initial"})
+                    nil
+                    (catch Throwable t t))]
+        (is (= "Internal error: GitHub token provider callback failed"
+               (ex-message error)))
+        (is (not (str/includes? (pr-str (Throwable->map error)) secret))))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #"No GitHub token provider registered"
                             (mock/send-rpc-request! *mock-server*
@@ -855,6 +890,144 @@
                                                      :host "github.com"
                                                      :reason "refresh"})))
       (is (= "error-session" (sdk/session-id session)))))
+
+  (testing "thrown and returned Throwables are replaced at the provider boundary"
+    (doseq [[label provider]
+            [[:thrown-error
+              (fn [_] (throw (AssertionError. "thrown-secret")))]
+             [:returned-exception
+              (fn [_] (ex-info "returned-secret" {:access-token "secret"}))]
+             [:channel-error
+              (fn [_] (async/to-chan! [(AssertionError. "channel-secret")]))]]]
+      (let [client (sdk/client {:auto-start? false})
+            registration-id
+            (@#'client/register-github-token-provider!
+             client provider (str "failure-" (name label)))
+            error
+            (try
+              (@#'client/github-token-provider-response
+               client
+               {:registration-id registration-id
+                :host "github.com"
+                :reason "refresh"})
+              nil
+              (catch Throwable t t))]
+        (is (instance? clojure.lang.ExceptionInfo error) (name label))
+        (is (= "GitHub token provider callback failed" (ex-message error)) (name label))
+        (is (nil? (ex-cause error)) (name label))
+        (is (= #{:type :registration-id :session-id :exception-class}
+               (set (keys (ex-data error))))
+            (name label))
+        (is (not (re-find #"(?i)(thrown|returned|channel)-secret|access-token"
+                          (pr-str (Throwable->map error))))
+            (name label)))))
+
+  (testing "malformed callback results expose only their failed constraint"
+    (let [secret "invalid-result-secret"
+          invalid-results
+          [["non-map" :result-must-be-map]
+           [{:kind :unknown
+             :access-token secret}
+            :kind-must-be-token-or-cancelled]
+           [{:kind :token
+             :access-token " "
+             :expires-in 3601}
+            :access-token-must-be-non-blank-string]
+           [{:kind :token
+             :access-token secret
+             :expires-in 3600.5}
+            :expires-in-must-be-integer]
+           [{:kind :token
+             :access-token secret
+             :expires-in 3600}
+            :expires-in-must-exceed-3600]
+           [{:kind :token
+             :access-token secret
+             :token-type " "
+             :expires-in 3601}
+            :token-type-must-be-non-blank-string]]]
+      (doseq [[result constraint] invalid-results]
+        (let [client (sdk/client {:auto-start? false})
+              registration-id
+              (@#'client/register-github-token-provider!
+               client (constantly result) "invalid-result")
+              error
+              (try
+                (@#'client/github-token-provider-response
+                 client
+                 {:registration-id registration-id
+                  :host "github.com"
+                  :reason "initial"})
+                nil
+                (catch Throwable t t))]
+          (is (= "GitHub token provider returned an invalid result"
+                 (ex-message error)))
+          (is (= {:type :github-token-provider-invalid-result
+                  :registration-id registration-id
+                  :session-id "invalid-result"
+                  :constraint constraint}
+                 (ex-data error)))
+          (is (not (str/includes? (pr-str (Throwable->map error)) secret)))
+          (is (empty? (:github-token-provider-invocations
+                       @(:state client))))))))
+
+  (testing "callback arguments are validated before invocation"
+    (let [client (sdk/client {:auto-start? false})
+          called? (atom false)
+          registration-id
+          (@#'client/register-github-token-provider!
+           client
+           (fn [_]
+             (reset! called? true)
+             {:kind :cancelled})
+           "invalid-arguments")]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"Invalid GitHub token provider request"
+           (@#'client/github-token-provider-response
+            client
+            {:registration-id registration-id
+             :host ""
+             :reason "unknown"})))
+      (is (false? @called?))
+      (is (not (s/valid? ::specs/github-token-provider-args
+                         {:host "github.com"
+                          :session-id nil
+                          :reason :initial})))
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"Invalid GitHub token provider request"
+           (@#'client/github-token-provider-response
+            client
+            {:registration-id registration-id
+             :host "github.com"
+             :session-id nil
+             :reason "initial"})))
+      (is (false? @called?))))
+
+  (testing "provider results require integer expiry above one hour and permit additive fields"
+    (doseq [expires-in [3600 3600.5]]
+      (is (not (s/valid? ::specs/github-token-provider-result
+                         {:kind :token
+                          :access-token "token"
+                          :expires-in expires-in}))))
+    (let [result {:kind :token
+                  :access-token "token"
+                  :token-type "Bearer"
+                  :expires-in 3601
+                  :account-label "enterprise"}]
+      (is (s/valid? ::specs/github-token-provider-result result))
+      (let [client (sdk/client {:auto-start? false})
+            registration-id
+            (@#'client/register-github-token-provider!
+             client (constantly result) "extended-result")]
+        (is (= {:result result}
+               (<!!
+                (@#'client/github-token-provider-response
+                 client
+                 {:registration-id registration-id
+                  :host "github.com"
+                  :reason "initial"})))))))
 
   (testing "failed creation rolls back its provisional provider registration"
     (let [registrations-before
@@ -871,7 +1044,147 @@
                               :github-token-provider (fn [_] {:kind :cancelled})})))
       (is (= registrations-before
              (:github-token-providers @(:state *test-client*)))
-          "rollback must remove only the failed operation's provisional registration"))))
+          "rollback must remove only the failed operation's provisional registration")
+      (let [result (<!! (sdk/<create-session
+                         *test-client*
+                         {:on-permission-request sdk/approve-all
+                          :github-token-provider (fn [_] {:kind :cancelled})}))]
+        (is (instance? Throwable result))
+        (is (= registrations-before
+               (:github-token-providers @(:state *test-client*)))
+            "asynchronous rollback must remove its provisional registration")))))
+
+(deftest test-session-github-token-provider-request-ownership
+  (testing "a callback request cannot override its registration-bound session"
+    (let [client (sdk/client {:auto-start? false})
+          called? (atom false)
+          registration-id
+          (@#'client/register-github-token-provider!
+           client
+           (fn [_]
+             (reset! called? true)
+             {:kind :cancelled})
+           "owned-session")
+          error
+          (try
+            (@#'client/github-token-provider-response
+             client
+             {:registration-id registration-id
+              :host "github.com"
+              :session-id "different-session"
+              :reason "refresh"})
+            nil
+            (catch Throwable t t))]
+      (is (= "GitHub token provider request session does not match registration"
+             (ex-message error)))
+      (is (= {:type :github-token-provider-session-mismatch
+              :registration-id registration-id
+              :session-id "owned-session"}
+             (ex-data error)))
+      (is (false? @called?))
+      (is (empty? (:github-token-provider-invocations @(:state client)))))))
+
+(defn- pending-github-token-request
+  [client registration-id]
+  (let [response
+        (future
+          (<!!
+           (@#'client/github-token-provider-response
+            client
+            {:registration-id registration-id
+             :host "github.com"
+             :reason "refresh"})))]
+    (await-atom! (:state client)
+                 #(seq (:github-token-provider-invocations %))
+                 "GitHub token provider invocation registration"
+                 1000)
+    response))
+
+(defn- assert-provider-request-cancelled!
+  [response]
+  (try
+    (is (= {:result {:kind :cancelled}}
+           (deref response 1000 ::timeout)))
+    (finally
+      (future-cancel response))))
+
+(deftest test-session-github-token-provider-invocation-cancellation
+  (testing "session teardown cancels an active channel-returning provider"
+    (let [client (sdk/client {:auto-start? false})
+          session-id "teardown-active-provider"
+          _ (session/create-session client session-id {})
+          registration-id
+          (@#'client/register-github-token-provider!
+           client (constantly (chan)) session-id)
+          _ (@#'client/commit-github-token-provider!
+             client session-id registration-id)
+          response (pending-github-token-request client registration-id)]
+      (session/teardown-local! client session-id)
+      (assert-provider-request-cancelled! response)
+      (is (empty? (:github-token-provider-invocations @(:state client))))))
+
+  (testing "provider rotation cancels active invocations owned by the replaced registration"
+    (let [client (sdk/client {:auto-start? false})
+          session-id "rotate-active-provider"
+          old-registration-id
+          (@#'client/register-github-token-provider!
+           client (constantly (chan)) session-id)
+          _ (@#'client/commit-github-token-provider!
+             client session-id old-registration-id)
+          response (pending-github-token-request client old-registration-id)
+          new-registration-id
+          (@#'client/register-github-token-provider!
+           client (constantly {:kind :cancelled}) session-id)]
+      (@#'client/commit-github-token-provider!
+       client session-id new-registration-id)
+      (assert-provider-request-cancelled! response)
+      (is (= #{new-registration-id}
+             (set (keys (:github-token-providers @(:state client))))))
+      (is (empty? (:github-token-provider-invocations @(:state client))))))
+
+  (testing "provisional rollback cancels invocations for the discarded registration"
+    (let [client (sdk/client {:auto-start? false})
+          registration-id
+          (@#'client/register-github-token-provider!
+           client (constantly (chan)) "rollback-active-provider")
+          response (pending-github-token-request client registration-id)]
+      (@#'client/rollback-github-token-provider! client registration-id)
+      (assert-provider-request-cancelled! response)
+      (is (empty? (:github-token-provider-invocations @(:state client))))))
+
+  (testing "transport release cancels every active provider invocation"
+    (let [client (sdk/client {:auto-start? false})
+          registration-id
+          (@#'client/register-github-token-provider!
+           client (constantly (chan)) "release-active-provider")
+          response (pending-github-token-request client registration-id)]
+      (@#'client/release-transport! client {:process :none})
+      (assert-provider-request-cancelled! response)
+      (is (empty? (:github-token-provider-invocations @(:state client)))))))
+
+(deftest test-session-github-token-provider-unexpected-connection-closure
+  (testing "notification-channel closure cancels active provider invocations"
+    (let [session-id "connection-closure-provider"
+          _ (sdk/create-session
+             *test-client*
+             {:session-id session-id
+              :on-permission-request sdk/approve-all
+              :github-token-provider (constantly (chan))})
+          registration-id
+          (some (fn [[id registration]]
+                  (when (= session-id (:session-id registration))
+                    id))
+                (:github-token-providers @(:state *test-client*)))
+          response
+          (pending-github-token-request *test-client* registration-id)]
+      (close! (protocol/notifications
+               (:connection-io @(:state *test-client*))))
+      (assert-provider-request-cancelled! response)
+      (await-atom! (:state *test-client*)
+                   #(and (empty? (:github-token-providers %))
+                         (empty? (:github-token-provider-invocations %)))
+                   "GitHub token provider cleanup after notification closure"
+                   1000))))
 
 (deftest test-session-github-token-provider-lifecycle
   (testing "resume rotates providers only on success and omission clears the previous provider"
@@ -930,6 +1243,49 @@
       (@#'client/commit-github-token-provider! client "concurrent" second-id)
       (is (= #{second-id}
              (set (keys (:github-token-providers @(:state client))))))))
+
+  (testing "teardown removes provisional registrations and a later commit is a no-op"
+    (let [client (sdk/client {:auto-start? false})
+          session-id "teardown-race"
+          _ (session/create-session client session-id {})
+          registration-id
+          (@#'client/register-github-token-provider!
+           client (fn [_] {:kind :cancelled}) session-id)]
+      (is (= :claimed (session/teardown-local! client session-id)))
+      (is (empty? (:github-token-providers @(:state client))))
+      (@#'client/commit-github-token-provider! client session-id registration-id)
+      (is (empty? (:github-token-providers @(:state client))))))
+
+  (testing "failed synchronous and asynchronous resume preserve the committed provider"
+    (let [base (sdk/create-session
+                *test-client*
+                {:session-id "failed-resume"
+                 :on-permission-request sdk/approve-all
+                 :github-token-provider (fn [_] {:kind :cancelled})})
+          registrations-before
+          (:github-token-providers @(:state *test-client*))
+          _ (mock/set-request-hook! *mock-server*
+                                    (fn [method _]
+                                      (when (= "session.resume" method)
+                                        (throw (ex-info "resume failed"
+                                                        {:code -32000})))))]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"resume failed"
+           (sdk/resume-session
+            *test-client* (sdk/session-id base)
+            {:on-permission-request sdk/approve-all
+             :github-token-provider (fn [_] {:kind :cancelled})})))
+      (is (= registrations-before
+             (:github-token-providers @(:state *test-client*))))
+      (let [result (<!! (sdk/<resume-session
+                         *test-client* (sdk/session-id base)
+                         {:on-permission-request sdk/approve-all
+                          :github-token-provider (fn [_] {:kind :cancelled})}))]
+        (is (instance? Throwable result))
+        (is (= registrations-before
+               (:github-token-providers @(:state *test-client*))))
+        (client/delete-session! *test-client* "failed-resume"))))
 
   (testing "session disconnect, deletion, and client stop clean registrations"
     (let [first (sdk/create-session

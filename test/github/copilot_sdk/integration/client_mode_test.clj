@@ -657,8 +657,10 @@
   (testing "options.update RPC failure cleans up session (disconnect + remove) and rethrows"
     (let [server (mock/create-mock-server)
           _ (mock/start-mock-server! server)
+          requests (atom [])
           _ (mock/set-request-hook! server
                                     (fn [method _params]
+                                      (swap! requests conj method)
                                       (when (= "session.options.update" method)
                                         (throw (ex-info "Simulated options.update failure"
                                                         {:code -32603})))))
@@ -681,6 +683,8 @@
         ;; from its in-memory registry.
         (is (empty? (:sessions @(:state client)))
             "failed session must be removed from in-memory registry")
+        (is (= 1 (count (filter #{"session.destroy"} @requests)))
+            "failed setup must destroy the runtime session exactly once")
         (finally
           (try (sdk/stop! client) (catch Exception _))
           (mock/stop-mock-server! server))))))
@@ -689,8 +693,10 @@
   (testing "async <create-session: options.update failure cleans up session and yields Throwable"
     (let [server (mock/create-mock-server)
           _ (mock/start-mock-server! server)
+          requests (atom [])
           _ (mock/set-request-hook! server
                                     (fn [method _params]
+                                      (swap! requests conj method)
                                       (when (= "session.options.update" method)
                                         (throw (ex-info "Simulated options.update failure"
                                                         {:code -32603})))))
@@ -710,6 +716,8 @@
               "exception message should mention options.update"))
         (is (empty? (:sessions @(:state client)))
             "failed session must be removed from in-memory registry (async path)")
+        (is (= 1 (count (filter #{"session.destroy"} @requests)))
+            "failed async setup must destroy the runtime session exactly once")
         (finally
           (try (sdk/stop! client) (catch Exception _))
           (mock/stop-mock-server! server))))))

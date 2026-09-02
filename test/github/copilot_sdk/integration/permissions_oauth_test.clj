@@ -112,10 +112,10 @@
         (is (true? (:managed-settings-enabled? (deref invocation 1000 nil))))))))
 
 (deftest test-managed-bypass-permission-policies
-  (testing "known and future managed bypass policies preserve their exact wire values"
+  (testing "simple keyword policies preserve their exact wire values"
     (doseq [[policy expected] [[:disable "disable"]
                                [:allow-auto-only "allow-auto-only"]
-                               ["future-fail-closed-policy"
+                               [:future-fail-closed-policy
                                 "future-fail-closed-policy"]]]
       (let [seen (atom nil)
             _ (mock/set-request-hook! *mock-server*
@@ -132,7 +132,9 @@
                (get-in @seen
                        [:managedSettings
                         :permissions
-                        :disableBypassPermissionsMode])))))))
+                        :disableBypassPermissionsMode])))))
+    (doseq [policy ["disable" :managed/disable (keyword "")]]
+      (is (not (s/valid? ::specs/disable-bypass-permissions-mode policy))))))
 
 (deftest test-factory-permission-request-spec
   (let [request {:permission-kind :factory

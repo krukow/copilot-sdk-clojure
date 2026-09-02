@@ -11,6 +11,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Check out certified upstream SDK
+        uses: actions/checkout@v6
+        with:
+          repository: github/copilot-sdk
+          ref: 2980c7828d35754bfc2b334831efec309ab8a2eb
+          path: .upstream/copilot-sdk
+          persist-credentials: false
       - uses: actions/setup-java@v5
         with:
           distribution: 'temurin' # See 'Supported distributions' for available options
@@ -34,4 +41,7 @@ jobs:
           restore-keys: cljdeps-
 
       - name: Run CI
+        env:
+          COPILOT_SDK_UPSTREAM: ${{ github.workspace }}/.upstream/copilot-sdk
+          COPILOT_UPSTREAM_VALIDATION: 'true'
         run: bb ci

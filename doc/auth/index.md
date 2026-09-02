@@ -78,6 +78,19 @@ Session-level `:github-token` is sent only with `session.create` or
 `session.resume`. It does not change the client's process environment or
 default authentication for other sessions.
 
+**Supported token types:**
+- `gho_` — OAuth user access tokens
+- `ghu_` — GitHub App user access tokens
+- `github_pat_` — Fine-grained personal access tokens
+
+**Not supported:**
+- `ghp_` — Classic personal access tokens (deprecated)
+
+**When to use:**
+- Web applications where users sign in via GitHub
+- SaaS applications building on top of Copilot
+- Multi-user applications making requests on behalf of different users
+
 ## Session-scoped Token Provider
 
 Use `:github-token-provider` when a session may outlive its current GitHub user
@@ -117,29 +130,21 @@ The callback receives:
 | `:session-id` | Session ID when known; omitted during an initial cloud-session registration if the server assigns the ID |
 | `:reason` | `:initial` for the first credential or `:refresh` when the runtime requests renewal |
 
-Return `{:kind :token :access-token ... :expires-in ...}` with a positive
-expiry in seconds and optional `:token-type`, or return `{:kind :cancelled}`.
-Either result may be returned directly or through a core.async channel.
+Return `{:kind :token :access-token ... :expires-in ...}` with an integer expiry
+of at least 3,601 seconds and optional `:token-type`, or return
+`{:kind :cancelled}`. Either result may be returned directly or through a
+core.async channel.
 
 `:github-token-provider` and session `:github-token` are mutually exclusive.
-Only an opaque registration ID crosses the wire; the callback and token remain
-inside the SDK process. Failed create/resume calls roll back provisional
-registrations, a successful resume replaces the session's previous provider,
-and disconnect, delete, or client stop removes the registration.
+Create, resume, and join requests carry only an opaque registration ID in session
+configuration. The callback remains inside the SDK process; when the runtime
+requests a credential, its result crosses the JSON-RPC connection to the CLI.
+Use the SDK-managed stdio/local transport, or an explicitly protected tunnel
+for `:cli-url`; a plaintext TCP endpoint exposes the credential. Failed
+create/resume/join calls roll back provisional registrations, a successful
+resume replaces the session's previous provider, and disconnect, delete, or
+client stop removes the registration.
 ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412))
-
-**Supported token types:**
-- `gho_` — OAuth user access tokens
-- `ghu_` — GitHub App user access tokens
-- `github_pat_` — Fine-grained personal access tokens
-
-**Not supported:**
-- `ghp_` — Classic personal access tokens (deprecated)
-
-**When to use:**
-- Web applications where users sign in via GitHub
-- SaaS applications building on top of Copilot
-- Multi-user applications making requests on behalf of different users
 
 ## Environment Variables
 
