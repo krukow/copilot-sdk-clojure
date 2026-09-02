@@ -779,6 +779,62 @@
                               (invoke))))
       (is (empty? @requests)))))
 
+(deftest test-session-github-token-provider-transport-security
+  (testing "external non-loopback TCP rejects credential callbacks before session RPCs"
+    (let [requests (atom [])
+          _ (mock/set-request-hook! *mock-server*
+                                    (fn [method _]
+                                      (when (str/starts-with? method "session.")
+                                        (swap! requests conj method))))
+          client (sdk/client {:cli-url "example.com:4444"
+                              :auto-start? false})
+          config {:session-id "remote-token-provider"
+                  :on-permission-request sdk/approve-all
+                  :github-token-provider (fn [_] {:kind :cancelled})}]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"loopback"
+           (sdk/create-session client config)))
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"loopback"
+           (sdk/<create-session client config)))
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"loopback"
+           (sdk/resume-session
+            client "remote-token-provider" (dissoc config :session-id))))
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"loopback"
+           (sdk/<resume-session
+            client "remote-token-provider" (dissoc config :session-id))))
+      (is (empty? @requests))
+      (is (empty? (:github-token-providers @(:state client))))
+      (sdk/stop! client)))
+
+  (testing "syntactic loopback transports are accepted, including IPv6 literals"
+    (doseq [url ["localhost:4444"
+                 "127.0.0.1:4444"
+                 "127.255.2.3:4444"
+                 "[::1]:4444"
+                 "[0:0:0:0:0:0:0:1]:4444"
+                 "https://localhost:4444"]]
+      (let [client (sdk/client {:cli-url url :auto-start? false})]
+        (is (nil?
+             (@#'client/ensure-github-token-provider-transport!
+              client
+              {:github-token-provider (fn [_] {:kind :cancelled})}))
+            url))))
+
+  (testing "SDK-owned and child-process stdio transports are accepted"
+    (doseq [client [(sdk/client {:auto-start? false})
+                    (sdk/client {:is-child-process? true :auto-start? false})]]
+      (is (nil?
+           (@#'client/ensure-github-token-provider-transport!
+            client
+            {:github-token-provider (fn [_] {:kind :cancelled})}))))))
+
 (deftest test-session-github-token-provider-wire-and-callbacks
   (testing "only an opaque UUID-v4 registration is serialized and callbacks map token and cancellation results"
     (let [create-params (atom nil)
@@ -829,6 +885,9 @@
                :session-id "session-one"
                :reason :refresh}]
              @observed))
+      (is (s/valid? ::specs/session-config (session/config session)))
+      (is (not (contains? (session/config session)
+                          :github-token-provider-registration-id)))
       (is (empty? (:github-token-provider-invocations
                    @(:state *test-client*)))))))
 
@@ -856,7 +915,45 @@
                                      :reason "initial"})]
       (is (not (contains? @create-params :sessionId)))
       (is (= (sdk/session-id session)
-             (:session-id (deref observed 1000 nil)))))))
+             (:session-id (deref observed 1000 nil))))))
+
+  (testing "cloud creation can request a token before assigning a session ID"
+    (let [server *mock-server*
+          provider-args (promise)
+          token-response (promise)
+          _ (mock/set-request-hook!
+             server
+             (fn [method params]
+               (when (= "session.create" method)
+                 (let [registration-id
+                       (:gitHubTokenProviderRegistrationId params)]
+                   (future
+                     (deliver
+                      token-response
+                      (mock/send-rpc-request!
+                       server
+                       "gitHubToken.getToken"
+                       {:registrationId registration-id
+                        :host "github.com"
+                        :reason "initial"})))
+                   (when (= ::timeout
+                            (deref provider-args 1000 ::timeout))
+                     (throw (ex-info "provider was not called before session.create completed"
+                                     {:code -32603})))))))
+          session
+          (sdk/create-session
+           *test-client*
+           {:cloud {}
+            :on-permission-request sdk/approve-all
+            :github-token-provider
+            (fn [args]
+              (deliver provider-args args)
+              {:kind :cancelled})})]
+      (is (= {:host "github.com" :reason :initial}
+             (deref provider-args 1000 ::timeout)))
+      (is (= {:kind "cancelled"}
+             (:result (deref token-response 1000 ::timeout))))
+      (is (some? (sdk/session-id session))))))
 
 (deftest test-session-github-token-provider-errors-and-rollback
   (testing "callback failures are sanitized and unknown registrations remain descriptive"
@@ -903,23 +1000,19 @@
             registration-id
             (@#'client/register-github-token-provider!
              client provider (str "failure-" (name label)))
-            error
-            (try
-              (@#'client/github-token-provider-response
-               client
-               {:registration-id registration-id
-                :host "github.com"
-                :reason "refresh"})
-              nil
-              (catch Throwable t t))]
-        (is (instance? clojure.lang.ExceptionInfo error) (name label))
-        (is (= "GitHub token provider callback failed" (ex-message error)) (name label))
-        (is (nil? (ex-cause error)) (name label))
-        (is (= #{:type :registration-id :session-id :exception-class}
-               (set (keys (ex-data error))))
+            response
+            (<!!
+             (@#'client/github-token-provider-response
+              client
+              {:registration-id registration-id
+               :host "github.com"
+               :reason "refresh"}))]
+        (is (= -32603 (get-in response [:error :code])) (name label))
+        (is (= "Internal error: GitHub token provider callback failed"
+               (get-in response [:error :message]))
             (name label))
         (is (not (re-find #"(?i)(thrown|returned|channel)-secret|access-token"
-                          (pr-str (Throwable->map error))))
+                          (pr-str response)))
             (name label)))))
 
   (testing "malformed callback results expose only their failed constraint"
@@ -951,23 +1044,17 @@
               registration-id
               (@#'client/register-github-token-provider!
                client (constantly result) "invalid-result")
-              error
-              (try
-                (@#'client/github-token-provider-response
-                 client
-                 {:registration-id registration-id
-                  :host "github.com"
-                  :reason "initial"})
-                nil
-                (catch Throwable t t))]
-          (is (= "GitHub token provider returned an invalid result"
-                 (ex-message error)))
-          (is (= {:type :github-token-provider-invalid-result
-                  :registration-id registration-id
-                  :session-id "invalid-result"
-                  :constraint constraint}
-                 (ex-data error)))
-          (is (not (str/includes? (pr-str (Throwable->map error)) secret)))
+              response
+              (<!!
+               (@#'client/github-token-provider-response
+                client
+                {:registration-id registration-id
+                 :host "github.com"
+                 :reason "initial"}))]
+          (is (= -32603 (get-in response [:error :code])))
+          (is (= "Internal error: GitHub token provider returned an invalid result"
+                 (get-in response [:error :message])))
+          (is (not (str/includes? (pr-str response) secret)))
           (is (empty? (:github-token-provider-invocations
                        @(:state client))))))))
 
@@ -1005,29 +1092,31 @@
              :reason "initial"})))
       (is (false? @called?))))
 
-  (testing "provider results require integer expiry above one hour and permit additive fields"
+  (testing "provider results are closed maps with integer expiry above one hour"
     (doseq [expires-in [3600 3600.5]]
       (is (not (s/valid? ::specs/github-token-provider-result
                          {:kind :token
                           :access-token "token"
                           :expires-in expires-in}))))
-    (let [result {:kind :token
-                  :access-token "token"
-                  :token-type "Bearer"
-                  :expires-in 3601
-                  :account-label "enterprise"}]
-      (is (s/valid? ::specs/github-token-provider-result result))
+    (doseq [result [{:kind :cancelled :reason :expired}
+                    {:kind :token
+                     :access-token "token"
+                     :expires-in 3601
+                     :account-label "enterprise"}]]
+      (is (not (s/valid? ::specs/github-token-provider-result result)))
       (let [client (sdk/client {:auto-start? false})
             registration-id
             (@#'client/register-github-token-provider!
              client (constantly result) "extended-result")]
-        (is (= {:result result}
-               (<!!
-                (@#'client/github-token-provider-response
-                 client
-                 {:registration-id registration-id
-                  :host "github.com"
-                  :reason "initial"})))))))
+        (is (= "Internal error: GitHub token provider returned an invalid result"
+               (get-in
+                (<!!
+                 (@#'client/github-token-provider-response
+                  client
+                  {:registration-id registration-id
+                   :host "github.com"
+                   :reason "initial"}))
+                [:error :message]))))))
 
   (testing "failed creation rolls back its provisional provider registration"
     (let [registrations-before
@@ -1053,6 +1142,311 @@
         (is (= registrations-before
                (:github-token-providers @(:state *test-client*)))
             "asynchronous rollback must remove its provisional registration")))))
+
+(defn- registrations-for-session
+  [client session-id]
+  (into {}
+        (filter (fn [[_ registration]]
+                  (= session-id (:session-id registration))))
+        (:github-token-providers @(:state client))))
+
+(defn- invoke-create
+  [mode client config]
+  (case mode
+    :sync
+    (try
+      (sdk/create-session client config)
+      (catch Throwable t
+        t))
+
+    :async
+    (<!! (sdk/<create-session client config))))
+
+(defn- invoke-resume
+  [mode client session-id config]
+  (case mode
+    :sync
+    (try
+      (sdk/resume-session client session-id config)
+      (catch Throwable t
+        t))
+
+    :async
+    (<!! (sdk/<resume-session client session-id config))))
+
+(deftest test-failed-create-setup-owns-complete-cleanup
+  (doseq [mode [:sync :async]
+          stage [:returned-id-mismatch :mcp-interest :options-update]]
+    (testing (str (name mode) " " (name stage))
+      (let [session-id (str "failed-create-" (name mode) "-" (name stage))
+            methods (atom [])
+            config
+            (merge
+             {:session-id session-id
+              :on-permission-request sdk/approve-all
+              :github-token-provider (fn [_] {:kind :cancelled})}
+             (case stage
+               :mcp-interest {:on-mcp-auth-request (fn [_ _] nil)}
+               :options-update {:skip-custom-instructions true}
+               {}))]
+        (mock/set-request-hook!
+         *mock-server*
+         (fn [method _]
+           (swap! methods conj method)
+           (case stage
+             :returned-id-mismatch
+             (when (= "session.create" method)
+               {::mock/merge-response {:sessionId (str session-id "-other")}})
+
+             :mcp-interest
+             (when (= "session.eventLog.registerInterest" method)
+               (throw (ex-info "interest setup failed" {:code -32000})))
+
+             :options-update
+             (when (= "session.options.update" method)
+               (throw (ex-info "options setup failed" {:code -32000}))))))
+        (let [failure (invoke-create mode *test-client* config)]
+          (is (instance? Throwable failure))
+          (is (= 1 (count (filter #{"session.destroy"} @methods))))
+          (is (nil? (get-in @(:state *test-client*) [:sessions session-id])))
+          (is (nil? (get-in @(:state *test-client*) [:session-io session-id])))
+          (is (empty? (registrations-for-session *test-client* session-id)))
+          (is (empty? (:github-token-provider-invocations
+                       @(:state *test-client*))))
+          (is (nil? (get @(:sessions *mock-server*) session-id))))
+        (mock/set-request-hook! *mock-server* nil)))))
+
+(deftest test-create-failure-before-remote-acceptance-rolls-back-locally
+  (doseq [mode [:sync :async]
+          stage [:session-fs-factory :create-rpc]]
+    (testing (str (name mode) " " (name stage))
+      (let [session-id (str "pre-create-" (name mode) "-" (name stage))
+            client (if (= stage :session-fs-factory)
+                     (assoc *test-client*
+                            :session-fs
+                            {:initial-cwd "/workspace"
+                             :session-state-path "/state"
+                             :conventions "posix"})
+                     *test-client*)
+            config
+            (cond-> {:session-id session-id
+                     :on-permission-request sdk/approve-all
+                     :github-token-provider (fn [_] {:kind :cancelled})}
+              (= stage :session-fs-factory)
+              (assoc :create-session-fs-handler
+                     (fn [_]
+                       (throw (ex-info "session fs factory failed" {})))))]
+        (mock/set-request-hook!
+         *mock-server*
+         (when (= stage :create-rpc)
+           (fn [method _]
+             (when (= "session.create" method)
+               (throw (ex-info "create RPC failed" {:code -32000}))))))
+        (let [failure (invoke-create mode client config)]
+          (is (instance? Throwable failure))
+          (is (nil? (get-in @(:state client) [:sessions session-id])))
+          (is (nil? (get-in @(:state client) [:session-io session-id])))
+          (is (empty? (registrations-for-session client session-id)))
+          (is (nil? (get @(:sessions *mock-server*) session-id))))
+        (mock/set-request-hook! *mock-server* nil)))))
+
+(deftest test-failed-provisional-resume-preserves-live-session
+  (doseq [mode [:sync :async]
+          stage [:mcp-interest :resume-rpc :session-fs-factory]]
+    (testing (str (name mode) " " (name stage))
+      (let [session-id (str "preserved-resume-" (name mode) "-" (name stage))
+            old-provider (fn [_] {:kind :cancelled})
+            base-session
+            (sdk/create-session
+             *test-client*
+             {:session-id session-id
+              :on-permission-request sdk/approve-all
+              :github-token-provider old-provider})
+            old-registration-id
+            (-> (registrations-for-session *test-client* session-id)
+                keys
+                first)
+            old-session-state (get-in @(:state *test-client*) [:sessions session-id])
+            old-session-io (get-in @(:state *test-client*) [:session-io session-id])
+            client
+            (if (= stage :session-fs-factory)
+              (assoc *test-client*
+                     :session-fs
+                     {:initial-cwd "/workspace"
+                      :session-state-path "/state"
+                      :conventions "posix"})
+              *test-client*)
+            config
+            (cond-> {:on-permission-request sdk/approve-all
+                     :github-token-provider (fn [_] {:kind :cancelled})}
+              (= stage :mcp-interest)
+              (assoc :on-mcp-auth-request (fn [_ _] nil))
+
+              (= stage :session-fs-factory)
+              (assoc :create-session-fs-handler
+                     (fn [_]
+                       (throw (ex-info "resume session fs factory failed" {})))))]
+        (mock/set-request-hook!
+         *mock-server*
+         (case stage
+           :mcp-interest
+           (fn [method _]
+             (when (= "session.eventLog.registerInterest" method)
+               (throw (ex-info "resume interest failed" {:code -32000}))))
+
+           :resume-rpc
+           (fn [method _]
+             (when (= "session.resume" method)
+               (throw (ex-info "resume RPC failed" {:code -32000}))))
+
+           nil))
+        (let [failure (invoke-resume mode client session-id config)]
+          (is (instance? Throwable failure))
+          (is (identical?
+               old-session-state
+               (get-in @(:state client) [:sessions session-id])))
+          (is (identical?
+               old-session-io
+               (get-in @(:state client) [:session-io session-id])))
+          (is (= #{old-registration-id}
+                 (set (keys (registrations-for-session client session-id)))))
+          (is (= {:kind "cancelled"}
+                 (:result
+                  (mock/send-rpc-request!
+                   *mock-server*
+                   "gitHubToken.getToken"
+                   {:registrationId old-registration-id
+                    :host "github.com"
+                    :sessionId (sdk/session-id base-session)
+                    :reason "refresh"}))))
+          (is (some? (get @(:sessions *mock-server*) session-id))))
+        (mock/set-request-hook! *mock-server* nil)))))
+
+(deftest test-failed-resume-after-remote-acceptance-destroys-session
+  (doseq [mode [:sync :async]]
+    (testing (name mode)
+      (let [session-id (str "failed-resume-" (name mode))
+            methods (atom [])]
+        (sdk/create-session
+         *test-client*
+         {:session-id session-id
+          :on-permission-request sdk/approve-all
+          :github-token-provider (fn [_] {:kind :cancelled})})
+        (mock/set-request-hook!
+         *mock-server*
+         (fn [method _]
+           (swap! methods conj method)
+           (when (= "session.options.update" method)
+             (throw (ex-info "resume options failed" {:code -32000})))))
+        (let [failure
+              (invoke-resume
+               mode
+               *test-client*
+               session-id
+               {:on-permission-request sdk/approve-all
+                :github-token-provider (fn [_] {:kind :cancelled})
+                :skip-custom-instructions true})]
+          (is (instance? Throwable failure))
+          (is (= 1 (count (filter #{"session.resume"} @methods))))
+          (is (= 1 (count (filter #{"session.destroy"} @methods))))
+          (is (nil? (get-in @(:state *test-client*) [:sessions session-id])))
+          (is (nil? (get-in @(:state *test-client*) [:session-io session-id])))
+          (is (empty? (registrations-for-session *test-client* session-id)))
+          (is (nil? (get @(:sessions *mock-server*) session-id))))
+        (mock/set-request-hook! *mock-server* nil)))))
+
+(deftest test-failed-setup-cancels-active-provider-invocation
+  (let [server *mock-server*
+        session-id "failed-setup-active-provider"
+        provider-entered (promise)
+        provider-interrupted (promise)
+        token-response (promise)
+        registration-id (atom nil)
+        blocker (promise)]
+    (mock/set-request-hook!
+     server
+     (fn [method params]
+       (case method
+         "session.create"
+         (reset! registration-id (:gitHubTokenProviderRegistrationId params))
+
+         "session.options.update"
+         (do
+           (future
+             (deliver
+              token-response
+              (mock/send-rpc-request!
+               server
+               "gitHubToken.getToken"
+               {:registrationId @registration-id
+                :host "github.com"
+                :sessionId session-id
+                :reason "initial"})))
+           (await-value! provider-entered "provider callback entry" 1000)
+           (throw (ex-info "options failed with provider active" {:code -32000})))
+
+         nil)))
+    (let [failure
+          (try
+            (sdk/create-session
+             *test-client*
+             {:session-id session-id
+              :on-permission-request sdk/approve-all
+              :skip-custom-instructions true
+              :github-token-provider
+              (fn [_]
+                (deliver provider-entered true)
+                (try
+                  @blocker
+                  (catch InterruptedException t
+                    (deliver provider-interrupted true)
+                    (throw t))))})
+            (catch Throwable t
+              t))]
+      (is (instance? Throwable failure))
+      (is (true? (await-value! provider-interrupted
+                               "provider callback interruption"
+                               1000)))
+      (is (= {:kind "cancelled"}
+             (:result
+              (await-value! token-response "cancelled provider response" 1000))))
+      (is (empty? (:github-token-provider-invocations
+                   @(:state *test-client*))))
+      (is (empty? (registrations-for-session *test-client* session-id))))))
+
+(deftest test-cleanup-failure-is-suppressed-under-primary-setup-failure
+  (let [session-id "suppressed-cleanup-failure"]
+    (mock/set-request-hook!
+     *mock-server*
+     (fn [method _]
+       (case method
+         "session.options.update"
+         (throw (ex-info "primary options failure" {:code -32000}))
+
+         "session.destroy"
+         (throw (ex-info "cleanup destroy failure" {:code -32000}))
+
+         nil)))
+    (let [failure
+          (try
+            (sdk/create-session
+             *test-client*
+             {:session-id session-id
+              :on-permission-request sdk/approve-all
+              :skip-custom-instructions true
+              :github-token-provider (fn [_] {:kind :cancelled})})
+            (catch Throwable t
+              t))]
+      (is (instance? Throwable failure))
+      (is (str/includes? (ex-message failure) "primary options failure"))
+      (is (= 1 (count (.getSuppressed ^Throwable failure))))
+      (is (str/includes?
+           (ex-message (.getCause ^Throwable
+                        (first (.getSuppressed ^Throwable failure))))
+           "cleanup destroy failure"))
+      (is (nil? (get-in @(:state *test-client*) [:sessions session-id])))
+      (is (nil? (get-in @(:state *test-client*) [:session-io session-id])))
+      (is (empty? (registrations-for-session *test-client* session-id))))))
 
 (deftest test-session-github-token-provider-request-ownership
   (testing "a callback request cannot override its registration-bound session"
@@ -1161,6 +1555,124 @@
       (@#'client/release-transport! client {:process :none})
       (assert-provider-request-cancelled! response)
       (is (empty? (:github-token-provider-invocations @(:state client)))))))
+
+(deftest test-session-github-token-provider-executor-lifecycle
+  (testing "teardown interrupts blocking callback work and returns cancellation promptly"
+    (let [client (sdk/client {:auto-start? false})
+          session-id "interrupt-provider"
+          _ (session/create-session client session-id {})
+          entered (promise)
+          interrupted (promise)
+          blocker (promise)
+          registration-id
+          (@#'client/register-github-token-provider!
+           client
+           (fn [_]
+             (deliver entered {:daemon? (.isDaemon (Thread/currentThread))
+                               :thread-name (.getName (Thread/currentThread))})
+             (try
+               @blocker
+               {:kind :cancelled}
+               (catch InterruptedException _
+                 (deliver interrupted true)
+                 (throw (InterruptedException.)))))
+           session-id)
+          _ (@#'client/commit-github-token-provider!
+             client session-id registration-id)
+          call
+          (future
+            (@#'client/github-token-provider-response
+             client
+             {:registration-id registration-id
+              :host "github.com"
+              :reason "refresh"}))]
+      (try
+        (let [{:keys [daemon? thread-name]} (deref entered 1000 ::timeout)]
+          (is daemon?)
+          (is (str/starts-with? thread-name "copilot-github-token-provider-")))
+        (session/teardown-local! client session-id)
+        (let [response-ch (deref call 1000 ::timeout)]
+          (is (satisfies? async-protocols/ReadPort response-ch))
+          (is (= {:result {:kind :cancelled}}
+                 (first (alts!! [response-ch (timeout 1000)])))))
+        (is (= true (deref interrupted 1000 false)))
+        (finally
+          (deliver blocker true)
+          (future-cancel call)
+          (@#'client/release-transport! client {:process :none})))))
+
+  (testing "transport release shuts down the executor and a later request creates a fresh one"
+    (let [client (sdk/client {:auto-start? false})
+          invoke!
+          (fn [session-id]
+            (let [registration-id
+                  (@#'client/register-github-token-provider!
+                   client (constantly {:kind :cancelled}) session-id)]
+              (<!!
+               (@#'client/github-token-provider-response
+                client
+                {:registration-id registration-id
+                 :host "github.com"
+                 :reason "initial"}))))
+          _ (invoke! "first")
+          first-executor (:github-token-provider-executor @(:state client))]
+      (is (some? first-executor))
+      (@#'client/release-transport! client {:process :none})
+      (is (nil? (:github-token-provider-executor @(:state client))))
+      (invoke! "second")
+      (let [second-executor (:github-token-provider-executor @(:state client))]
+        (is (some? second-executor))
+        (is (not (identical? first-executor second-executor))))
+      (@#'client/release-transport! client {:process :none})))
+
+  (testing "executor saturation produces an explicit sanitized response"
+    (with-redefs-fn
+      {#'client/github-token-provider-thread-count 1
+       #'client/github-token-provider-queue-size 1}
+      (fn []
+        (let [client (sdk/client {:auto-start? false})
+              gate (promise)
+              entered (atom 0)
+              registration-id
+              (@#'client/register-github-token-provider!
+               client
+               (fn [_]
+                 (swap! entered inc)
+                 @gate
+                 {:kind :cancelled})
+               "saturated")
+              first-response
+              (@#'client/github-token-provider-response
+               client
+               {:registration-id registration-id
+                :host "github.com"
+                :reason "refresh"})]
+          (try
+            (await-atom! entered #(= 1 %) "first provider task" 1000)
+            (let [second-response
+                  (@#'client/github-token-provider-response
+                   client
+                   {:registration-id registration-id
+                    :host "github.com"
+                    :reason "refresh"})
+                  third-response
+                  (@#'client/github-token-provider-response
+                   client
+                   {:registration-id registration-id
+                    :host "github.com"
+                    :reason "refresh"})]
+              (is (= {:error
+                      {:code -32000
+                       :message "GitHub token provider executor saturated"}}
+                     (<!! third-response)))
+              (@#'client/release-transport! client {:process :none})
+              (is (= {:result {:kind :cancelled}}
+                     (first (alts!! [first-response (timeout 1000)]))))
+              (is (= {:result {:kind :cancelled}}
+                     (first (alts!! [second-response (timeout 1000)])))))
+            (finally
+              (deliver gate true)
+              (@#'client/release-transport! client {:process :none}))))))))
 
 (deftest test-session-github-token-provider-unexpected-connection-closure
   (testing "notification-channel closure cancels active provider invocations"

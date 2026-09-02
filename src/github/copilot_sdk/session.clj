@@ -892,60 +892,72 @@
          :github-token-provider-invocations {}))
 
 (defn ^:no-doc close-removed-github-token-provider-invocations!
-  "Signal invocations removed by one atomic client-state transition."
+  "Cancel invocations removed by one atomic client-state transition."
   [old-state new-state]
-  (doseq [[invocation-id {:keys [cancel-chan] :as invocation}]
+  (doseq [[invocation-id {:keys [cancel-chan cancelled? task] :as invocation}]
           (:github-token-provider-invocations old-state)
           :when (not (identical?
                       invocation
                       (get-in new-state
                               [:github-token-provider-invocations
                                invocation-id])))]
-    (close! cancel-chan)))
+    (when cancelled?
+      (reset! cancelled? true))
+    (close! cancel-chan)
+    (when-let [^java.util.concurrent.Future future (some-> task deref)]
+      (.cancel future true))))
 
 (defn ^:no-doc teardown-local!
-  "Mark a session terminal and release resources without contacting the runtime."
-  [client session-id]
-  (let [[old new]
-        (swap-vals!
-         (:state client)
-         (fn [state]
-           (let [session (get-in state [:sessions session-id])
-                 state (purge-github-token-provider-resources
-                        state session-id :all)]
-             (if (or (nil? session) (:destroyed? session))
-               state
-               (assoc-in
+  "Mark a session terminal and release resources without contacting the runtime.
+
+   `provider-scope` defaults to `:all`. Pass nil only while rolling back a
+   provisional resume setup that must leave the previously committed provider
+   available."
+  ([client session-id]
+   (teardown-local! client session-id :all))
+  ([client session-id provider-scope]
+   (let [[old new]
+         (swap-vals!
+          (:state client)
+          (fn [state]
+            (let [session (get-in state [:sessions session-id])
+                  state (if provider-scope
+                          (purge-github-token-provider-resources
+                           state session-id provider-scope)
+                          state)]
+              (if (or (nil? session) (:destroyed? session))
                 state
-                [:sessions session-id]
-                (assoc session
-                       :destroyed? true
-                       :tool-handlers {}
-                       :permission-handler nil
-                       :user-input-handler nil
-                       :factories {}
-                       :factory-executions {}
-                       :hooks {}
-                       :config nil))))))]
-    (close-removed-github-token-provider-invocations! old new)
-    (cond
-      (nil? (get-in old [:sessions session-id]))
-      :absent
+                (assoc-in
+                 state
+                 [:sessions session-id]
+                 (assoc session
+                        :destroyed? true
+                        :tool-handlers {}
+                        :permission-handler nil
+                        :user-input-handler nil
+                        :factories {}
+                        :factory-executions {}
+                        :hooks {}
+                        :config nil))))))]
+     (close-removed-github-token-provider-invocations! old new)
+     (cond
+       (nil? (get-in old [:sessions session-id]))
+       :absent
 
-      (get-in old [:sessions session-id :destroyed?])
-      :already-destroyed
+       (get-in old [:sessions session-id :destroyed?])
+       :already-destroyed
 
-      :else
-      (do
-        (cancel-executions!
-         (mapcat vals
-                 (vals (get-in old [:sessions session-id :factory-executions]))))
-        (let [{:keys [event-chan send-lock]} (get-in old [:session-io session-id])]
-          (when event-chan
-            (close! event-chan))
-          (when send-lock
-            (close! send-lock)))
-        :claimed))))
+       :else
+       (do
+         (cancel-executions!
+          (mapcat vals
+                  (vals (get-in old [:sessions session-id :factory-executions]))))
+         (let [{:keys [event-chan send-lock]} (get-in old [:session-io session-id])]
+           (when event-chan
+             (close! event-chan))
+           (when send-lock
+             (close! send-lock)))
+         :claimed)))))
 
 (defn- factory-context
   [client session-id {:keys [run-id execution-token args] :as _params} execution]
