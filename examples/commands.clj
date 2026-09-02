@@ -14,10 +14,10 @@
   [{:keys [session-id command-name]}]
   (println (str "  [" command-name "] Session: " session-id)))
 
-(defn handle-help
-  "Handler for /help command — shows available commands."
+(defn handle-guide
+  "Handler for /guide command — shows available commands."
   [{:keys [command-name]}]
-  (println (str "  [" command-name "] Available commands: /status, /help")))
+  (println (str "  [" command-name "] Available commands: /status, /guide")))
 
 (defn run
   "Run the commands example."
@@ -28,10 +28,10 @@
               :commands [{:name "status"
                           :description "Show session status"
                           :command-handler handle-status}
-                         {:name "help"
+                         {:name "guide"
                           :description "List available commands"
-                          :command-handler handle-help}]}]
-    (println "Session created with commands: /status, /help")
+                          :command-handler handle-guide}]}]
+    (println "Session created with commands: /status, /guide")
     (println "Sending a message...")
     (let [response (copilot/send-and-wait! session
                                            {:prompt "Say hello briefly."})]

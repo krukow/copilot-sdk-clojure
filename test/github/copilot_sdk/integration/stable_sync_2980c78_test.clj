@@ -9,6 +9,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [github.copilot-sdk.generated.event-specs :as generated-events]
+            [github.copilot-sdk.session :as session]
             [github.copilot-sdk.specs :as specs])
   (:import (java.math BigInteger)
            (java.nio.charset StandardCharsets)
@@ -82,7 +83,7 @@
 ;; the oracle cannot silently drift out of sync with the real upstream diff.
 (def ^:private expected-event-interface-fields
   {"AssistantMessageData"
-   {:stable-public #{"reasoningBlocks"} :experimental #{"fusion"}}
+   {:experimental #{"fusion" "reasoningBlocks"}}
    "AssistantUsageData"
    {:stable-public #{"outputTtftMs"} :experimental #{"fusion"}}
    "CompactionCompleteData"
@@ -91,6 +92,8 @@
    {:stable-public #{"parentToolCallId"}}
    "HookStartData"
    {:stable-public #{"parentToolCallId"}}
+   "ModelCallFailureData"
+   {:experimental #{"fusion"}}
    "PermissionPromptRequestMcp"
    {:stable-public #{"canOfferServerWideApproval"}}
    "SubagentStartedData"
@@ -104,7 +107,11 @@
                      "explicitModelMatchesPreference" "explicitModelOverride"
                      "firstDispatchedModel"}}
    "ToolExecutionCompleteContentShellExit"
-   {:stable-public #{"outputFilePath"}}})
+   {:stable-public #{"outputFilePath"}}
+   "ToolExecutionCompleteData"
+   {:experimental #{"fusion"}}
+   "ToolExecutionStartData"
+   {:experimental #{"fusion"}}})
 
 (def ^:private allowed-classifications
   #{:experimental :generated-only :internal :language-specific :mixed
@@ -114,23 +121,15 @@
   (= "true" (System/getenv "COPILOT_UPSTREAM_VALIDATION")))
 
 (defn- note-upstream-validation-status!
-  "Emit a visible pass/skip signal for the external upstream-diff checks
-   gated behind COPILOT_UPSTREAM_VALIDATION. Without this, a disabled run
-   contributes zero assertions from the `when-let` blocks below and can look
-   like a silent, unqualified success. This never fails the hermetic
-   (default) run; it only makes the skip state impossible to miss."
+  "Emit a visible pass/skip signal for external upstream-diff checks gated
+   behind COPILOT_UPSTREAM_VALIDATION."
   [test-name]
   (println
    (str "[stable-sync-2980c78] " test-name
         ": external upstream-diff validation "
         (if upstream-validation-enabled?
           "ENABLED (comparing the committed report against a resolved local upstream checkout)"
-          "SKIPPED (set COPILOT_UPSTREAM_VALIDATION=true with a local upstream checkout to run the exact-pin git-diff assertions)")))
-  (is true
-      (str test-name
-           (if upstream-validation-enabled?
-             ": external upstream-diff validation ran."
-             ": external upstream-diff validation was SKIPPED; only the committed EDN oracle was certified in this run."))))
+          "SKIPPED (set COPILOT_UPSTREAM_VALIDATION=true with a local upstream checkout to run the exact-pin git-diff assertions)"))))
 
 (defn- read-report
   []
@@ -563,6 +562,20 @@
                    "assistant.fusion_phase_failed"}
                  (get-in exclusions
                          [:events/hydra-fusion-experimental :event-types]))))
+        (let [schema (json/read-str
+                      (slurp "schemas/session-events.schema.json"))
+              definitions (get schema "definitions")]
+          (doseq [[definition event-type]
+                  [["FusionCommitStartedEvent" "session.fusion_commit_started"]
+                   ["FusionHandoffEvent" "session.fusion_handoff"]]]
+            (testing event-type
+              (is (= event-type
+                     (get-in definitions
+                             [definition "properties" "type" "const"])))
+              (is (= "internal"
+                     (get-in definitions [definition "visibility"])))
+              (is (= "experimental"
+                     (get-in definitions [definition "stability"]))))))
         (doseq [{:keys [id clojure-paths contract]} stable-deltas
                 path (concat clojure-paths (:tests contract) (:docs contract))]
           (testing (str (name id) " local path " path)
@@ -744,28 +757,13 @@
           "auto-tier remains optional")
       (is (not (s/valid? ::specs/session.resume-data (assoc base :auto-tier "turbo")))))))
 
-(deftest assistant-message-reasoning-blocks-additive-field
-  (testing "assistant.message reasoningBlocks is a structural, not opaque, shape"
-    (let [base {:message-id "msg-1" :content "hello"}]
-      (is (s/valid? ::specs/assistant.message-data base)
-          "reasoningBlocks remains optional")
-      (is (s/valid? ::specs/assistant.message-data
-                    (assoc base :reasoning-blocks {:provider "anthropic"
-                                                   :blocks [{:type "text" :text "..."}]})))
-      (is (s/valid? ::specs/assistant.message-data
-                    (assoc base :reasoning-blocks {:provider "anthropic"}))
-          "blocks is itself optional within reasoning-blocks")
-      (is (not (s/valid? ::specs/assistant.message-data
-                         (assoc base :reasoning-blocks {:blocks []})))
-          "provider is required within reasoning-blocks")
-      (is (not (s/valid? ::specs/assistant.message-data
-                         (assoc base :reasoning-blocks {:provider "anthropic" :blocks "nope"})))
-          "blocks must be a vector when present")
-      (is (not (s/valid? ::specs/assistant.message-data
-                         (assoc base :reasoning-blocks
-                                {:provider "anthropic"
-                                 :blocks [{:nested [(Object.)]}]})))
-          "every reasoning block must be recursively JSON-safe"))))
+(deftest assistant-message-reasoning-blocks-remain-generated-only
+  (testing "experimental reasoningBlocks are wire evidence, not a curated idiom spec"
+    (is (nil? (s/get-spec ::specs/reasoning-blocks)))
+    (is (s/valid?
+         ::generated-events/assistant-message-reasoning-blocks-shape
+         {:provider "anthropic"
+          :blocks [{:type "text" :text "..."}]}))))
 
 (deftest assistant-usage-output-ttft-ms-non-negative
   (testing "assistant.usage outputTtftMs accepts non-negative numbers only"
@@ -775,6 +773,13 @@
       (is (s/valid? ::specs/assistant.usage-data base)
           "output-ttft-ms remains optional")
       (is (not (s/valid? ::specs/assistant.usage-data (assoc base :output-ttft-ms -1))))
+      (is (not (s/valid? ::specs/assistant.usage-data
+                         (assoc base :output-ttft-ms Double/NaN))))
+      (is (not (s/valid? ::specs/assistant.usage-data
+                         (assoc base :output-ttft-ms
+                                Double/POSITIVE_INFINITY))))
+      (is (not (s/valid? ::specs/assistant.usage-data
+                         (assoc base :output-ttft-ms 1/2))))
       (is (not (s/valid? ::specs/assistant.usage-data (assoc base :output-ttft-ms "42")))))))
 
 (deftest compaction-complete-behavior-model-id-additive-field
@@ -800,8 +805,36 @@
       (is (s/valid? ::specs/hook.end-data
                     {:hook-invocation-id "" :hook-type "" :success true}))
       (is (s/valid? ::specs/hook.end-data (assoc base :parent-tool-call-id "call-1")))
-      (is (s/valid? ::specs/hook.end-data (assoc base :error "boom")))
+      (is (s/valid? ::specs/hook.end-data
+                    (assoc base :error {:message "boom"
+                                        :source "plugin"
+                                        :stack "trace"})))
+      (is (not (s/valid? ::specs/hook.end-data (assoc base :error "boom"))))
+      (is (not (s/valid? ::specs/hook.end-data
+                         (assoc base :error {:source "plugin"}))))
+      (is (not (s/valid? ::specs/hook.end-data
+                         (assoc base :error
+                                {:message "boom" :extra true}))))
       (is (not (s/valid? ::specs/hook.end-data (dissoc base :success)))))))
+
+(deftest opaque-result-and-error-fields-require-recursive-json-values
+  (doseq [spec [::specs/result ::specs/error]]
+    (is (s/valid? spec nil))
+    (is (s/valid? spec {:nested [true 1 "value" nil]}))
+    (is (not (s/valid? spec {:nested [(Object.)]})))
+    (is (not (s/valid? spec Double/POSITIVE_INFINITY)))
+    (is (not (s/valid? spec 1/2)))))
+
+(deftest permission-response-capability-maps-to-pinned-wire-values
+  (doseq [capability [:interactive :headless :none]]
+    (let [context {:outcome :auto-approved
+                   :source :host-policy
+                   :surface :sdk
+                   :response-capability capability}]
+      (is (s/valid? ::specs/permission-decision-context context))
+      (is (= (name capability)
+             (:response-capability
+              (@#'session/permission-context->wire context)))))))
 
 (deftest subagent-started-additive-fields-and-parent-id-collision-fix
   (testing "subagent.started agentType/executionMode/resumable/parentId are additive"

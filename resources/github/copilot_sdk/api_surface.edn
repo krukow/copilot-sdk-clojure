@@ -641,6 +641,7 @@
     :github.copilot-sdk.specs/env
     :github.copilot-sdk.specs/environment-variables
     :github.copilot-sdk.specs/ephemeral?
+    :github.copilot-sdk.specs/error
     :github.copilot-sdk.specs/error-code
     :github.copilot-sdk.specs/error-reason
     :github.copilot-sdk.specs/error-type
@@ -708,6 +709,7 @@
     :github.copilot-sdk.specs/handled?
     :github.copilot-sdk.specs/head-commit
     :github.copilot-sdk.specs/headers
+    :github.copilot-sdk.specs/hook-end-error
     :github.copilot-sdk.specs/hook-invocation-id
     :github.copilot-sdk.specs/hook-type
     :github.copilot-sdk.specs/hook.end-data
@@ -924,7 +926,6 @@
     :github.copilot-sdk.specs/readdir
     :github.copilot-sdk.specs/readdir-with-types
     :github.copilot-sdk.specs/reason
-    :github.copilot-sdk.specs/reasoning-blocks
     :github.copilot-sdk.specs/reasoning-effort
     :github.copilot-sdk.specs/reasoning-id
     :github.copilot-sdk.specs/reasoning-opaque
@@ -958,6 +959,7 @@
     :github.copilot-sdk.specs/reset-date
     :github.copilot-sdk.specs/resolved-by-hook
     :github.copilot-sdk.specs/restricted
+    :github.copilot-sdk.specs/result
     :github.copilot-sdk.specs/result-type
     :github.copilot-sdk.specs/resumable
     :github.copilot-sdk.specs/resume-session-config

@@ -1,5 +1,6 @@
 (ns github.copilot-sdk.force-stop-test
   (:require [clojure.core.async :as async]
+            [clojure.core.async.impl.protocols :as async-protocols]
             [clojure.test :refer [deftest is testing]]
             [github.copilot-sdk :as sdk]
             [github.copilot-sdk.protocol :as protocol]
@@ -106,6 +107,79 @@
     (is (= [["session.destroy" {:session-id "runtime-only-session"}]]
            @rpc-calls))
     (is (empty? (:sessions @(:state client))))))
+
+(deftest disconnect-notifies-runtime-before-releasing-local-resources
+  (let [client (sdk/client {:auto-start? false})
+        copilot-session (session/create-session client "ordered-disconnect" {})
+        session-id (sdk/session-id copilot-session)
+        event-root (get-in @(:state client) [:session-io session-id :event-chan])
+        state-during-rpc (atom nil)]
+    (with-redefs [protocol/send-request!
+                  (fn [_ method params & _]
+                    (reset! state-during-rpc
+                            {:method method
+                             :params params
+                             :session (get-in @(:state client)
+                                              [:sessions session-id])
+                             :disconnecting?
+                             (contains?
+                              (:disconnecting-session-ids
+                               @(:state client))
+                              session-id)
+                             :event-closed?
+                             (async-protocols/closed? event-root)}))]
+      (is (nil? (session/disconnect! client session-id))))
+    (is (= "session.destroy" (:method @state-during-rpc)))
+    (is (= {:session-id session-id} (:params @state-during-rpc)))
+    (is (true? (:disconnecting? @state-during-rpc)))
+    (is (false? (get-in @state-during-rpc
+                        [:session :destroyed?])))
+    (is (false? (:event-closed? @state-during-rpc)))
+    (is (true? (get-in @(:state client)
+                       [:sessions session-id :destroyed?])))
+    (is (async-protocols/closed? event-root))))
+
+(deftest disconnect-preserves-local-resources-after-runtime-failure
+  (let [client (sdk/client {:auto-start? false})
+        copilot-session (session/create-session client "failed-disconnect" {})
+        session-id (sdk/session-id copilot-session)
+        events-ch (session/subscribe-events copilot-session)]
+    (with-redefs [protocol/send-request!
+                  (fn [& _]
+                    (throw (ex-info "runtime destroy failed" {})))]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"runtime destroy failed"
+           (session/disconnect! client session-id))))
+    (is (false? (get-in @(:state client)
+                        [:sessions session-id :destroyed?])))
+    (is (false? (contains? (:disconnecting-session-ids @(:state client))
+                           session-id)))
+    (is (= ::open (async/alt!!
+                    events-ch ([event] event)
+                    (async/timeout 25) ::open)))))
+
+(deftest session-registration-rejects-an-in-progress-disconnect
+  (let [client (sdk/client {:auto-start? false})
+        copilot-session (session/create-session client "disconnect-race" {})
+        session-id (sdk/session-id copilot-session)
+        destroy-started (promise)
+        finish-destroy (promise)]
+    (with-redefs [protocol/send-request!
+                  (fn [_ method _ & _]
+                    (when (= "session.destroy" method)
+                      (deliver destroy-started true)
+                      @finish-destroy))]
+      (let [disconnect (future (session/disconnect! client session-id))]
+        (is (= true (deref destroy-started 500 ::pending)))
+        (is (thrown-with-msg?
+             clojure.lang.ExceptionInfo
+             #"disconnect is in progress"
+             (session/create-session client session-id {})))
+        (deliver finish-destroy {:success true})
+        (is (nil? (deref disconnect 500 ::pending)))))
+    (is (true? (get-in @(:state client)
+                       [:sessions session-id :destroyed?])))))
 
 (deftest local-teardown-does-not-recreate-a-session-after-claim
   (let [client (sdk/client {:auto-start? false})

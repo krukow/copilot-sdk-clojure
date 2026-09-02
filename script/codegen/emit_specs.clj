@@ -107,6 +107,17 @@
       `(~'s/and ~predicate ~@bounds)
       predicate)))
 
+(def ^:private json-number-predicate
+  `(~'s/and
+    ~'number?
+    (~'fn [~'n]
+      (~'and
+       (~'not (~'ratio? ~'n))
+       (~'cond
+        (~'instance? Double ~'n) (Double/isFinite ~'n)
+        (~'instance? Float ~'n) (Float/isFinite ~'n)
+        :else true)))))
+
 (defn- emit-array [root node]
   (let [items (:items node)]
     (if items
@@ -192,7 +203,7 @@
       (:anyOf node)              (emit-anyOf root node)
       (= "string"  (:type node)) (emit-string node)
       (= "integer" (:type node)) (emit-number node `integer?)
-      (= "number"  (:type node)) (emit-number node `number?)
+      (= "number"  (:type node)) (emit-number node json-number-predicate)
       (= "boolean" (:type node)) `boolean?
       (= "null"    (:type node)) `nil?
       (= "array"   (:type node)) (emit-array root node)

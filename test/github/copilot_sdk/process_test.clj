@@ -5,7 +5,18 @@
   (:require [clojure.test :refer [deftest is testing]]
             [github.copilot-sdk.process :as proc]
             [github.copilot-sdk.specs :as specs]
-            [clojure.spec.alpha :as s]))
+            [clojure.spec.alpha :as s])
+  (:import [java.io ByteArrayInputStream]))
+
+(deftest wait-for-port-reads-the-complete-announced-port
+  (let [announcement "CLI server listening on port 63234\n"
+        process (proxy [Process] []
+                  (isAlive [] true))
+        managed-process
+        (proc/map->ManagedProcess
+         {:process process
+          :stdout (ByteArrayInputStream. (.getBytes announcement "UTF-8"))})]
+    (is (= 63234 (proc/wait-for-port managed-process 1000)))))
 
 (deftest cli-env-overrides-defaults
   (testing "by default only NODE_DEBUG is in :defaults (removed; user :env can re-add)"

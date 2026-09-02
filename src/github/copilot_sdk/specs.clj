@@ -45,6 +45,9 @@
                       (every? opaque-json-value? (vals value)))
     :else false))
 
+(s/def ::result opaque-json-value?)
+(s/def ::error opaque-json-value?)
+
 (s/def ::non-blank-string (s/and string? (complement clojure.string/blank?)))
 ;; ::timestamp accepts both ISO 8601 strings (CLI ≥ 1.0.51, upstream PR #1340)
 ;; and numeric epoch-millis (older CLIs). Used by event timestamps and ping
@@ -957,7 +960,7 @@
 (s/def ::custom-agents-local-only boolean?)
 (s/def ::coauthor-enabled boolean?)
 (s/def ::manage-schedule-enabled boolean?)
-(s/def ::included-builtin-skills (s/coll-of string?))
+(s/def ::included-builtin-skills (s/coll-of ::non-blank-string))
 
 ;; Reasoning summary mode (upstream PR #813 - pre-existing parity gap).
 ;; Wire enum: "none" | "concise" | "detailed". Mirrors upstream's ReasoningSummary type.
@@ -985,7 +988,8 @@
 
 ;; Session-scoped GitHub credential callback (upstream PR #2412).
 (s/def ::github-token-provider fn?)
-(s/def ::github-token-acquire-reason #{:initial :refresh})
+(s/def ::github-token-acquire-reason
+  (s/and keyword? #(not (str/blank? (name %)))))
 (s/def ::github-token-provider-args
   (s/and map?
          #(every? #{:host :session-id :reason} (keys %))
@@ -1866,23 +1870,11 @@
         (s/valid? ::assistant-message-tool-request-type (:type %)))))
 (s/def ::tool-requests
   (s/coll-of ::assistant-message-tool-request :kind vector?))
-;; :reasoning-blocks — upstream schema 1.0.83-1 (AssistantMessageReasoningBlocks).
-;; Its `provider` field is a plain reasoning-provider label string, distinct
-;; from the ::provider BYOK client-config spec reused elsewhere in this file
-;; (a map of ::base-url etc.), so it's validated via a dedicated predicate
-;; instead of s/keys :req-un [::provider]. `blocks` items are x-opaque-json in
-;; the pinned schema, so each item is recursively checked as opaque JSON.
-(s/def ::reasoning-blocks
-  (s/and map?
-         #(string? (:provider %))
-         #(or (not (contains? % :blocks))
-              (and (vector? (:blocks %))
-                   (every? opaque-json-value? (:blocks %))))))
 (s/def ::assistant.message-data
   (s/keys :req-un [::message-id ::content]
           :opt-un [::tool-requests ::parent-tool-call-id ::encrypted-content
                    ::interaction-id ::output-tokens ::phase ::reasoning-opaque
-                   ::reasoning-blocks ::reasoning-text ::request-id ::api-call-id
+                   ::reasoning-text ::request-id ::api-call-id
                    ::server-tools ::service-request-id ::turn-id ::model
                    ::chunk-index ::chunk-count ::rte]))
 
@@ -1926,11 +1918,11 @@
 ;; now valid), so the idiom spec accepts any non-negative number. The `<=` predicate
 ;; also rejects ##NaN (which `neg?` would let through), keeping the value a meaningful
 ;; duration.
-(s/def ::time-to-first-token-ms (s/and number? #(<= 0 %)))
-(s/def ::ttft-ms (s/and number? #(<= 0 %)))
+(s/def ::time-to-first-token-ms (s/and json-number? #(<= 0 %)))
+(s/def ::ttft-ms (s/and json-number? #(<= 0 %)))
 ;; :output-ttft-ms — upstream schema 1.0.83-1. Time-to-first-output-token,
 ;; distinct from ::time-to-first-token-ms; same non-negative-number semantics.
-(s/def ::output-ttft-ms (s/and number? #(<= 0 %)))
+(s/def ::output-ttft-ms (s/and json-number? #(<= 0 %)))
 (s/def ::copilot-usage map?)
 
 ;; :api-endpoint — open string enum, added upstream CLI 1.0.47 (PR #1286).
@@ -2073,18 +2065,26 @@
           :opt-un [::temporary]))
 
 ;; Hook start/end events (upstream schema 1.0.83-1, stable 2980c78 sync).
-;; `:parent-tool-call-id` (both) added on top of already-stable hook events;
-;; `hook.end-data`'s `:error` reuses the shared (unvalidated) ::error keyword,
-;; matching the existing codebase-wide convention for HookEndError's shape
-;; (message/stack/source) rather than modeling it as a dedicated spec.
+;; `:parent-tool-call-id` (both) added on top of already-stable hook events.
 (s/def ::hook-invocation-id string?)
 (s/def ::hook-type string?)
+(s/def ::hook-end-error
+  (closed-keys
+   (s/and
+    map?
+    #(string? (:message %))
+    #(or (not (contains? % :stack)) (string? (:stack %)))
+    #(or (not (contains? % :source)) (string? (:source %))))
+   #{:message :stack :source}))
 (s/def ::hook.start-data
   (s/keys :req-un [::hook-invocation-id ::hook-type]
           :opt-un [::parent-tool-call-id]))
 (s/def ::hook.end-data
-  (s/keys :req-un [::hook-invocation-id ::hook-type ::success]
-          :opt-un [::error ::parent-tool-call-id]))
+  (s/and
+   (s/keys :req-un [::hook-invocation-id ::hook-type ::success]
+           :opt-un [::error ::parent-tool-call-id])
+   #(or (not (contains? % :error))
+        (s/valid? ::hook-end-error (:error %)))))
 
 ;; Session plan changed event
 (s/def ::operation #{"create" "update" "delete"})
@@ -2630,7 +2630,7 @@
 (s/def ::permission-decision-outcome
   #{:auto-approved :autopilot-denied :prompted-user})
 (s/def ::permission-decision-source
-  #{:judge-recommendation :human-response :host-policy :unattended-fallback})
+  #{:assisted-approval :human-response :host-policy :unattended-fallback})
 (s/def ::permission-decision-surface
   #{:tui :prompt-mode :copilot-app :sdk :acp})
 (s/def ::permission-response-capability

@@ -72,6 +72,13 @@
       (.connectTimeout (Duration/ofSeconds 10))
       (.build)))
 
+(def broker-token
+  (let [token (System/getenv "COPILOT_TOKEN_BROKER_TOKEN")]
+    (when (str/blank? token)
+      (throw
+       (ex-info "COPILOT_TOKEN_BROKER_TOKEN is required" {})))
+    token))
+
 (defn encode-query-component [value]
   (URLEncoder/encode (if (keyword? value) (name value) (str value))
                      StandardCharsets/UTF_8))
@@ -97,6 +104,7 @@
                      session-id (assoc :session-id session-id)))))
         request (-&gt; (HttpRequest/newBuilder uri)
                     (.timeout (Duration/ofSeconds 15))
+                    (.header "Authorization" (str "Bearer " broker-token))
                     (.GET)
                     (.build))
         response (.send http-client request (HttpResponse$BodyHandlers/ofString))
@@ -123,6 +131,7 @@
       (finally
         (copilot/disconnect! session)))))
 </code></pre>
+<p>The credential broker must authenticate its caller and authorize every requested GitHub host and session. The example reads the broker credential from the process environment; use the workload identity or secret-delivery mechanism appropriate to your deployment rather than embedding a credential in source.</p>
 <p>The callback receives:</p>
 <table>
 <thead>
@@ -131,12 +140,12 @@
 <tbody>
 <tr><td> <code>:host</code> </td><td> GitHub host requesting the credential </td></tr>
 <tr><td> <code>:session-id</code> </td><td> Session ID when known; omitted during an initial cloud-session registration if the server assigns the ID </td></tr>
-<tr><td> <code>:reason</code> </td><td> <code>:initial</code> for the first credential or <code>:refresh</code> when the runtime requests renewal </td></tr>
+<tr><td> <code>:reason</code> </td><td> <code>:initial</code> for the first credential, <code>:refresh</code> when the runtime requests renewal, or a future nonblank keyword passed through for forward compatibility </td></tr>
 </tbody>
 </table>
 <p>Return <code>{:kind :token :access-token ... :expires-in ...}</code> with an integer expiry of at least 3,601 seconds and optional <code>:token-type</code>, or return <code>{:kind :cancelled}</code>. Either result may be returned directly or through a core.async channel. Both result variants may contain additional extension fields; the SDK validates the known discriminator and payload fields without stripping those extensions.</p>
-<p><code>:github-token-provider</code> and session <code>:github-token</code> are mutually exclusive. Create, resume, and join requests carry only an opaque registration ID in session configuration. The callback remains inside the SDK process; when the runtime requests a credential, its result crosses the JSON-RPC connection to the CLI. <code>:github-token-provider</code> therefore requires a transport the SDK trusts: the SDK-managed child-process stdio transport, or an external <code>:cli-url</code> whose parsed host has a recognized loopback spelling (<code>localhost</code>, any valid <code>127.x.x.x</code>, <code>::1</code>, or its fully expanded IPv6 spelling). This is a syntactic allowlist; the SDK does not resolve arbitrary DNS names to determine whether they point at loopback.</p>
-<p>Any other <code>:cli-url</code> host is rejected before provider-backed session setup — an <code>https://</code> scheme on <code>:cli-url</code> is parsed for host/port only and does not make the SDK’s raw TCP socket TLS-protected. To reach a CLI on another host, terminate a protected tunnel locally and connect <code>:cli-url</code> to that loopback endpoint. Failed create/resume/join calls roll back provisional registrations, a successful resume replaces the session’s previous provider, and disconnect, delete, or client stop removes the registration and cancels in-flight acquisition work. (<a href="https://github.com/github/copilot-sdk/pull/2412">upstream PR #2412</a>)</p>
+<p><code>:github-token-provider</code> and session <code>:github-token</code> are mutually exclusive. Create, resume, and join requests carry only an opaque registration ID in session configuration. The callback remains inside the SDK process; when the runtime requests a credential, its result crosses the JSON-RPC connection to the CLI. <code>:github-token-provider</code> therefore requires an SDK-owned transport: managed child-process stdio or SDK-managed TCP. Every explicit external <code>:cli-url</code> is rejected before provider-backed session setup, including loopback and tunneled endpoints, because the authentication token would cross a connection the SDK does not own.</p>
+<p>Failed create/resume/join calls roll back provisional registrations, a successful resume replaces the session’s previous provider, and disconnect, delete, or client stop removes the registration and cancels in-flight acquisition work. (<a href="https://github.com/github/copilot-sdk/pull/2412">upstream PR #2412</a>)</p>
 <h2><a href="#environment-variables" id="environment-variables"></a>Environment Variables</h2>
 <p>For automation, CI/CD, and server-to-server scenarios, authenticate using environment variables.</p>
 <p><strong>Supported environment variables (in priority order):</strong> 1. <code>COPILOT_GITHUB_TOKEN</code> — Recommended for explicit Copilot usage 2. <code>GH_TOKEN</code> — GitHub CLI compatible 3. <code>GITHUB_TOKEN</code> — GitHub Actions compatible</p>

@@ -8,9 +8,10 @@ All notable changes to this project will be documented in this file. This change
   resume, and join, with initial and refresh callbacks, core.async results,
   atomic replacement on resume, and deterministic rollback and teardown.
   Session configuration carries only an opaque registration ID; acquired
-  credentials cross the JSON-RPC connection to the CLI. Use managed stdio/local
-  transport or an explicitly protected `:cli-url` tunnel, never plaintext TCP.
-  Provider expiry must be an integer of at least 3,601 seconds.
+  credentials cross the JSON-RPC connection to the CLI, so providers require an
+  SDK-owned stdio or TCP transport and reject every explicit external
+  `:cli-url`. Provider expiry must be an integer of at least 3,601 seconds.
+  Future nonblank acquisition reasons pass through to the callback.
   ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412))
 - Added stable session options for mode-specific built-in skill allowlisting,
   legacy versus elicitation `ask_user` variants, host-resolved feature flags,
@@ -23,26 +24,17 @@ All notable changes to this project will be documented in this file. This change
   [upstream PR #2451](https://github.com/github/copilot-sdk/pull/2451))
 - Added managed bypass-policy values and permission response-capability
   forwarding, and curated the stable `session.mode_notice_delivered`,
-  `model.call_finished`, and
-  `subagent.configured` events with open idiomatic payload specs. Assistant tool
-  requests now expose hosted-program caller attribution while preserving opaque
-  argument keys.
+  `model.call_finished`, and `subagent.configured` events with open idiomatic
+  payload specs. Assistant tool requests now expose hosted-program caller
+  attribution while preserving opaque argument keys.
   ([upstream PR #2401](https://github.com/github/copilot-sdk/pull/2401),
   [upstream PR #2409](https://github.com/github/copilot-sdk/pull/2409),
   [upstream PR #2467](https://github.com/github/copilot-sdk/pull/2467))
-- Reconciled a batch of stable existing-interface additions found during
-  independent review of the `1.0.83-1` sync: `AssistantMessageData.reasoningBlocks`,
-  `AssistantUsageData.outputTtftMs`, `CompactionCompleteData.behaviorModelId`,
-  `HookStartData`/`HookEndData.parentToolCallId`,
-  `PermissionPromptRequestMcp.canOfferServerWideApproval`,
-  `SubagentStartedData.agentType`/`executionMode`/`parentId`/`resumable`, and
-  `SubagentCompletedData`/`SubagentFailedData.firstDispatchedModel`/
-  `configuredModelPreference`/`explicitModelOverride`/
-  `explicitModelMatchesPreference`/`configuredModelMatchesActual`. All are
-  curated as open idiom specs so future additive fields remain accepted.
-  `ToolExecutionCompleteContentShellExit.outputFilePath` is enforced only at
-  the generated wire layer (see Fixed, below); the curated `tool.execution_complete`
-  `:result` payload is intentionally open.
+- Added stable event fields for output-token latency, compaction models, hook
+  parent tool calls, MCP server-wide approval capability, subagent execution and
+  model provenance, and shell-exit output paths. Experimental assistant
+  reasoning blocks remain generated wire evidence rather than a curated public
+  idiom field.
 
 ### Changed (stable 2980c78 sync)
 - **BREAKING:** Wait and stream APIs now treat `session.idle` events whose wire
@@ -51,6 +43,10 @@ All notable changes to this project will be documented in this file. This change
 - **BREAKING:** `:empty` client mode now disables runtime-bundled skills unless
   explicitly allowlisted with `:included-builtin-skills`, matching upstream safe
   defaults ([upstream PR #1428](https://github.com/github/copilot-sdk/pull/1428)).
+- **BREAKING (experimental):** Corrected permission decision source
+  `:judge-recommendation` / `"judge_recommendation"` to the pinned public schema's
+  `:assisted-approval` / `"assisted_approval"`.
+  ([upstream PR #2294](https://github.com/github/copilot-sdk/pull/2294))
 - Updated the runtime and schema pin to `1.0.83-1` and recertified the complete
   stable Node SDK public surface through upstream commit
   [`2980c7828d35754bfc2b334831efec309ab8a2eb`](https://github.com/github/copilot-sdk/commit/2980c7828d35754bfc2b334831efec309ab8a2eb).
@@ -61,59 +57,18 @@ All notable changes to this project will be documented in this file. This change
   ([upstream PR #2467](https://github.com/github/copilot-sdk/pull/2467))
 
 ### Fixed (stable 2980c78 sync)
-- **Codegen root cause:** `script/codegen/emit_specs.clj` emitted referenced
-  (`$ref`'d) object definitions as bare `map?`, so nested required keys, enum
-  constants, and `additionalProperties: false` closures were never enforced.
-  Referenced object definitions are now emitted as recursive structural
-  predicates (required keys, recursively validated known properties, and
-  rejection of unknown keys when the schema is closed) via a dedup'd
-  registry, while genuinely opaque inline JSON objects remain open. The
-  generated `AssistantMessageToolRequestCaller` spec now rejects a missing
-  `callerId`, any `type` other than `"program"`, and unknown keys.
-- `::tool-call-id` now permits the empty string, matching the pinned schema.
-- `::dispatch-duration-ms` now requires a finite, non-negative number,
-  rejecting `##NaN` and the infinities.
-- Exact-pin certification (`stable_sync_2980c78_test.clj`) now emits a visible
-  skip assertion/message when `COPILOT_UPSTREAM_VALIDATION` is not `"true"`,
-  instead of silently reporting success for the disabled external-checkout
-  path. Interface extraction was generalized to an oracle-driven inventory
-  (`test/resources/stable_upstream_delta_2980c78.edn`) covering additions to
-  existing public event interfaces. Declaration ownership now attributes
-  `ManagedSettingsEnforcedEscalation`, `ManagedSettingsResolvedSource`, and
-  `SessionEvent` to generated `session-events.ts`, and the managed-settings
-  wording was corrected to the nested
-  `managedSettings.permissions.disableBypassPermissionsMode` path.
-- `.github/workflows/ci.yml` now uses `fetch-depth: 0` for the secondary
-  upstream checkout, so exact-pin commit validation can resolve full history.
-- Bounded the autopilot streaming assertions in `helper_lifecycle_test.clj`
-  with an explicit timeout instead of an unbounded channel read.
-- Corrected `doc/auth/index.md` (`fetch-user-token!` was an undefined
-  placeholder; replaced with an executable HTTP-based provider example, and
-  the transport-restriction wording now accurately describes the loopback
-  check, rather than implying an `https://` `:cli-url` provides TLS) and
-  `doc/reference/API.md` (documented tool-request/tool-execution `:arguments`
-  and `tool.execution_complete` `:result` as opaque JSON; documented autopilot
-  `session.idle` nonterminal semantics directly on the event-table row;
-  documented the newly-reconciled stable fields listed above).
+- Generated wire specs now enforce referenced-object requirements, enums, and
+  closed-key contracts recursively while preserving open event data maps for
+  forward compatibility. Number schemas reject ratios and non-finite values,
+  and code generation remains within JVM method-size limits.
+- Curated idiom specs now validate recursive opaque JSON values, strict
+  `hook.end` errors, finite non-negative timing fields, and nonblank built-in
+  skill names. Empty tool-call IDs remain valid where permitted by the pinned
+  schema.
 - `::github-token-provider-result` now validates the token-provider result
   discriminator and known payload fields while preserving extension fields on
   both token and cancelled variants. `:expires-in` remains a strict integer
   greater than `3600`.
-- **Follow-up codegen fix:** `emit-envelope-spec` in
-  `script/codegen/emit_specs.clj` computed a global "conflicted" set of
-  kebab-cased property names (across every event schema) and redundantly
-  re-emitted a `strict-pred` for `"type"` and `"data"` inside *every* event
-  variant's envelope `s/and`, even though each variant already has a
-  strictly stronger dedicated check elsewhere. This regressed the generated
-  `src/github/copilot_sdk/generated/event_specs.clj` to 3,852,621 bytes and
-  triggered a JVM `Method code too large!` compile failure. The
-  `strict-preds` filter now excludes const-bearing properties and the
-  `"data"` kebab from this redundant global re-check, shrinking the
-  regenerated file to 476,625 bytes (~87.6% smaller) with no loss of
-  validation strength. Added a regression test
-  (`codegen_test.clj`/`generated-top-level-forms-stay-well-under-jvm-method-size-limit`)
-  that bounds the size of every top-level generated form so a future
-  regression is caught before it reaches the JVM verifier.
 - Token-provider executor generations now fence teardown and reconnect races so
   stale work cannot recreate a retired executor. Malformed results, callback
   failures, and executor saturation emit only bounded, sanitized diagnostic
@@ -122,6 +77,12 @@ All notable changes to this project will be documented in this file. This change
   Async local filesystem factory failures throw before a result channel is
   returned, failed resumes restore the exact prior local registration, and
   cleanup failures remain observable without replacing the primary failure.
+- `disconnect!` now sends `session.destroy` before releasing local resources,
+  permits only one in-flight destroy request per tracked session, and preserves
+  the usable local session when the runtime request fails.
+- TCP startup now waits for the complete newline-terminated server announcement
+  before parsing its port, preventing multi-digit ports from being truncated.
+- The commands example now avoids the runtime-reserved `/help` command.
 - Generated wire-key normalization now matches runtime normalization for
   acronyms, separators, and leading underscores. Numeric schemas preserve
   integer versus general-number predicates and emit inclusive and exclusive

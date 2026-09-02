@@ -274,6 +274,7 @@
         invalid-factory (fn [_session]
                           {:read-file (fn [_params] {:content "partial"})})
         config {:on-permission-request sdk/approve-all
+                :github-token-provider (fn [_] {:kind :cancelled})
                 :create-session-fs-handler invalid-factory}]
     (testing "create-session fails before storing an invalid handler"
       (let [session-id "invalid-fs-create"]
@@ -305,6 +306,38 @@
         "local handler preparation must complete before any session RPC")
     (is (empty? (:github-token-providers @(:state client-with-fs)))
         "pre-RPC setup failure must roll back provisional provider state")))
+
+(deftest test-resume-pre-registration-failure-preserves-existing-session
+  (let [existing (sdk/create-session
+                  *test-client*
+                  {:on-permission-request sdk/approve-all})
+        session-id (sdk/session-id existing)
+        state-before @(:state *test-client*)
+        existing-state (get-in state-before [:sessions session-id])
+        existing-io (get-in state-before [:session-io session-id])
+        providers-before (:github-token-providers state-before)]
+    (with-redefs [session/create-session
+                  (fn [& _]
+                    (throw (ex-info "pre-registration failed" {})))]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"pre-registration failed"
+           (sdk/resume-session
+            *test-client*
+            session-id
+            {:on-permission-request sdk/approve-all
+             :github-token-provider (fn [_] {:kind :cancelled})}))))
+    (let [state-after @(:state *test-client*)
+          restored-state (get-in state-after [:sessions session-id])
+          restored-io (get-in state-after [:session-io session-id])]
+      (is (identical? existing-state restored-state))
+      (is (identical? existing-io restored-io))
+      (doseq [channel-key [:event-chan :send-lock]]
+        (is (identical? (get existing-io channel-key)
+                        (get restored-io channel-key)))
+        (is (false? (async-protocols/closed?
+                     (get restored-io channel-key)))))
+      (is (= providers-before (:github-token-providers state-after))))))
 
 (defn- test-session-fs-provider [sqlite]
   {:read-file (fn [_] "x")

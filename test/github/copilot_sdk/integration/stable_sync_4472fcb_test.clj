@@ -261,10 +261,10 @@
                :source "host_policy"
                :surface "sdk"}]
              [{:outcome :autopilot-denied
-               :source :judge-recommendation
+               :source :assisted-approval
                :surface :prompt-mode}
               {:outcome "autopilot_denied"
-               :source "judge_recommendation"
+               :source "assisted_approval"
                :surface "prompt_mode"}]
              [{:outcome :prompted-user
                :source :human-response
@@ -283,31 +283,7 @@
                :surface :acp}
               {:outcome "auto_approved"
                :source "host_policy"
-               :surface "acp"}]
-             [{:outcome :auto-approved
-               :source :host-policy
-               :surface :sdk
-               :response-capability :interactive}
-              {:outcome "auto_approved"
-               :source "host_policy"
-               :surface "sdk"
-               :response-capability "interactive"}]
-             [{:outcome :auto-approved
-               :source :host-policy
-               :surface :sdk
-               :response-capability :headless}
-              {:outcome "auto_approved"
-               :source "host_policy"
-               :surface "sdk"
-               :response-capability "headless"}]
-             [{:outcome :auto-approved
-               :source :host-policy
-               :surface :sdk
-               :response-capability :none}
-              {:outcome "auto_approved"
-               :source "host_policy"
-               :surface "sdk"
-               :response-capability "none"}]]]
+               :surface "acp"}]]]
       (let [session
             (sdk/create-session
              *test-client*
@@ -322,6 +298,12 @@
               *test-client* (sdk/session-id session)
               {:permission-kind :shell}))]
         (is (= expected (:decision-context response))))))
+
+  (testing "the pre-schema judge spelling is rejected"
+    (is (not (s/valid? ::specs/permission-decision-context
+                       {:outcome :auto-approved
+                        :source :judge-recommendation
+                        :surface :sdk}))))
 
   (testing "attribution is a sibling of result and legacy payload remains unchanged"
     (doseq [[label handler expected]

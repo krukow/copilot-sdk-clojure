@@ -81,12 +81,16 @@
         (is (s/valid? spec config) (s/explain-str spec config))))))
 
 (deftest test-included-builtin-skills-spec
-  (testing "built-in skill inclusion mirrors the unrestricted upstream string array"
-    (doseq [skills [(list "search" "edit")
-                    #{"search" "edit"}
-                    ["" " "]]]
+  (testing "built-in skill inclusion accepts nonblank skill names in general collections"
+    (doseq [skills [[]
+                    (list "search" "edit")
+                    #{"search" "edit"}]]
       (is (s/valid? ::specs/included-builtin-skills skills)))
-    (doseq [skills [[:search] "search"]]
+    (doseq [skills [[""]
+                    [" "]
+                    ["search" ""]
+                    [:search]
+                    "search"]]
       (is (not (s/valid? ::specs/included-builtin-skills skills))))))
 
 (deftest test-upstream-1-0-79-event-schema
@@ -781,55 +785,45 @@
       (is (empty? @requests)))))
 
 (deftest test-session-github-token-provider-transport-security
-  (testing "external non-loopback TCP rejects credential callbacks before session RPCs"
+  (testing "every external cli-url rejects credential callbacks before session RPCs"
     (let [requests (atom [])
           _ (mock/set-request-hook! *mock-server*
                                     (fn [method _]
                                       (when (str/starts-with? method "session.")
                                         (swap! requests conj method))))
-          client (sdk/client {:cli-url "example.com:4444"
-                              :auto-start? false})
           config {:session-id "remote-token-provider"
                   :on-permission-request sdk/approve-all
                   :github-token-provider (fn [_] {:kind :cancelled})}]
-      (is (thrown-with-msg?
-           clojure.lang.ExceptionInfo
-           #"loopback"
-           (sdk/create-session client config)))
-      (is (thrown-with-msg?
-           clojure.lang.ExceptionInfo
-           #"loopback"
-           (sdk/<create-session client config)))
-      (is (thrown-with-msg?
-           clojure.lang.ExceptionInfo
-           #"loopback"
-           (sdk/resume-session
-            client "remote-token-provider" (dissoc config :session-id))))
-      (is (thrown-with-msg?
-           clojure.lang.ExceptionInfo
-           #"loopback"
-           (sdk/<resume-session
-            client "remote-token-provider" (dissoc config :session-id))))
-      (is (empty? @requests))
-      (is (empty? (:github-token-providers @(:state client))))
-      (sdk/stop! client)))
+      (doseq [url ["example.com:4444"
+                   "localhost:4444"
+                   "127.0.0.1:4444"
+                   "127.255.2.3:4444"
+                   "[::1]:4444"
+                   "[0:0:0:0:0:0:0:1]:4444"
+                   "https://localhost:4444"]
+              invoke [(fn [client]
+                        (sdk/create-session client config))
+                      (fn [client]
+                        (sdk/<create-session client config))
+                      (fn [client]
+                        (sdk/resume-session
+                         client "remote-token-provider"
+                         (dissoc config :session-id)))
+                      (fn [client]
+                        (sdk/<resume-session
+                         client "remote-token-provider"
+                         (dissoc config :session-id)))]]
+        (let [client (sdk/client {:cli-url url :auto-start? false})]
+          (is (thrown-with-msg?
+               clojure.lang.ExceptionInfo
+               #"external cli-url"
+               (invoke client))
+              url)))
+      (is (empty? @requests))))
 
-  (testing "syntactic loopback transports are accepted, including IPv6 literals"
-    (doseq [url ["localhost:4444"
-                 "127.0.0.1:4444"
-                 "127.255.2.3:4444"
-                 "[::1]:4444"
-                 "[0:0:0:0:0:0:0:1]:4444"
-                 "https://localhost:4444"]]
-      (let [client (sdk/client {:cli-url url :auto-start? false})]
-        (is (nil?
-             (@#'client/ensure-github-token-provider-transport!
-              client
-              {:github-token-provider (fn [_] {:kind :cancelled})}))
-            url))))
-
-  (testing "SDK-owned and child-process stdio transports are accepted"
+  (testing "SDK-owned TCP and child-process stdio transports are accepted"
     (doseq [client [(sdk/client {:auto-start? false})
+                    (sdk/client {:use-stdio? false :auto-start? false})
                     (sdk/client {:is-child-process? true :auto-start? false})]]
       (is (nil?
            (@#'client/ensure-github-token-provider-transport!
@@ -1098,7 +1092,29 @@
           (is (str/includes? log-output "github.example"))
           (is (str/includes? log-output ":refresh"))))))
 
-  (testing "callback arguments are validated before invocation"
+  (testing "unknown acquire reasons remain forward-compatible"
+    (let [client (sdk/client {:auto-start? false})
+          observed (atom nil)
+          registration-id
+          (@#'client/register-github-token-provider!
+           client
+           (fn [args]
+             (reset! observed args)
+             {:kind :cancelled})
+           "invalid-arguments")]
+      (is (= {:result {:kind :cancelled}}
+             (<!!
+              (@#'client/github-token-provider-response
+               client
+               {:registration-id registration-id
+                :host "github.com"
+                :reason "future_reason"}))))
+      (is (= {:host "github.com"
+              :session-id "invalid-arguments"
+              :reason :future_reason}
+             @observed))))
+
+  (testing "invalid callback arguments are rejected before invocation"
     (let [client (sdk/client {:auto-start? false})
           called? (atom false)
           registration-id
@@ -1108,15 +1124,6 @@
              (reset! called? true)
              {:kind :cancelled})
            "invalid-arguments")]
-      (is (thrown-with-msg?
-           clojure.lang.ExceptionInfo
-           #"Invalid GitHub token provider request"
-           (@#'client/github-token-provider-response
-            client
-            {:registration-id registration-id
-             :host ""
-             :reason "unknown"})))
-      (is (false? @called?))
       (is (not (s/valid? ::specs/github-token-provider-args
                          {:host "github.com"
                           :session-id nil

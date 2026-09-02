@@ -388,7 +388,7 @@ Create a client and session together, ensuring both are cleaned up on exit.
 | `:infinite-sessions` | map | Infinite session config (see below) |
 | `:reasoning-effort` | string | Reasoning effort level: `"low"`, `"medium"`, `"high"`, `"xhigh"`, or `"max"` ([upstream PR #2228](https://github.com/github/copilot-sdk/pull/2228)) |
 | `:github-token` | string | Static GitHub token for this session. Sent as `gitHubToken`; mutually exclusive with `:github-token-provider`. |
-| `:github-token-provider` | fn | Session-scoped, refreshable GitHub credential callback. Receives `{:host string :session-id string? :reason :initial\|:refresh}` and returns `{:kind :token :access-token string :expires-in integer>=3601 :token-type string?}` or `{:kind :cancelled}`, directly or on a core.async channel. Both result variants are open to additional extension fields. Create, resume, and join configuration carries only an opaque registration ID; the callback remains local, while acquired credentials cross the JSON-RPC connection to the CLI when requested. Requires the SDK-managed child-process stdio transport, or an external `:cli-url` whose parsed host has a recognized loopback spelling (`localhost`, any valid `127.x.x.x`, `::1`, or its fully expanded IPv6 spelling). This is a syntactic allowlist; arbitrary DNS names are not resolved to test whether they point at loopback. Any other `:cli-url` host is rejected before provider-backed session setup. An `https://` scheme does not make the raw TCP socket TLS-protected, so a protected remote tunnel must expose a local loopback endpoint. Provider work runs on a bounded client-owned executor. Failed create/resume/join calls roll back provisional registrations; session and client teardown remove committed registrations and cancel in-flight work. Mutually exclusive with `:github-token`. See [Authentication](../auth/index.md#session-scoped-token-provider). ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412)) |
+| `:github-token-provider` | fn | Session-scoped, refreshable GitHub credential callback. Receives `{:host string :session-id string? :reason keyword}`; known reasons are `:initial` and `:refresh`, while future nonblank reasons pass through for forward compatibility. Returns `{:kind :token :access-token string :expires-in integer>=3601 :token-type string?}` or `{:kind :cancelled}`, directly or on a core.async channel. Both result variants are open to additional extension fields. Create, resume, and join configuration carries only an opaque registration ID; the callback remains local, while acquired credentials cross the JSON-RPC connection to the CLI when requested. Requires an SDK-owned transport: managed child-process stdio or SDK-managed TCP. Every explicit external `:cli-url`, including a loopback or tunneled endpoint, is rejected before provider-backed session setup. Provider work runs on a bounded client-owned executor. Failed create/resume/join calls roll back provisional registrations; session and client teardown remove committed registrations and cancel in-flight work. Mutually exclusive with `:github-token`. See [Authentication](../auth/index.md#session-scoped-token-provider). ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412)) |
 | `:on-user-input-request` | fn | Handler for `ask_user` requests (see below) |
 | `:ask-user-variant` | keyword | Selects the built-in `ask_user` tool shape: `:legacy` or `:elicitation`. Omission preserves the runtime default; explicit values serialize as `askUserVariant` on create/resume/join. The `:elicitation` variant requires an `:on-elicitation-request` handler when the host must answer requests. ([upstream PR #2432](https://github.com/github/copilot-sdk/pull/2432)) |
 | `:hooks` | map | Lifecycle hooks (see below) |
@@ -474,7 +474,10 @@ synchronously. A cloud create with `:cloud` and no `:session-id` must defer
 filesystem-handler construction until the server assigns an ID; that failure,
 RPC failures, and later setup failures are delivered as a `Throwable` on the
 channel. The RPC wait parks instead of blocking, making the returned channel
-safe to consume inside `go` blocks.
+safe to consume inside `go` blocks. In the deferred cloud case, the
+`:create-session-fs-handler` factory runs on the JSON-RPC reader thread before
+the response can complete. It must return promptly and must not issue SDK RPCs
+or wait for session events.
 
 ```clojure
 (require '[clojure.core.async :refer [go <!]])
@@ -1212,7 +1215,11 @@ Log a message to the session timeline. Returns the event ID string.
 (copilot/disconnect! session)
 ```
 
-Disconnect the session and free resources. This is the preferred way to close a session.
+Disconnect the session and free resources. This is the preferred way to close a
+session. The runtime is notified before local resources are released. If that
+request fails, the exception propagates and the local session remains usable.
+While one disconnect is in progress, concurrent calls return without sending
+another runtime request.
 
 #### `destroy!` *(deprecated)*
 
@@ -1724,7 +1731,9 @@ The generated wire schemas also contain the internal `assistant.turn_retry`
 `model.call_start` (model API dispatch metadata) events. They are wire-only and
 intentionally excluded from every curated public event set. Experimental
 HydraFusion routing events likewise remain generated wire evidence and are not
-curated as public idiom events.
+curated as public idiom events. The experimental `reasoningBlocks` field on
+`assistant.message` also remains generated wire evidence rather than a stable
+curated idiom field.
 
 ### `evt` — Event Keyword Helper
 
@@ -1736,6 +1745,13 @@ curated as public idiom events.
 Convert an unqualified event keyword to a namespace-qualified `:copilot/` keyword. Throws `IllegalArgumentException` if the keyword is not a valid event type.
 
 ### Event Reference
+
+Curated `::specs/result` and `::specs/error` values accept recursive JSON:
+`nil`, strings, booleans, finite non-ratio numbers, vectors, and maps whose keys
+are strings or keywords and whose values recursively satisfy the same contract.
+Event-specific specs may impose a narrower shape. Generated event envelopes
+remain open at the top-level data map for forward-compatible fields, while
+nested schema objects marked closed by upstream reject unknown keys.
 
 | Event Type | Description |
 |------------|-------------|
@@ -1782,11 +1798,11 @@ Convert an unqualified event keyword to a namespace-qualified `:copilot/` keywor
 | `:copilot/assistant.reasoning` | Model reasoning (if supported); optional data: `:rte` (opaque round-trip encrypted reasoning token, for providers that require it to be replayed back) (upstream schema 1.0.79-5/6) |
 | `:copilot/assistant.reasoning_delta` | Streaming reasoning chunk |
 | `:copilot/assistant.message_start` | Streaming assistant message start metadata |
-| `:copilot/assistant.message` | Complete assistant response; optional data: `:chunk-index`, `:chunk-count` (position/count when the response was split across multiple messages), `:citations` (see [Citations](#citations-experimental)), `:rte` (upstream schema 1.0.79-5/6), `:reasoning-blocks` (upstream schema 1.0.83-1: `{:provider "..." :blocks [...]}` where `:provider` is a plain label string and each `:blocks` entry is opaque JSON — only the `:provider` string and the `:blocks` vector shape are validated). Each `:tool-requests` entry may include `:type` (`"function"` or `"custom"`) and hosted-program attribution as `:caller {:caller-id "..." :type "program"}`; its `:arguments` is an opaque JSON object whose keys are preserved verbatim (not kebab-cased) — the SDK does not interpret or validate its shape. |
+| `:copilot/assistant.message` | Complete assistant response; optional data: `:chunk-index`, `:chunk-count` (position/count when the response was split across multiple messages), `:citations` (see [Citations](#citations-experimental)), and `:rte` (upstream schema 1.0.79-5/6). Each `:tool-requests` entry may include `:type` (`"function"` or `"custom"`) and hosted-program attribution as `:caller {:caller-id "..." :type "program"}`; its `:arguments` is an opaque JSON object whose keys are preserved verbatim (not kebab-cased) — the SDK does not interpret or validate its shape. |
 | `:copilot/assistant.message_delta` | Streaming response chunk |
 | `:copilot/assistant.streaming_delta` | Response size update during streaming; data: `{:total-response-size-bytes N}` |
 | `:copilot/assistant.turn_end` | Assistant turn completed |
-| `:copilot/assistant.usage` | Token usage and cost for an individual API call. Required: `:model` (string). Optional: `:input-tokens`, `:output-tokens`, `:reasoning-tokens`, `:accepted-prediction-tokens`, `:rejected-prediction-tokens`, `:cache-read-tokens`, `:cache-write-tokens`, `:cache-expires-at` (`java.time.Instant` — when the prompt cache expires), `:service-request-id` (string — `x-copilot-service-request-id` for CAPI log correlation), `:api-endpoint`, `:api-call-id`, `:provider-call-id`, `:content-filter-triggered` (boolean), `:finish-reason` (string), `:cost`, `:duration`, `:time-to-first-token-ms`, `:ttft-ms`, `:output-ttft-ms` (non-negative number, time to first *output* token, distinct from `:ttft-ms`; upstream schema 1.0.83-1), `:inter-token-latency-ms`, `:reasoning-effort`, `:reasoning-summary` (`"none"`, `"concise"`, or `"detailed"`), `:initiator`, `:parent-tool-call-id` (deprecated), `:copilot-usage`, `:quota-snapshots`, `:interaction-type`, `:is-auto`, `:is-byok`, `:max-output-tokens`, `:max-prompt-tokens`, `:transport` (`"http"` or `"websocket"`), `:rte` ([upstream PR #2074](https://github.com/github/copilot-sdk/pull/2074); `:interaction-type`/`:rte` added in upstream schema 1.0.79-5/6) |
+| `:copilot/assistant.usage` | Token usage and cost for an individual API call. Required: `:model` (string). Optional: `:input-tokens`, `:output-tokens`, `:reasoning-tokens`, `:accepted-prediction-tokens`, `:rejected-prediction-tokens`, `:cache-read-tokens`, `:cache-write-tokens`, `:cache-expires-at` (`java.time.Instant` — when the prompt cache expires), `:service-request-id` (string — `x-copilot-service-request-id` for CAPI log correlation), `:api-endpoint`, `:api-call-id`, `:provider-call-id`, `:content-filter-triggered` (boolean), `:finish-reason` (string), `:cost`, `:duration`, `:time-to-first-token-ms`, `:ttft-ms`, `:output-ttft-ms` (finite non-negative number, time to first *output* token, distinct from `:ttft-ms`; upstream schema 1.0.83-1), `:inter-token-latency-ms`, `:reasoning-effort`, `:reasoning-summary` (`"none"`, `"concise"`, or `"detailed"`), `:initiator`, `:parent-tool-call-id` (deprecated), `:copilot-usage`, `:quota-snapshots`, `:interaction-type`, `:is-auto`, `:is-byok`, `:max-output-tokens`, `:max-prompt-tokens`, `:transport` (`"http"` or `"websocket"`), `:rte` ([upstream PR #2074](https://github.com/github/copilot-sdk/pull/2074); `:interaction-type`/`:rte` added in upstream schema 1.0.79-5/6) |
 | `:copilot/assistant.idle` | Main agent's processing loop went idle, including while related background work (running sub-agents or in-flight attached shell commands) is still pending (upstream schema 1.0.66) |
 | `:copilot/assistant.tool_call_delta` | Streaming tool-call argument input chunk; data includes `:tool-call-id`, `:input-delta`, optional `:tool-name`, `:tool-type` (upstream schema 1.0.69-3) |
 | `:copilot/assistant.server_tool_progress` | Ephemeral live progress for a provider-hosted server tool before the finalized `serverTools` envelope arrives on the terminal `assistant.message`. Data: `{:output-index <integer> :kind <string> :status <string>}`; only `"web_search"` is currently emitted for `:kind`, and `:status` is `"in_progress"`, `"searching"`, or `"completed"`. |
@@ -1797,7 +1813,7 @@ Convert an unqualified event keyword to a namespace-qualified `:copilot/` keywor
 | `:copilot/tool.execution_start` | Tool execution started; data includes `:tool-call-id`, `:tool-name`, optional `:arguments` (an opaque JSON object with source-defined, non-kebab-cased keys), `:parent-tool-call-id`, `:mcp-server-name`, `:mcp-tool-name`, `:model` |
 | `:copilot/tool.execution_progress` | Tool execution progress update |
 | `:copilot/tool.execution_partial_result` | Tool execution partial result |
-| `:copilot/tool.execution_complete` | Tool execution completed; data may include optional `:structured-content` (arbitrary structured tool result) (upstream schema 1.0.63), `:result` (an opaque JSON object — its shape, including `:contents[]` entries such as the shell-exit variant's `:exit-code`/`:shell-id`/`:type "shell_exit"`/optional `:cwd`/`:output-file-path`/`:output-preview`/`:output-truncated`, is structurally validated only at the generated wire layer, not by the curated `::result` idiom spec, which stays open by design; `:output-file-path` added upstream schema 1.0.83-1) |
+| `:copilot/tool.execution_complete` | Tool execution completed; data may include optional `:structured-content` (arbitrary structured tool result) (upstream schema 1.0.63) and `:result` (recursive opaque JSON). Generated wire validation still enforces known result variants, including the shell-exit variant's `:exit-code`/`:shell-id`/`:type "shell_exit"` and optional `:cwd`/`:output-file-path`/`:output-preview`/`:output-truncated`; `:output-file-path` was added in upstream schema 1.0.83-1. |
 | `:copilot/tool_search.activated` | Persisted generic client-side tool activations restored when a session resumes. Data: `{:strategy <string> :tool-names [<string> ...]}`. |
 | `:copilot/subagent.started` | Subagent started; data includes `:tool-call-id`, `:agent-name`, `:agent-display-name`, and `:agent-description`, with optional `:factory-run-id`, `:model`, `:resumable` (boolean), `:agent-type` (string), `:execution-mode` (string), `:parent-id` (string — task-registry id of the spawning subagent; unrelated to the envelope-level `:parent-id`) (subagent lifecycle additions upstream schema 1.0.83-1) ([upstream PR #2072](https://github.com/github/copilot-sdk/pull/2072)) |
 | `:copilot/subagent.configured` | Effective subagent execution configuration; data requires string `:model` and boolean `:multi-turn`, with optional string `:reasoning-effort` and `:context-tier`. The payload remains open for additive runtime fields. |
@@ -1807,7 +1823,7 @@ Convert an unqualified event keyword to a namespace-qualified `:copilot/` keywor
 | `:copilot/subagent.deselected` | Subagent deselected |
 | `:copilot/hook.start` | Hook invocation started; data requires `:hook-invocation-id`, `:hook-type`, with optional `:parent-tool-call-id` (upstream schema 1.0.83-1) |
 | `:copilot/hook.progress` | Ephemeral progress update from a long-running hook; data: `{:message "..."}` (upstream schema 1.0.56). |
-| `:copilot/hook.end` | Hook invocation finished; data requires `:hook-invocation-id`, `:hook-type`, `:success`, with optional `:error` and `:parent-tool-call-id` (upstream schema 1.0.83-1) |
+| `:copilot/hook.end` | Hook invocation finished; data requires `:hook-invocation-id`, `:hook-type`, and `:success`, with optional `:parent-tool-call-id` and closed `:error` map. The error requires string `:message`, permits optional string `:stack` and `:source`, and rejects other keys (upstream schema 1.0.83-1). |
 | `:copilot/system.message` | System message emitted |
 | `:copilot/system.notification` | System notification with a structured `:kind` discriminator: `agent_completed`, `agent_idle`, `new_inbox_message`, `shell_completed`, `shell_detached_completed`, `instruction_discovered`, `factory_completed`, or `unclassified`. Each known kind validates its required and optional fields; agent kinds may include `:display-name`. |
 | `:copilot/permission.requested` | Permission request initiated; data includes `:resolved-by-hook` when already handled by a hook. For the MCP tool-permission variant (`:server-name`/`:tool-name`/`:tool-title` present), an optional `:can-offer-server-wide-approval` (boolean) indicates the host may offer a server-wide approval option, not just per-tool or per-session (upstream schema 1.0.83-1). |
@@ -3011,8 +3027,8 @@ result.
 | Context key | Allowed values |
 |-------------|----------------|
 | `:outcome` | `:auto-approved`, `:autopilot-denied`, `:prompted-user` |
-| `:source` | `:judge-recommendation`, `:human-response`, `:host-policy`, `:unattended-fallback` |
-| `:surface` | `:tui`, `:prompt-mode`, `:copilot-app`, `:sdk` |
+| `:source` | `:assisted-approval`, `:human-response`, `:host-policy`, `:unattended-fallback` |
+| `:surface` | `:tui`, `:prompt-mode`, `:copilot-app`, `:sdk`, `:acp` |
 
 The SDK converts these keywords to the runtime's snake-case strings and sends
 `decisionContext` beside `result`. Plain permission decisions omit

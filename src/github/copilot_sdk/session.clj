@@ -97,7 +97,9 @@
     (let [[_ registered-state]
           (swap-vals! (:state client)
                       (fn [state]
-                        (if (:stopping? state)
+                        (if (or (:stopping? state)
+                                (contains? (:disconnecting-session-ids state)
+                                           session-id))
                           state
                           (-> state
                               (assoc-in [:sessions session-id]
@@ -128,7 +130,17 @@
                             (get-in registered-state [:session-io session-id :event-chan]))
         (close! event-chan)
         (close! send-lock)
-        (throw (ex-info "Client is stopping; cannot create session"
+        (throw (ex-info (cond
+                          (:stopping? registered-state)
+                          "Client is stopping; cannot create session"
+
+                          (contains?
+                           (:disconnecting-session-ids registered-state)
+                           session-id)
+                          "Session disconnect is in progress; cannot create session"
+
+                          :else
+                          "Session registration was superseded")
                         {:session-id session-id}))))
     ;; If an on-event handler is provided, tap and forward events to it.
     ;; Uses async/thread to avoid blocking core.async dispatch threads,
@@ -921,10 +933,13 @@
           (:state client)
           (fn [state]
             (let [session (get-in state [:sessions session-id])
-                  state (if provider-scope
+                  state (cond-> state
+                          provider-scope
                           (purge-github-token-provider-resources
-                           state session-id provider-scope)
-                          state)]
+                           session-id provider-scope)
+
+                          true
+                          (update :disconnecting-session-ids disj session-id))]
               (if (or (nil? session) (:destroyed? session))
                 state
                 (assoc-in
@@ -1215,7 +1230,7 @@
   {:auto-approved "auto_approved"
    :autopilot-denied "autopilot_denied"
    :prompted-user "prompted_user"
-   :judge-recommendation "judge_recommendation"
+   :assisted-approval "assisted_approval"
    :human-response "human_response"
    :host-policy "host_policy"
    :unattended-fallback "unattended_fallback"
@@ -2274,14 +2289,47 @@
    (disconnect! (:client session) (:session-id session)))
   ([client session-id]
    (log/debug "Disconnecting session: " session-id)
-   (when-not (= :already-destroyed (teardown-local! client session-id))
-     ;; Try to notify server, but don't block forever if connection is broken.
-     (try
-       (proto/send-request! (connection-io client) "session.destroy" {:session-id session-id} 5000)
-       (catch Exception _
-         ;; Ignore errors - we're cleaning up anyway.
-         nil))
-     (log/debug "Session disconnected: " session-id))
+   (let [[old-state _]
+         (swap-vals!
+          (:state client)
+          (fn [state]
+            (let [session (get-in state [:sessions session-id])]
+              (if (and session
+                       (false? (:destroyed? session))
+                       (not (contains?
+                             (:disconnecting-session-ids state)
+                             session-id)))
+                (update state
+                        :disconnecting-session-ids
+                        (fnil conj #{})
+                        session-id)
+                state))))
+         session (get-in old-state [:sessions session-id])
+         claimed? (and session
+                       (false? (:destroyed? session))
+                       (not (contains?
+                             (:disconnecting-session-ids old-state)
+                             session-id)))
+         disconnect? (or (nil? session) claimed?)]
+     (when disconnect?
+       (try
+         (proto/send-request! (connection-io client)
+                              "session.destroy"
+                              {:session-id session-id}
+                              5000)
+         (when claimed?
+           (teardown-local! client session-id))
+         (catch Throwable error
+           (when claimed?
+             (swap! (:state client)
+                    update
+                    :disconnecting-session-ids
+                    disj
+                    session-id))
+           (when (instance? InterruptedException error)
+             (.interrupt (Thread/currentThread)))
+           (throw error)))
+       (log/debug "Session disconnected: " session-id)))
    nil))
 
 (defn destroy!

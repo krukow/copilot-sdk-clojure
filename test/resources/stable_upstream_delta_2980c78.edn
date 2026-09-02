@@ -305,7 +305,7 @@
   #{"autoTier"}}
   :event-interface-fields
   {"AssistantMessageData"
-  {:stable-public #{"reasoningBlocks"} :experimental #{"fusion"}}
+  {:experimental #{"fusion" "reasoningBlocks"}}
   "AssistantUsageData"
   {:stable-public #{"outputTtftMs"} :experimental #{"fusion"}}
   "CompactionCompleteData"
@@ -314,6 +314,8 @@
   {:stable-public #{"parentToolCallId"}}
   "HookStartData"
   {:stable-public #{"parentToolCallId"}}
+  "ModelCallFailureData"
+  {:experimental #{"fusion"}}
   "PermissionPromptRequestMcp"
   {:stable-public #{"canOfferServerWideApproval"}}
   "SubagentStartedData"
@@ -327,7 +329,11 @@
                     "explicitModelMatchesPreference" "explicitModelOverride"
                     "firstDispatchedModel"}}
   "ToolExecutionCompleteContentShellExit"
-  {:stable-public #{"outputFilePath"}}}
+  {:stable-public #{"outputFilePath"}}
+  "ToolExecutionCompleteData"
+  {:experimental #{"fusion"}}
+  "ToolExecutionStartData"
+  {:experimental #{"fusion"}}}
   :changed-declarations
   {"nodejs/src/types.ts"
   {:stable-public #{"CapiSessionOptions"
@@ -339,21 +345,21 @@
                     "HookEndData"
                     "HookStartData"
                     "IdleData"
-                    "ModelCallFailureData"
                     "PermissionPromptRequestMcp"
                     "ResumeData"
                     "StartData"
                     "SubagentCompletedData"
                     "SubagentFailedData"
                     "SubagentStartedData"
-                    "ToolExecutionCompleteContentShellExit"
-                    "ToolExecutionCompleteData"
-                    "ToolExecutionStartData"}
-   :experimental #{"ManagedSettingsEnforcedEscalation"
+                    "ToolExecutionCompleteContentShellExit"}
+   :experimental #{"AssistantMessageData"
+                   "ManagedSettingsEnforcedEscalation"
                    "ManagedSettingsResolvedData"
-                   "ManagedSettingsResolvedSource"}
-   :mixed #{"AssistantMessageData"
-            "AssistantUsageData"
+                   "ManagedSettingsResolvedSource"
+                   "ModelCallFailureData"
+                   "ToolExecutionCompleteData"
+                   "ToolExecutionStartData"}
+   :mixed #{"AssistantUsageData"
             "SessionEvent"}}}
   :internal-methods
   {"nodejs/src/client.ts"
@@ -405,9 +411,11 @@
    "nodejs/src/generated/rpc.ts"
    "nodejs/src/generated/session-events.ts"
    "nodejs/test/client.test.ts"
+   "nodejs/test/github-token-provider.test.ts"
    "nodejs/test/session-send-and-wait.test.ts"
    "nodejs/test/session-event-types.test.ts"
-   "nodejs/test/e2e/factory.e2e.test.ts"]}
+   "nodejs/test/e2e/factory.e2e.test.ts"
+   "nodejs/test/e2e/ui_elicitation.e2e.test.ts"]}
 
  :stable-deltas
  [{:id :mode/builtin-skill-isolation
@@ -427,7 +435,7 @@
                    "src/github/copilot_sdk/client.clj"
                    "src/github/copilot_sdk/session.clj"]
    :contract
-   {:wire "Create/resume/join sends only an opaque UUID registration ID in session config; reverse RPC invokes the local provider and returns the acquired credential over the JSON-RPC connection to the CLI. Managed stdio/local transport or an explicitly protected cli-url tunnel is required because plaintext TCP exposes credentials. Operation-scoped rollback preserves committed registrations, and teardown removes ownership exactly once."
+   {:wire "Create/resume/join sends only an opaque UUID registration ID in session config; reverse RPC invokes the local provider and returns the acquired credential over the JSON-RPC connection to the CLI. Only SDK-owned transports and child-process stdio are supported; every external cli-url is rejected because the SDK cannot authenticate that server before returning credentials. Operation-scoped rollback preserves committed registrations, and teardown removes ownership exactly once."
     :tests ["test/github/copilot_sdk/integration/schema_provider_test.clj"]
     :docs ["doc/auth/index.md" "doc/reference/API.md"]}}
   {:id :permissions/managed-bypass-policy
@@ -530,12 +538,16 @@
    :classification :experimental
    :evidence [:factory-list-runs-options]
    :reason "Factory pagination, completion notification, and phase logging remain part of the explicitly experimental Agent Factories surface."}
-  {:id :events/hydra-fusion-internal
+ {:id :events/assistant-message-reasoning-blocks
+  :classification :experimental
+  :evidence [:assistant-message-reasoning-blocks]
+  :reason "AssistantMessageReasoningBlocks is explicitly experimental and remains generated wire evidence rather than a curated public idiom shape."}
+ {:id :events/hydra-fusion-internal
    :classification :internal
    :event-types #{"session.fusion_handoff"
                   "session.fusion_commit_started"}
    :evidence [:hydra-fusion-internal-event]
-   :reason "HydraFusion handoff and commit-started events are explicitly internal durable protocol checkpoints and remain generated wire evidence rather than curated public idiom events."}
+   :reason "The published schema marks HydraFusion handoff and commit-started events as both internal and experimental, so they remain generated wire evidence rather than curated public idiom events."}
   {:id :events/hydra-fusion-experimental
    :classification :experimental
    :event-types #{"session.fusion_route_started"
@@ -646,6 +658,9 @@
   :hydra-fusion-event
   {:path "nodejs/src/generated/session-events.ts"
    :symbol "export interface FusionRouteStartedEvent {"}
+   :assistant-message-reasoning-blocks
+   {:path "nodejs/src/generated/session-events.ts"
+    :symbol "export interface AssistantMessageReasoningBlocks {"}
    :hydra-fusion-internal-event
    {:path "nodejs/src/generated/session-events.ts"
    :symbol "export type FusionProjectionMode ="}
@@ -671,7 +686,7 @@
   {:source "@github/copilot-linux-x64@1.0.83-1/schemas/session-events.schema.json"
    :sha256 "11d24b4e8de44590d70e261ebf15be18d91de14d674fdcfb1f2554ad43a48169"}
   :generated-clojure-output
-  {:event-specs-sha256 "e8d04e0cf33289993340215f1bcb72e6d94303e2376fa3ef9d203f04a978e2bd"
+  {:event-specs-sha256 "4eb8e9a71fb5f96de6b3941f0f084585d6d21dbd19a0ecfc6e7ec7fd7ea1e33a"
    :coercions-sha256 "5688dbc7cc1f5cc3ef05eab7ffd3230b516c431e7ed344dad137f45eee359d33"}}
 
  :published-schema-artifact

@@ -50,12 +50,7 @@
 (defn- parse-cli-url
   "Parse CLI URL into {:host :port}."
   [url]
-  (let [clean (str/replace url #"(?i)^https?://" "")
-        [_ bracketed-host bracketed-port]
-        (re-matches #"^\[([^\]]+)\]:(-?\d+)$" clean)
-        [_ plain-host plain-port]
-        (when-not bracketed-host
-          (re-matches #"^([^:]*):(-?\d+)$" clean))]
+  (let [clean (str/replace url #"(?i)^https?://" "")]
     (if (re-matches #"\d+" clean)
       ;; Port only
       (let [port (parse-long clean)]
@@ -63,7 +58,12 @@
           (throw (ex-info "Invalid port in cli-url" {:url url :port port})))
         {:host "localhost" :port port})
       ;; host:port
-      (let [host (or bracketed-host plain-host)
+      (let [[_ bracketed-host bracketed-port]
+            (re-matches #"^\[([^\]]+)\]:(-?\d+)$" clean)
+            [_ plain-host plain-port]
+            (when-not bracketed-host
+              (re-matches #"^([^:]*):(-?\d+)$" clean))
+            host (or bracketed-host plain-host)
             port-str (or bracketed-port plain-port)]
         (when (or (nil? host) (str/blank? port-str))
           (throw (ex-info "Invalid cli-url format" {:url url})))
@@ -73,33 +73,16 @@
           {:host (if (str/blank? host) "localhost" host)
            :port port})))))
 
-(defn- syntactic-loopback-host?
-  [host]
-  (let [host (str/lower-case host)]
-    (or (= "localhost" host)
-        (boolean
-         (when-let [[_ a b c d]
-                    (re-matches #"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$"
-                                host)]
-           (let [octets (mapv parse-long [a b c d])]
-             (and (= 127 (first octets))
-                  (every? #(<= 0 % 255) octets)))))
-        (= "::1" host)
-        (boolean
-         (re-matches #"(?i)^(?:0{1,4}:){7}0{0,3}1$" host)))))
-
 (defn- ensure-github-token-provider-transport!
   [client config]
   (when (and (:github-token-provider config)
-             (get-in client [:options :cli-url])
-             (not (syntactic-loopback-host? (:actual-host client))))
+             (get-in client [:options :cli-url]))
     (throw
      (ex-info
-      (str ":github-token-provider requires an SDK-owned transport, child-process "
-           "stdio, or an external loopback cli-url; remote TCP would expose "
-           "session credentials over a plaintext socket")
+      (str ":github-token-provider requires an SDK-owned transport or "
+           "child-process stdio; external cli-url servers cannot be authenticated")
       {:type :github-token-provider-unsafe-transport
-       :host (:actual-host client)}))))
+       :cli-url (get-in client [:options :cli-url])}))))
 
 (defn- mask-secret
   "Replace `v` with \"***\" only when it is a non-blank string (i.e. an actual
@@ -244,6 +227,7 @@
    :socket nil
    :sessions {}              ; session state by session-id
    :session-io {}            ; session IO resources by session-id
+   :disconnecting-session-ids #{}
    :actual-port port
    :router-ch nil
    :router-queue nil
@@ -998,8 +982,7 @@
 (defn- close-removed-github-token-provider-invocations!
   [old-state new-state]
   (session/close-removed-github-token-provider-invocations!
-   old-state new-state)
-  new-state)
+   old-state new-state))
 
 (defn- purge-all-github-token-provider-resources!
   [client]
@@ -1183,9 +1166,8 @@
   (let [state-atom (:state client)]
     (loop []
       (let [state @state-atom]
-        (if (not= generation
-                  (:github-token-provider-runtime-generation state))
-          nil
+        (when (= generation
+                 (:github-token-provider-runtime-generation state))
           (let [count (min github-token-provider-saturation-count-max
                            (inc (:github-token-provider-saturation-count state)))
                 next-state
@@ -1301,73 +1283,73 @@
   (let [{:keys [args provider invocation-id invocation]}
         (begin-github-token-provider-invocation! client request)
         result-chan (chan 1)
-        response-chan (chan 1)]
-    (let [await-result?
-          (if-let [executor
-                   (github-token-provider-executor!
-                    client (:generation invocation))]
-            (try
-              (let [future
-                    (.submit
-                     ^ThreadPoolExecutor executor
-                     ^Runnable
-                     (reify Runnable
-                       (run [_]
-                         (>!!
-                          result-chan
-                          (invoke-github-token-provider
-                           provider args (:cancel-chan invocation))))))]
-                (attach-github-token-provider-task! invocation future)
-                true)
-              (catch RejectedExecutionException _
-                (let [claimed
-                      (claim-github-token-provider-invocation!
-                       client invocation-id)
-                      saturation-count
-                      (when (and claimed
-                                 (not @(:cancelled? invocation)))
-                        (record-github-token-provider-saturation!
-                         client (:generation invocation)))
-                      cancelled? (nil? saturation-count)]
-                  (when-not cancelled?
-                    (log/warn
-                     "GitHub token provider executor saturated"
-                     (merge
-                      (github-token-provider-log-metadata invocation)
-                      (bounded-executor-facts executor)
-                      {:saturation-count saturation-count})))
-                  (async/put!
-                   response-chan
-                   (if cancelled?
-                     (provider-cancelled-response)
-                     {:error
-                      {:code -32000
-                       :message
-                       "GitHub token provider executor saturated"}}))
-                  (close! response-chan)
-                  false)))
-            (do
-              (claim-github-token-provider-invocation!
-               client invocation-id)
-              (async/put! response-chan (provider-cancelled-response))
-              (close! response-chan)
-              false))]
-      (when await-result?
-        (go
-          (let [[outcome port]
-                (async/alts!
-                 [result-chan (:cancel-chan invocation)]
-                 :priority true)
-                response
-                (if (identical? port (:cancel-chan invocation))
-                  (do
+        response-chan (chan 1)
+        await-result?
+        (if-let [executor
+                 (github-token-provider-executor!
+                  client (:generation invocation))]
+          (try
+            (let [future
+                  (.submit
+                   ^ThreadPoolExecutor executor
+                   ^Runnable
+                   (reify Runnable
+                     (run [_]
+                       (>!!
+                        result-chan
+                        (invoke-github-token-provider
+                         provider args (:cancel-chan invocation))))))]
+              (attach-github-token-provider-task! invocation future)
+              true)
+            (catch RejectedExecutionException _
+              (let [claimed
                     (claim-github-token-provider-invocation!
                      client invocation-id)
-                    (provider-cancelled-response))
-                  (github-token-provider-outcome-response
-                   client invocation-id invocation outcome))]
-            (>! response-chan response)
-            (close! response-chan)))))
+                    saturation-count
+                    (when (and claimed
+                               (not @(:cancelled? invocation)))
+                      (record-github-token-provider-saturation!
+                       client (:generation invocation)))
+                    cancelled? (nil? saturation-count)]
+                (when-not cancelled?
+                  (log/warn
+                   "GitHub token provider executor saturated"
+                   (merge
+                    (github-token-provider-log-metadata invocation)
+                    (bounded-executor-facts executor)
+                    {:saturation-count saturation-count})))
+                (async/put!
+                 response-chan
+                 (if cancelled?
+                   (provider-cancelled-response)
+                   {:error
+                    {:code -32000
+                     :message
+                     "GitHub token provider executor saturated"}}))
+                (close! response-chan)
+                false)))
+          (do
+            (claim-github-token-provider-invocation!
+             client invocation-id)
+            (async/put! response-chan (provider-cancelled-response))
+            (close! response-chan)
+            false))]
+    (when await-result?
+      (go
+        (let [[outcome port]
+              (async/alts!
+               [result-chan (:cancel-chan invocation)]
+               :priority true)
+              response
+              (if (identical? port (:cancel-chan invocation))
+                (do
+                  (claim-github-token-provider-invocation!
+                   client invocation-id)
+                  (provider-cancelled-response))
+                (github-token-provider-outcome-response
+                 client invocation-id invocation outcome))]
+          (>! response-chan response)
+          (close! response-chan))))
     response-chan))
 
 (defn- setup-request-handler!
@@ -2604,8 +2586,7 @@
              (cond-> {}
                (some? (:disable-bypass-permissions-mode permissions))
                (assoc :disableBypassPermissionsMode
-                      (some-> (:disable-bypass-permissions-mode permissions)
-                              name))
+                      (name (:disable-bypass-permissions-mode permissions)))
                (contains? permissions :deny) (assoc :deny (:deny permissions))
                (contains? permissions :ask) (assoc :ask (:ask permissions))
                (contains? permissions :allow) (assoc :allow (:allow permissions)))))))
@@ -3260,41 +3241,43 @@
    transaction, restoring a prior session registration when resuming."
   [client session-id config transform-callbacks build-params]
   (let [snapshot (session-registration-snapshot client session-id)
-        registration-id* (atom nil)
-        session-registration-started? (atom false)]
+        [wire-config registration-id]
+        (register-session-github-token-provider client config session-id)
+        rollback-provider
+        (fn [failure]
+          (preserve-setup-failure!
+           failure
+           (td/collect
+            [(td/attempt
+              {:operation :rollback
+               :resource :github-token-provider
+               :session-id session-id}
+              (rollback-github-token-provider!
+               client registration-id))])))
+        params
+        (try
+          (build-params wire-config)
+          (catch Throwable failure
+            (throw (rollback-provider failure))))
+        session
+        (try
+          (pre-register-session client session-id config)
+          (catch Throwable failure
+            (throw (rollback-provider failure))))]
     (try
-      (let [[wire-config registration-id]
-            (register-session-github-token-provider
-             client config session-id)
-            _ (reset! registration-id* registration-id)
-            params (build-params wire-config)
-            _ (reset! session-registration-started? true)
-            session (pre-register-session client session-id config)
-            _ (session/register-transform-callbacks!
-               client session-id transform-callbacks)
-            fs-handler (prepare-session-fs-handler client session config)
-            _ (install-session-fs-handler!
-               client session-id fs-handler)]
-        {:params params
-         :registration-id registration-id
-         :session session
-         :snapshot snapshot
-         :wire-config wire-config})
+      (session/register-transform-callbacks!
+       client session-id transform-callbacks)
+      (let [fs-handler (prepare-session-fs-handler client session config)]
+        (install-session-fs-handler! client session-id fs-handler))
+      {:params params
+       :registration-id registration-id
+       :session session
+       :snapshot snapshot
+       :wire-config wire-config}
       (catch Throwable failure
-        (if @session-registration-started?
-          (throw
-           (fail-session-setup!
-            client session-id @registration-id* false snapshot failure))
-          (throw
-           (preserve-setup-failure!
-            failure
-            (td/collect
-             [(td/attempt
-               {:operation :rollback
-                :resource :github-token-provider
-                :session-id session-id}
-               (rollback-github-token-provider!
-                client @registration-id*))]))))))))
+        (throw
+         (fail-session-setup!
+          client session-id registration-id false snapshot failure))))))
 
 (defn- prepare-deferred-session-request!
   "Register provider state and build RPC params when the runtime assigns the
@@ -3450,17 +3433,19 @@
    - :github-token       - Static GitHub token for this session (sent as gitHubToken).
                            Mutually exclusive with :github-token-provider.
    - :github-token-provider - Refreshable session credential callback. Receives
-                              {:host :session-id? :reason :initial|:refresh}; returns
+                              {:host :session-id? :reason keyword}; known reasons
+                              are :initial and :refresh, while future nonblank
+                              reasons pass through for forward compatibility.
+                              Returns
                               {:kind :token :access-token :expires-in :token-type?} or
                               {:kind :cancelled}, directly or on a core.async channel.
                               Both result variants may contain extension fields.
                               Only an opaque registration id is sent in session
                               configuration, but acquired credentials cross the
                               JSON-RPC connection to the CLI. Provider work runs
-                              on a bounded client-owned executor. Use managed
-                              stdio/local transport or a :cli-url whose parsed
-                              host has a recognized loopback spelling; DNS names
-                              are not resolved to prove they point at loopback.
+                              on a bounded client-owned executor. Requires
+                              SDK-owned child-process stdio or TCP; every explicit
+                              external :cli-url is rejected.
    - :on-user-input-request - Handler for ask_user requests (PR #269)
    - :ask-user-variant  - Built-in ask_user shape: :legacy or :elicitation.
    - :on-elicitation-request - Handler for elicitation requests from the agent (upstream PRs #908, #960).

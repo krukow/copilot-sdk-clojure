@@ -6,9 +6,11 @@
    - COPILOT_E2E_TESTS: Set to 'true' to enable these tests
    
    Run with: COPILOT_E2E_TESTS=true COPILOT_CLI_PATH=/path/to/copilot clojure -M:test"
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+  (:require [clojure.java.io :as io]
+            [clojure.test :refer [deftest testing is use-fixtures]]
             [clojure.core.async :refer [alts!! timeout]]
-            [github.copilot-sdk :as sdk]))
+            [github.copilot-sdk :as sdk])
+  (:import [java.nio.file Files]))
 
 ;; Check if E2E tests are enabled
 (def e2e-enabled?
@@ -59,20 +61,35 @@
 
 ;; Dynamic var for test client
 (def ^:dynamic *e2e-client* nil)
+(def ^:dynamic *e2e-home* nil)
+
+(defn- delete-tree!
+  [root]
+  (when (.exists root)
+    (doseq [file (reverse (file-seq root))]
+      (io/delete-file file))))
 
 (defn with-e2e-client
   "Fixture that creates a real client for E2E tests."
   [test-fn]
   (if e2e-enabled?
-    (let [client (sdk/client {:cli-path cli-path
+    (let [home (.toFile
+                (Files/createTempDirectory
+                 "copilot-sdk-clojure-e2e-"
+                 (make-array java.nio.file.attribute.FileAttribute 0)))
+          home-path (.getCanonicalPath home)
+          client (sdk/client {:cli-path cli-path
                               :use-stdio? true
-                              :auto-start? true})]
+                              :auto-start? true
+                              :copilot-home home-path})]
       (try
         (sdk/start! client)
-        (binding [*e2e-client* client]
+        (binding [*e2e-client* client
+                  *e2e-home* home-path]
           (test-fn))
         (finally
-          (try (sdk/stop! client) (catch Exception _)))))
+          (try (sdk/stop! client) (catch Exception _))
+          (delete-tree! home))))
     ;; E2E disabled - still run the tests but they will skip
     (test-fn)))
 
@@ -219,21 +236,36 @@
 
 (deftest ^:e2e test-e2e-resume-session
   (when-e2e
-   (testing "Resume existing session"
-     (let [session1 (sdk/create-session *e2e-client* {:on-permission-request sdk/approve-all})
-           session-id (sdk/session-id session1)
-           _ (sdk/send-and-wait! session1 {:prompt "Remember the word: APPLE"} 30000)
-            ;; Resume the session
-           session2 (sdk/resume-session *e2e-client* session-id {:on-permission-request sdk/approve-all})]
-       (is (= session-id (sdk/session-id session2)))
-        ;; Should have conversation context
-       (let [result (sdk/send-and-wait! session2
-                                        {:prompt "What word did I ask you to remember?"}
-                                        30000)]
-         (is (some? result))
-          ;; The model should remember APPLE
-         (is (string? (get-in result [:data :content]))))
-       (sdk/destroy! session2)))))
+   (testing "Resume an active session through a second TCP client"
+     (let [connection-token (str (java.util.UUID/randomUUID))
+           owner-client (sdk/client {:cli-path cli-path
+                                     :use-stdio? false
+                                     :port 0
+                                     :tcp-connection-token connection-token
+                                     :auto-start? false
+                                     :copilot-home *e2e-home*})
+           resume-client (atom nil)
+           sessions (atom [])]
+       (try
+         (sdk/start! owner-client)
+         (let [session1 (sdk/create-session owner-client {})
+               _registered-session1 (swap! sessions conj session1)
+               session-id (sdk/session-id session1)
+               port (:actual-port @(:state owner-client))
+               client2 (sdk/client {:cli-url (str "localhost:" port)
+                                    :tcp-connection-token connection-token
+                                    :auto-start? false})]
+           (reset! resume-client client2)
+           (sdk/start! client2)
+           (let [session2 (sdk/resume-session client2 session-id {})
+                 _registered-session2 (swap! sessions conj session2)]
+             (is (= session-id (sdk/session-id session2)))))
+         (finally
+           (doseq [session (reverse @sessions)]
+             (try (sdk/disconnect! session) (catch Exception _)))
+           (when-let [client2 @resume-client]
+             (try (sdk/stop! client2) (catch Exception _)))
+           (try (sdk/stop! owner-client) (catch Exception _))))))))
 
 (deftest ^:e2e test-e2e-multiple-sessions
   (when-e2e

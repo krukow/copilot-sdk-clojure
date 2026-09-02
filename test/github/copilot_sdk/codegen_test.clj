@@ -557,6 +557,30 @@
     (testing "rejects a tool-request with an unknown top-level key (additionalProperties: false)"
       (is (not (s/valid? spec-kw [(assoc valid-request :bogus-top-level "x")]))))))
 
+(deftest generated-number-specs-require-json-numbers
+  (testing "schema number types reject non-finite values and Clojure ratios"
+    (doseq [value [Double/NaN
+                   Double/POSITIVE_INFINITY
+                   Double/NEGATIVE_INFINITY
+                   1/2]]
+      (is (not (s/valid? ::gen/dispatch-duration-ms value))
+          (pr-str value)))
+    (doseq [value [0 0.5 42]]
+      (is (s/valid? ::gen/dispatch-duration-ms value)
+          (pr-str value)))))
+
+(deftest generated-event-data-remains-open-at-the-top-level
+  (testing "future event fields pass while nested schema objects stay closed"
+    (is (s/valid? ::gen/hook.start-data
+                  {:hook-invocation-id "hook-1"
+                   :hook-type "pre-tool-use"
+                   :future-field {:nested ["value"]}}))
+    (is (not (s/valid?
+              ::gen/assistant-message-tool-request-caller-shape
+              {:caller-id "caller-1"
+               :type "program"
+               :future-field true})))))
+
 ;; ---------------------------------------------------------------------------
 ;; Envelope discrimination — type and data binding must be tight.
 ;; ---------------------------------------------------------------------------
