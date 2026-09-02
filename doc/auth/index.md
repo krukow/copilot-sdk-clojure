@@ -256,7 +256,7 @@ See the [BYOK documentation](./byok.md) for complete details.
 
 When multiple authentication methods are available, the CLI uses them in this priority order:
 
-1. **Session credential** — `:github-token-provider` or `:github-token` passed in `create-session` or `resume-session` config for that session
+1. **Session credential** — `:github-token-provider` or `:github-token` passed in `create-session`, `resume-session`, or `join-session` config for that session
 2. **Client `:github-token`** — Token passed directly to the client constructor
 3. **HMAC key** — `CAPI_HMAC_KEY` or `COPILOT_HMAC_KEY` environment variables
 4. **Direct API token** — `GITHUB_COPILOT_API_TOKEN` with `COPILOT_API_URL`

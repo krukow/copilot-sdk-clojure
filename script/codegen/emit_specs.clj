@@ -31,6 +31,7 @@
      structural predicates, built but not separately registered.
    - nested `object` nodes *without* declared `properties` (dictionary-style
      or otherwise opaque objects) → `map?`, left open
+   - nodes marked `x-opaque-json` → recursive JSON values (including scalars)
    - `anyOf` (incl. nullable)   → `(s/or ...)` or `(s/nilable ...)`
    - Otherwise / less precise cases → `any?`
 
@@ -118,6 +119,23 @@
         (~'instance? Float ~'n) (Float/isFinite ~'n)
         :else true)))))
 
+(def ^:private opaque-json-predicate
+  '(fn json-value? [value]
+     (cond
+       (nil? value) true
+       (string? value) true
+       (and (number? value)
+           (not (ratio? value))
+           (cond
+             (instance? Double value) (Double/isFinite value)
+             (instance? Float value) (Float/isFinite value)
+             :else true)) true
+       (boolean? value) true
+       (vector? value) (every? json-value? value)
+       (map? value) (and (every? #(or (keyword? %) (string? %)) (keys value))
+                        (every? json-value? (vals value)))
+       :else false)))
+
 (defn- emit-array [root node]
   (let [items (:items node)]
     (if items
@@ -140,6 +158,12 @@
     (if nullable?
       `(~'s/nilable ~union)
       union)))
+
+(defn- emit-type-array
+  [root node]
+  (emit-anyOf
+   root
+   {:anyOf (mapv #(assoc node :type %) (:type node))}))
 
 (defn- emit-object
   "Build a structural `(s/and map? ...)` form for an object node with
@@ -200,7 +224,9 @@
   (let [ref  (:$ref node)
         node (cc/deref-once root node)]
     (cond
+      (:x-opaque-json node)        opaque-json-predicate
       (:anyOf node)              (emit-anyOf root node)
+      (vector? (:type node))     (emit-type-array root node)
       (= "string"  (:type node)) (emit-string node)
       (= "integer" (:type node)) (emit-number node `integer?)
       (= "number"  (:type node)) (emit-number node json-number-predicate)

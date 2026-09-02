@@ -146,3 +146,47 @@
                 error))))]
     (is (identical? setup-error caught))
     (is (= [:client :start :create-session :stop] @calls))))
+
+(deftest lifecycle-macros-preserve-primary-failures-and-interrupts
+  (testing "a body failure remains primary when session cleanup also fails"
+    (let [body-error (ex-info "body failed" {:phase :body})
+          cleanup-error (ex-info "disconnect failed" {:phase :cleanup})
+          caught
+          (with-redefs-fn
+            {#'sdk/create-session (fn [_ _] ::session)
+             #'sdk/disconnect! (fn [_] (throw cleanup-error))}
+            (fn []
+              (try
+                (sdk/with-session [_session ::client {}]
+                  (throw body-error))
+                (catch Throwable error
+                  error))))]
+      (is (identical? body-error caught))
+      (is (= [cleanup-error] (vec (.getSuppressed ^Throwable caught))))))
+
+  (testing "cleanup interruption is attached and the interrupt flag is restored"
+    (let [body-error (ex-info "body failed" {:phase :body})
+          cleanup-error (InterruptedException. "disconnect interrupted")
+          outcome
+          (deref
+           (future
+             (with-redefs-fn
+               {#'sdk/create-session (fn [_ _] ::session)
+                #'sdk/disconnect! (fn [_] (throw cleanup-error))}
+               (fn []
+                 (try
+                   (sdk/with-session [_session ::client {}]
+                     (throw body-error))
+                   (catch Throwable error
+                     (let [result
+                           {:caught error
+                            :suppressed (vec (.getSuppressed ^Throwable error))
+                            :interrupted? (.isInterrupted (Thread/currentThread))}]
+                       (Thread/interrupted)
+                       result))))))
+           1000
+           ::timeout)]
+      (is (not= ::timeout outcome))
+      (is (identical? body-error (:caught outcome)))
+      (is (= [cleanup-error] (:suppressed outcome)))
+      (is (true? (:interrupted? outcome))))))

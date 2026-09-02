@@ -234,6 +234,42 @@
              (is (= [autopilot-idle terminal-idle] realized))
              (is (= 1 @disconnects)))))))))
 
+(deftest query-seq-retains-one-deadline-across-autopilot-idle
+  (let [events-ch (async/chan 1)
+        deadline-ch (async/chan)
+        timeout-calls (atom [])
+        disconnects (atom 0)
+        cleanup-error (ex-info "disconnect failed" {:phase :cleanup})
+        autopilot-idle {:type :copilot/session.idle
+                        :data {:mode "autopilot"}}]
+    (is (true? (async/>!! events-ch autopilot-idle)))
+    (call-with-controlled-query
+     {:events-ch events-ch
+      :disconnect-fn (fn [_session]
+                       (swap! disconnects inc)
+                       (throw cleanup-error))}
+     (fn []
+       (with-redefs [async/timeout
+                     (fn [^long timeout-ms]
+                       (swap! timeout-calls conj timeout-ms)
+                       deadline-ch)]
+         (let [events (h/query-seq! "fixed deadline" :timeout-ms 1234)]
+           (is (= autopilot-idle (first events)))
+           (async/close! deadline-ch)
+           (let [caught (try
+                          (second events)
+                          ::no-error
+                          (catch Throwable error
+                            error))]
+             (is (instance? clojure.lang.ExceptionInfo caught))
+             (is (= :query-timeout (:type (ex-data caught))))
+             (is (= 1234 (:timeout-ms (ex-data caught))))
+             (is (= [cleanup-error]
+                    (vec (.getSuppressed ^Throwable caught)))))))))
+    (is (= [1234] @timeout-calls))
+    (is (= 1 @disconnects))
+    (async/close! events-ch)))
+
 (deftest query-chan-source-close-disconnects-once
   (let [events-ch (async/chan)
         disconnects (atom 0)]
@@ -412,6 +448,24 @@
              (is (nil? (async/<!! query-ch)))
              (finally
                (async/close! events-ch)))))))))
+
+(deftest query-chan-surfaces-natural-cleanup-failure-before-closing
+  (let [events-ch (async/chan 1)
+        terminal-event {:type :copilot/session.idle}
+        cleanup-error (ex-info "disconnect failed" {:phase :cleanup})
+        disconnects (atom 0)]
+    (call-with-controlled-query
+     {:events-ch events-ch
+      :disconnect-fn (fn [_session]
+                       (swap! disconnects inc)
+                       (throw cleanup-error))}
+     (fn []
+       (let [query-ch (h/query-chan "natural cleanup failure" :buffer 2)]
+         (is (true? (async/>!! events-ch terminal-event)))
+         (is (= terminal-event (read-within query-ch)))
+         (is (identical? cleanup-error (read-within query-ch)))
+         (is (nil? (read-within query-ch)))
+         (is (= 1 @disconnects)))))))
 
 (deftest query-chan-remains-a-core-async-channel
   (let [events-ch (async/chan)

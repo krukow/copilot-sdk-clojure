@@ -45,8 +45,10 @@
                       (every? opaque-json-value? (vals value)))
     :else false))
 
-(s/def ::result opaque-json-value?)
-(s/def ::error opaque-json-value?)
+(defn- optional-field?
+  [m key pred]
+  (or (not (contains? m key))
+      (pred (get m key))))
 
 (s/def ::non-blank-string (s/and string? (complement clojure.string/blank?)))
 ;; ::timestamp accepts both ISO 8601 strings (CLI ≥ 1.0.51, upstream PR #1340)
@@ -960,7 +962,8 @@
 (s/def ::custom-agents-local-only boolean?)
 (s/def ::coauthor-enabled boolean?)
 (s/def ::manage-schedule-enabled boolean?)
-(s/def ::included-builtin-skills (s/coll-of ::non-blank-string))
+(s/def ::included-builtin-skills
+  (s/nilable (s/coll-of ::non-blank-string)))
 
 ;; Reasoning summary mode (upstream PR #813 - pre-existing parity gap).
 ;; Wire enum: "none" | "concise" | "detailed". Mirrors upstream's ReasoningSummary type.
@@ -1000,6 +1003,16 @@
               (s/valid? ::non-blank-string (:session-id %)))
          #(s/valid? ::github-token-acquire-reason (:reason %))))
 
+(defn- github-token-provider-field-value?
+  [value]
+  (cond
+    (keyword? value) true
+    (vector? value) (every? github-token-provider-field-value? value)
+    (map? value)
+    (and (every? #(or (keyword? %) (string? %)) (keys value))
+         (every? github-token-provider-field-value? (vals value)))
+    :else (opaque-json-value? value)))
+
 (defn ^:no-doc github-token-provider-result-constraint
   "Return the first violated provider-result constraint, or nil when valid.
    Both result variants are open to additional upstream-compatible fields."
@@ -1010,6 +1023,13 @@
 
     (not (#{:token :cancelled} (:kind result)))
     :kind-must-be-token-or-cancelled
+
+    (not (every? #(or (keyword? %) (string? %)) (keys result)))
+    :keys-must-be-keywords-or-strings
+
+    (not (every? github-token-provider-field-value?
+                 (vals (dissoc result :kind))))
+    :fields-must-be-json-values
 
     (= :cancelled (:kind result))
     nil
@@ -1030,8 +1050,40 @@
     :else
     nil))
 
+(defn- github-token-provider-result-kind?
+  [result]
+  (#{:token :cancelled} (:kind result)))
+
+(defn- github-token-provider-result-json-fields?
+  [result]
+  (and (every? #(or (keyword? %) (string? %)) (keys result))
+       (every? github-token-provider-field-value?
+               (vals (dissoc result :kind)))))
+
+(defn- github-token-provider-access-token?
+  [result]
+  (or (= :cancelled (:kind result))
+      (s/valid? ::non-blank-string (:access-token result))))
+
+(defn- github-token-provider-expires-in?
+  [result]
+  (or (= :cancelled (:kind result))
+      (and (integer? (:expires-in result))
+           (< 3600 (:expires-in result)))))
+
+(defn- github-token-provider-token-type?
+  [result]
+  (or (= :cancelled (:kind result))
+      (not (contains? result :token-type))
+      (s/valid? ::non-blank-string (:token-type result))))
+
 (s/def ::github-token-provider-result
-  #(nil? (github-token-provider-result-constraint %)))
+  (s/and map?
+         github-token-provider-result-kind?
+         github-token-provider-result-json-fields?
+         github-token-provider-access-token?
+         github-token-provider-expires-in?
+         github-token-provider-token-type?))
 
 ;; Session options (upstream PR #1865) — shared by create + resume/join.
 ;; excludedBuiltinAgents: names of built-in agents to hide from the session.
@@ -1847,7 +1899,6 @@
 (s/def ::chunk-count pos-int?)
 (s/def ::rte boolean?)
 (s/def ::interaction-type string?)
-(s/def ::arguments opaque-json-value?)
 (s/def ::intention-summary (s/nilable string?))
 (s/def ::tool-title string?)
 (s/def ::caller-id string?)
@@ -1864,8 +1915,9 @@
 (s/def ::assistant-message-tool-request
   (s/and
    (s/keys :req-un [::tool-call-id ::name]
-           :opt-un [::arguments ::tool-title ::mcp-server-name ::mcp-tool-name
+           :opt-un [::tool-title ::mcp-server-name ::mcp-tool-name
                     ::intention-summary ::caller])
+   #(optional-field? % :arguments opaque-json-value?)
    #(or (not (contains? % :type))
         (s/valid? ::assistant-message-tool-request-type (:type %)))))
 (s/def ::tool-requests
@@ -1967,8 +2019,10 @@
 (s/def ::mcp-tool-name string?)
 
 (s/def ::tool.execution_start-data
-  (s/keys :req-un [::tool-call-id ::tool-name]
-          :opt-un [::arguments ::parent-tool-call-id ::mcp-server-name ::mcp-tool-name ::model]))
+  (s/and
+   (s/keys :req-un [::tool-call-id ::tool-name]
+           :opt-un [::parent-tool-call-id ::mcp-server-name ::mcp-tool-name ::model])
+   #(optional-field? % :arguments opaque-json-value?)))
 
 (s/def ::progress-message string?)
 (s/def ::success boolean?)
@@ -1977,9 +2031,12 @@
   (s/keys :req-un [::tool-call-id ::progress-message]))
 
 (s/def ::tool.execution_complete-data
-  (s/keys :req-un [::tool-call-id ::success]
-          :opt-un [::is-user-requested? ::result ::error ::tool-telemetry ::parent-tool-call-id
-                   ::model ::interaction-id]))
+  (s/and
+   (s/keys :req-un [::tool-call-id ::success]
+           :opt-un [::is-user-requested? ::tool-telemetry ::parent-tool-call-id
+                    ::model ::interaction-id])
+   #(optional-field? % :result opaque-json-value?)
+   #(optional-field? % :error opaque-json-value?)))
 
 ;; Permission event data — resolved-by-hook indicates the runtime already handled
 ;; this permission request via a permissionRequest hook (upstream PR #999).
@@ -2082,7 +2139,7 @@
 (s/def ::hook.end-data
   (s/and
    (s/keys :req-un [::hook-invocation-id ::hook-type ::success]
-           :opt-un [::error ::parent-tool-call-id])
+           :opt-un [::parent-tool-call-id])
    #(or (not (contains? % :error))
         (s/valid? ::hook-end-error (:error %)))))
 
@@ -2117,8 +2174,10 @@
 ;; model used to drive compaction, when applicable.
 (s/def ::behavior-model-id string?)
 (s/def ::session.compaction_complete-data
-  (s/keys :req-un [::success]
-          :opt-un [::error ::status-code ::token-limit ::trigger ::behavior-model-id]))
+  (s/and
+   (s/keys :req-un [::success]
+           :opt-un [::status-code ::token-limit ::trigger ::behavior-model-id])
+   #(optional-field? % :error string?)))
 
 ;; Context-cleared event (upstream PR #2129).
 (s/def ::messages-cleared nat-int?)
@@ -2232,11 +2291,13 @@
                    ::configured-model-matches-actual]))
 
 (s/def ::subagent.failed-data
-  (s/keys :req-un [::tool-call-id ::agent-name ::agent-display-name ::error]
-          :opt-un [::model ::total-tool-calls ::total-tokens ::duration-ms
-                   ::first-dispatched-model ::configured-model-preference
-                   ::explicit-model-override ::explicit-model-matches-preference
-                   ::configured-model-matches-actual]))
+  (s/and
+   (s/keys :req-un [::tool-call-id ::agent-name ::agent-display-name]
+           :opt-un [::model ::total-tool-calls ::total-tokens ::duration-ms
+                    ::first-dispatched-model ::configured-model-preference
+                    ::explicit-model-override ::explicit-model-matches-preference
+                    ::configured-model-matches-actual])
+   #(and (contains? % :error) (string? (:error %)))))
 
 ;; session.custom_agents_updated event data (upstream PR #916)
 (s/def ::user-invocable? boolean?)
@@ -2283,7 +2344,8 @@
 (s/def ::status string?)
 (s/def ::mcp-loaded-server
   (s/and (s/keys :req-un [::name ::status]
-                 :opt-un [::error ::source])
+                 :opt-un [::source])
+         #(optional-field? % :error string?)
          #(s/valid? ::mcp-server-status (:status %))))
 (s/def ::servers (s/coll-of ::mcp-loaded-server))
 (s/def ::session.mcp_servers_loaded-data
@@ -2523,9 +2585,11 @@
 (s/def ::binary-results-for-llm (s/coll-of map?))
 
 (s/def ::tool-result-object
-  (s/keys :req-un [::text-result-for-llm ::result-type]
-          :opt-un [::binary-results-for-llm ::error ::session-log ::tool-telemetry
-                   ::tool-references]))
+  (s/and
+   (s/keys :req-un [::text-result-for-llm ::result-type]
+           :opt-un [::binary-results-for-llm ::session-log ::tool-telemetry
+                    ::tool-references])
+   #(optional-field? % :error opaque-json-value?)))
 
 (s/def ::tool-result
   (s/or :string string?

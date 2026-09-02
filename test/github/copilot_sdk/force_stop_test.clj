@@ -159,6 +159,30 @@
                     events-ch ([event] event)
                     (async/timeout 25) ::open)))))
 
+(deftest client-stop-forces-local-teardown-after-runtime-destroy-failure
+  (let [client (sdk/client {:auto-start? false})
+        copilot-session (session/create-session client "failed-stop-disconnect" {})
+        session-id (sdk/session-id copilot-session)
+        events-ch (session/subscribe-events copilot-session)
+        destroy-error (ex-info "runtime destroy failed" {:phase :destroy})
+        calls (atom [])]
+    (with-redefs [protocol/send-request!
+                  (fn [_ method params & _]
+                    (swap! calls conj [method params])
+                    (when (= "session.destroy" method)
+                      (throw destroy-error)))]
+      (let [errors (sdk/stop! client)]
+        (is (= [["session.destroy" {:session-id session-id}]] @calls))
+        (is (= 1 (count errors)))
+        (is (identical? destroy-error (ex-cause (first errors))))))
+    (is (:closed? (await-port events-ch)))
+    (is (empty? (:sessions @(:state client))))
+    (is (empty? (:session-io @(:state client))))
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo
+         #"Session has been disconnected"
+         (session/send! copilot-session {:prompt "after failed stop"})))))
+
 (deftest session-registration-rejects-an-in-progress-disconnect
   (let [client (sdk/client {:auto-start? false})
         copilot-session (session/create-session client "disconnect-race" {})

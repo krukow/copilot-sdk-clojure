@@ -862,7 +862,7 @@
                   :committed-only (:committed? registration)
                   (throw (ex-info "Invalid GitHub token provider purge scope"
                                   {:scope scope}))))))
-        (or registrations {})))
+        registrations))
 
 (defn- purge-github-token-provider-invocations
   [invocations registration-ids]
@@ -870,48 +870,54 @@
         (remove (fn [[_ invocation]]
                   (contains? registration-ids
                              (:registration-id invocation))))
-        (or invocations {})))
+        invocations))
 
 (defn ^:no-doc purge-github-token-provider-resources
   "Remove a session's provider registrations and their active invocations."
   [state session-id scope]
-  (let [registrations (:github-token-providers state)
+  (let [registrations
+        (get-in state [:github-token-provider-runtime :registrations])
         retained (purge-github-token-provider-registrations
                   registrations session-id scope)
         removed-ids (into #{}
                           (remove #(contains? retained %))
                           (keys registrations))]
     (-> state
-        (assoc :github-token-providers retained)
-        (update :github-token-provider-invocations
-                purge-github-token-provider-invocations
-                removed-ids))))
+        (assoc-in [:github-token-provider-runtime :registrations] retained)
+        (update-in [:github-token-provider-runtime :invocations]
+                   purge-github-token-provider-invocations
+                   removed-ids))))
 
 (defn ^:no-doc purge-github-token-provider-registration
   "Remove one provider registration and its active invocations."
   [state registration-id]
   (-> state
-      (update :github-token-providers dissoc registration-id)
-      (update :github-token-provider-invocations
-              purge-github-token-provider-invocations
-              #{registration-id})))
+      (update-in [:github-token-provider-runtime :registrations]
+                 dissoc
+                 registration-id)
+      (update-in [:github-token-provider-runtime :invocations]
+                 purge-github-token-provider-invocations
+                 #{registration-id})))
 
 (defn ^:no-doc purge-all-github-token-provider-resources
   "Remove every provider registration and active invocation."
   [state]
   (assoc state
-         :github-token-providers {}
-         :github-token-provider-invocations {}))
+         :github-token-provider-runtime
+         (assoc (:github-token-provider-runtime state)
+                :registrations {}
+                :invocations {})))
 
 (defn ^:no-doc close-removed-github-token-provider-invocations!
   "Cancel invocations removed by one atomic client-state transition."
   [old-state new-state]
   (doseq [[invocation-id {:keys [cancel-chan cancelled? task] :as invocation}]
-          (:github-token-provider-invocations old-state)
+          (get-in old-state [:github-token-provider-runtime :invocations])
           :when (not (identical?
                       invocation
                       (get-in new-state
-                              [:github-token-provider-invocations
+                              [:github-token-provider-runtime
+                               :invocations
                                invocation-id])))]
     (when cancelled?
       (reset! cancelled? true))
@@ -1728,7 +1734,7 @@
    how long to wait for `session.idle`; it does not abort in-flight agent work."
   60000)
 
-(defn- terminal-idle-event?
+(defn ^:no-doc terminal-idle-event?
   [event]
   (and (= :copilot/session.idle (:type event))
        (not= "autopilot" (get-in event [:data :mode]))))
@@ -2000,6 +2006,8 @@
    string `\"autopilot\"` is emitted without closing the channel.
    Serialized per session to avoid mixing concurrent sends.
    Safe for use inside go blocks — no blocking operations.
+   A timeout is emitted as a final `:copilot/session.error` event whose data
+   includes `:timeout-ms`, then the channel closes.
    
    Options: same as send! (including :request-headers).
    
@@ -2085,7 +2093,16 @@
     out-ch))
 
 (defn send-async-with-id
-  "Send a message and return {:message-id :events-ch}."
+  "Send a message and return `{:message-id :events-ch}`.
+
+   Options: same as send!.
+
+   Additional options:
+   - :timeout-ms   - Timeout in milliseconds (default: 60000, set to nil to disable)
+
+   `:events-ch` follows `send-async`: a timeout is emitted as a final
+   `:copilot/session.error` event whose data includes `:timeout-ms`, then the
+   channel closes."
   [session opts]
   (let [timeout-ms (if (contains? opts :timeout-ms) (:timeout-ms opts) default-send-and-wait-timeout-ms)
         opts (dissoc opts :timeout-ms)]
@@ -2284,32 +2301,37 @@
    history, planning state, artifacts) is preserved for later resumption
    via `resume-session`. To permanently remove all session data, use
    `delete-session!` instead.
+
+   The runtime is destroyed before local resources are released. A destroy
+   failure is rethrown and leaves the session connected so the caller can retry.
    Can be called with either a CopilotSession handle or (client, session-id)."
   ([session]
    (disconnect! (:client session) (:session-id session)))
   ([client session-id]
    (log/debug "Disconnecting session: " session-id)
-   (let [[old-state _]
+   (let [claimable?
+         (fn [state]
+           (let [session (get-in state [:sessions session-id])]
+             (and session
+                  (false? (:destroyed? session))
+                  (not (contains?
+                        (:disconnecting-session-ids state)
+                        session-id)))))
+         [old-state new-state]
          (swap-vals!
           (:state client)
           (fn [state]
-            (let [session (get-in state [:sessions session-id])]
-              (if (and session
-                       (false? (:destroyed? session))
-                       (not (contains?
-                             (:disconnecting-session-ids state)
-                             session-id)))
-                (update state
-                        :disconnecting-session-ids
-                        (fnil conj #{})
-                        session-id)
-                state))))
+            (if (claimable? state)
+              (update state
+                      :disconnecting-session-ids
+                      (fnil conj #{})
+                      session-id)
+              state)))
          session (get-in old-state [:sessions session-id])
-         claimed? (and session
-                       (false? (:destroyed? session))
-                       (not (contains?
-                             (:disconnecting-session-ids old-state)
-                             session-id)))
+         claimed? (and (claimable? old-state)
+                       (contains?
+                        (:disconnecting-session-ids new-state)
+                        session-id))
          disconnect? (or (nil? session) claimed?)]
      (when disconnect?
        (try

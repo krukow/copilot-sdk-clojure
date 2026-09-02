@@ -220,11 +220,11 @@
      "GitHubTokenAcquireResult"
      "GitHubTokenProvider"
      "GitHubTokenProviderArgs"
-     "GitHubTokenProviderResult"
-     "PermissionResponseCapability"}
+     "GitHubTokenProviderResult"}
    :experimental
    #{"FactoryListRunsOptions"
-     "FactoryRunsPage"}}
+     "FactoryRunsPage"
+     "PermissionResponseCapability"}}
   "nodejs/src/types.ts"
   {:stable-public
    #{"AskUserVariant"
@@ -234,8 +234,9 @@
      "GitHubTokenAcquireResult"
      "GitHubTokenProvider"
      "GitHubTokenProviderArgs"
-     "GitHubTokenProviderResult"
-     "PermissionResponseCapability"}}
+     "GitHubTokenProviderResult"}
+    :experimental
+    #{"PermissionResponseCapability"}}
   "nodejs/src/generated/rpc.ts"
   {:experimental
    #{"ConnectClientInfo"
@@ -376,10 +377,10 @@
    :events/assistant-message-tool-request-caller
    :events/mode-notice-delivered
    :events/model-call-finished
+   :events/stable-payload-fields
    :events/subagent-configured
    :mode/builtin-skill-isolation
    :permissions/managed-bypass-policy
-   :permissions/response-capability
    :session/ask-user-variant
    :session/auto-tier
    :session/autopilot-idle
@@ -391,10 +392,10 @@
    :events/assistant-message-tool-request-caller
    :events/mode-notice-delivered
    :events/model-call-finished
+   :events/stable-payload-fields
    :events/subagent-configured
    :mode/builtin-skill-isolation
    :permissions/managed-bypass-policy
-   :permissions/response-capability
    :session/ask-user-variant
    :session/auto-tier
    :session/autopilot-idle
@@ -421,6 +422,9 @@
  [{:id :mode/builtin-skill-isolation
    :classification :stable-public :status :ported
    :evidence [:builtin-skill-option :builtin-skill-mode-patch]
+   :inventory-items
+   [[:session-config-field "SessionConfigBase" "includedBuiltinSkills"]
+    [:changed-declaration "nodejs/src/types.ts" "SessionConfigBase"]]
    :clojure-paths ["src/github/copilot_sdk/specs.clj"
                    "src/github/copilot_sdk/client.clj"]
    :contract
@@ -431,6 +435,19 @@
    :classification :stable-public :status :ported
    :evidence [:github-token-provider-type :github-token-provider-export
               :github-token-provider-registration :github-token-provider-acquire]
+   :inventory-items
+   [[:exported-symbol "nodejs/src/index.ts" "GitHubTokenAcquireReason"]
+    [:exported-symbol "nodejs/src/index.ts" "GitHubTokenAcquireResult"]
+    [:exported-symbol "nodejs/src/index.ts" "GitHubTokenProvider"]
+    [:exported-symbol "nodejs/src/index.ts" "GitHubTokenProviderArgs"]
+    [:exported-symbol "nodejs/src/index.ts" "GitHubTokenProviderResult"]
+    [:exported-symbol "nodejs/src/types.ts" "GitHubTokenAcquireReason"]
+    [:exported-symbol "nodejs/src/types.ts" "GitHubTokenAcquireResult"]
+    [:exported-symbol "nodejs/src/types.ts" "GitHubTokenProvider"]
+    [:exported-symbol "nodejs/src/types.ts" "GitHubTokenProviderArgs"]
+    [:exported-symbol "nodejs/src/types.ts" "GitHubTokenProviderResult"]
+    [:session-config-field "SessionConfigBase" "gitHubTokenProvider"]
+    [:changed-declaration "nodejs/src/types.ts" "SessionConfigBase"]]
    :clojure-paths ["src/github/copilot_sdk/specs.clj"
                    "src/github/copilot_sdk/client.clj"
                    "src/github/copilot_sdk/session.clj"]
@@ -440,27 +457,25 @@
     :docs ["doc/auth/index.md" "doc/reference/API.md"]}}
   {:id :permissions/managed-bypass-policy
    :classification :stable-public :status :ported
-   :evidence [:managed-bypass-policy-export :managed-bypass-policy-type
-              :managed-bypass-policy-builder]
+   :evidence [:managed-bypass-policy-export :managed-bypass-policy-type]
+   :inventory-items
+   [[:exported-symbol "nodejs/src/index.ts" "DisableBypassPermissionsModes"]
+    [:exported-symbol "nodejs/src/types.ts" "DisableBypassPermissionsModes"]
+    [:changed-declaration "nodejs/src/types.ts" "ManagedSettingsPermissions"]]
    :clojure-paths ["src/github/copilot_sdk/specs.clj"
                    "src/github/copilot_sdk/client.clj"]
    :contract
    {:wire "managedSettings.permissions.disableBypassPermissionsMode is omitted when absent and forwarded unchanged when present; known values are disable and allow-auto-only."
     :tests ["test/github/copilot_sdk/integration/permissions_oauth_test.clj"]
     :docs ["doc/reference/API.md"]}}
-  {:id :permissions/response-capability
-   :classification :stable-public :status :ported
-   :evidence [:permission-response-capability-export
-              :permission-response-capability-result]
-   :clojure-paths ["src/github/copilot_sdk/specs.clj"
-                   "src/github/copilot_sdk/session.clj"]
-   :contract
-   {:wire "Interactive, headless, and none keywords serialize to exact wire strings and remain omitted when absent."
-    :tests ["test/github/copilot_sdk/integration/permissions_oauth_test.clj"]
-    :docs ["doc/reference/API.md"]}}
   {:id :session/ask-user-variant
    :classification :stable-public :status :ported
    :evidence [:ask-user-variant-type :ask-user-variant-builder]
+   :inventory-items
+   [[:exported-symbol "nodejs/src/index.ts" "AskUserVariant"]
+    [:exported-symbol "nodejs/src/types.ts" "AskUserVariant"]
+    [:session-config-field "SessionConfigBase" "askUserVariant"]
+    [:changed-declaration "nodejs/src/types.ts" "SessionConfigBase"]]
    :clojure-paths ["src/github/copilot_sdk/specs.clj"
                    "src/github/copilot_sdk/client.clj"]
    :contract
@@ -470,6 +485,9 @@
   {:id :session/feature-flags
    :classification :stable-public :status :ported
    :evidence [:feature-flags-type :feature-flags-builder]
+   :inventory-items
+   [[:session-config-field "SessionConfigBase" "featureFlags"]
+    [:changed-declaration "nodejs/src/types.ts" "SessionConfigBase"]]
    :clojure-paths ["src/github/copilot_sdk/specs.clj"
                    "src/github/copilot_sdk/client.clj"]
    :contract
@@ -478,7 +496,15 @@
     :docs ["doc/reference/API.md"]}}
   {:id :session/auto-tier
    :classification :stable-public :status :ported
-   :evidence [:auto-tier-type :auto-tier-builder]
+   :evidence [:auto-tier-type]
+   :inventory-items
+   [[:exported-symbol "nodejs/src/index.ts" "AutoTier"]
+    [:exported-symbol "nodejs/src/types.ts" "AutoTier"]
+    [:exported-symbol "nodejs/src/generated/session-events.ts" "AutoTier"]
+    [:session-config-field "CapiSessionOptions" "autoTier"]
+    [:changed-declaration "nodejs/src/types.ts" "CapiSessionOptions"]
+    [:changed-declaration "nodejs/src/generated/session-events.ts" "ResumeData"]
+    [:changed-declaration "nodejs/src/generated/session-events.ts" "StartData"]]
    :clojure-paths ["src/github/copilot_sdk/specs.clj"
                    "src/github/copilot_sdk/client.clj"]
    :contract
@@ -488,6 +514,8 @@
   {:id :session/autopilot-idle
    :classification :stable-public :status :ported
    :evidence [:autopilot-idle-wait]
+   :inventory-items
+   [[:changed-declaration "nodejs/src/generated/session-events.ts" "IdleData"]]
    :clojure-paths ["src/github/copilot_sdk/session.clj"]
    :contract
    {:wire "session.idle is terminal for ordinary waits but not when the event mode is autopilot."
@@ -495,10 +523,16 @@
     :docs ["doc/reference/API.md"]}}
   {:id :events/assistant-message-tool-request-caller
    :classification :stable-public :status :ported
-   :evidence [:generated-session-events-root-export
-              :tool-request-caller-type
+   :evidence [:tool-request-caller-type
               :tool-request-caller-field
               :tool-request-caller-interface]
+   :inventory-items
+   [[:exported-symbol "nodejs/src/generated/session-events.ts"
+     "AssistantMessageToolRequestCaller"]
+    [:exported-symbol "nodejs/src/generated/session-events.ts"
+     "AssistantMessageToolRequestCallerType"]
+    [:changed-declaration "nodejs/src/generated/session-events.ts"
+     "AssistantMessageToolRequest"]]
    :clojure-paths ["src/github/copilot_sdk/generated/event_specs.clj"
                    "src/github/copilot_sdk/specs.clj"]
    :contract
@@ -508,6 +542,11 @@
   {:id :events/mode-notice-delivered
    :classification :stable-public :status :ported
    :evidence [:mode-notice-delivered-event]
+   :inventory-items
+   [[:exported-symbol "nodejs/src/generated/session-events.ts"
+     "ModeNoticeDeliveredData"]
+    [:exported-symbol "nodejs/src/generated/session-events.ts"
+     "ModeNoticeDeliveredEvent"]]
    :clojure-paths ["src/github/copilot_sdk.clj"
                    "src/github/copilot_sdk/specs.clj"]
    :contract
@@ -517,6 +556,13 @@
   {:id :events/model-call-finished
    :classification :stable-public :status :ported
    :evidence [:model-call-finished-event]
+   :inventory-items
+   [[:exported-symbol "nodejs/src/generated/session-events.ts"
+     "ModelCallFinishedData"]
+    [:exported-symbol "nodejs/src/generated/session-events.ts"
+     "ModelCallFinishedEvent"]
+    [:exported-symbol "nodejs/src/generated/session-events.ts"
+     "ModelCallFinishedOutcome"]]
    :clojure-paths ["src/github/copilot_sdk.clj"
                    "src/github/copilot_sdk/specs.clj"]
    :contract
@@ -526,11 +572,77 @@
   {:id :events/subagent-configured
    :classification :stable-public :status :ported
    :evidence [:subagent-configured-event]
+   :inventory-items
+   [[:exported-symbol "nodejs/src/generated/session-events.ts"
+     "SubagentConfiguredData"]
+    [:exported-symbol "nodejs/src/generated/session-events.ts"
+     "SubagentConfiguredEvent"]]
    :clojure-paths ["src/github/copilot_sdk.clj"
                    "src/github/copilot_sdk/specs.clj"]
    :contract
    {:wire "Generated wire validation precedes coercion into an open typed idiom payload and curated public event set."
     :tests ["test/github/copilot_sdk/integration/schema_provider_test.clj"]
+    :docs ["doc/reference/API.md"]}}
+   {:id :events/stable-payload-fields
+   :classification :stable-public :status :ported
+   :evidence [:assistant-usage-output-ttft
+              :compaction-behavior-model
+              :hook-parent-tool-call
+              :permission-server-wide-approval
+              :subagent-started-metadata
+              :subagent-model-tracking
+              :tool-output-file-path]
+   :inventory-items
+   [[:event-interface-field "AssistantUsageData" "outputTtftMs"]
+    [:event-interface-field "CompactionCompleteData" "behaviorModelId"]
+    [:event-interface-field "HookEndData" "parentToolCallId"]
+    [:event-interface-field "HookStartData" "parentToolCallId"]
+    [:event-interface-field "PermissionPromptRequestMcp"
+     "canOfferServerWideApproval"]
+    [:event-interface-field "SubagentStartedData" "agentType"]
+    [:event-interface-field "SubagentStartedData" "executionMode"]
+    [:event-interface-field "SubagentStartedData" "parentId"]
+    [:event-interface-field "SubagentStartedData" "resumable"]
+    [:event-interface-field "SubagentCompletedData"
+     "configuredModelMatchesActual"]
+    [:event-interface-field "SubagentCompletedData"
+     "configuredModelPreference"]
+    [:event-interface-field "SubagentCompletedData"
+     "explicitModelMatchesPreference"]
+    [:event-interface-field "SubagentCompletedData"
+     "explicitModelOverride"]
+    [:event-interface-field "SubagentCompletedData" "firstDispatchedModel"]
+    [:event-interface-field "SubagentFailedData"
+     "configuredModelMatchesActual"]
+    [:event-interface-field "SubagentFailedData"
+     "configuredModelPreference"]
+    [:event-interface-field "SubagentFailedData"
+     "explicitModelMatchesPreference"]
+    [:event-interface-field "SubagentFailedData" "explicitModelOverride"]
+    [:event-interface-field "SubagentFailedData" "firstDispatchedModel"]
+    [:event-interface-field "ToolExecutionCompleteContentShellExit"
+     "outputFilePath"]
+    [:changed-declaration "nodejs/src/generated/session-events.ts"
+     "CompactionCompleteData"]
+    [:changed-declaration "nodejs/src/generated/session-events.ts"
+     "HookEndData"]
+    [:changed-declaration "nodejs/src/generated/session-events.ts"
+     "HookStartData"]
+    [:changed-declaration "nodejs/src/generated/session-events.ts"
+     "PermissionPromptRequestMcp"]
+    [:changed-declaration "nodejs/src/generated/session-events.ts"
+     "SubagentCompletedData"]
+    [:changed-declaration "nodejs/src/generated/session-events.ts"
+     "SubagentFailedData"]
+    [:changed-declaration "nodejs/src/generated/session-events.ts"
+     "SubagentStartedData"]
+    [:changed-declaration "nodejs/src/generated/session-events.ts"
+     "ToolExecutionCompleteContentShellExit"]]
+   :clojure-paths ["src/github/copilot_sdk/generated/event_specs.clj"
+                   "src/github/copilot_sdk/specs.clj"]
+   :contract
+   {:wire "Stable fields added to existing event payloads retain their exact optionality and value constraints in generated wire specs and curated idiom specs."
+    :tests ["test/github/copilot_sdk/integration/stable_sync_2980c78_test.clj"]
     :docs ["doc/reference/API.md"]}}]
 
  :intentional-exclusions
@@ -538,6 +650,10 @@
    :classification :experimental
    :evidence [:factory-list-runs-options]
    :reason "Factory pagination, completion notification, and phase logging remain part of the explicitly experimental Agent Factories surface."}
+  {:id :permissions/response-capability
+   :classification :experimental
+   :evidence [:permission-response-capability-export]
+   :reason "PermissionResponseCapability and its containing PermissionDecisionContext are explicitly experimental upstream. The Clojure SDK preserves wire compatibility without certifying the contract as stable public API."}
  {:id :events/assistant-message-reasoning-blocks
   :classification :experimental
   :evidence [:assistant-message-reasoning-blocks]
@@ -601,15 +717,9 @@
   :managed-bypass-policy-type
   {:path "nodejs/src/types.ts"
    :symbol "export const DisableBypassPermissionsModes = {"}
-  :managed-bypass-policy-builder
-  {:path "nodejs/src/client.ts"
-   :symbol "managedSettings: config.managedSettings,"}
   :permission-response-capability-export
   {:path "nodejs/src/types.ts"
    :symbol "PermissionResponseCapability,"}
-  :permission-response-capability-result
-  {:path "nodejs/src/types.ts"
-   :symbol "export type PermissionRequestResult = PermissionDecisionRequest[\"result\"] | { kind: \"no-result\" };"}
   :ask-user-variant-type
   {:path "nodejs/src/types.ts"
    :symbol "askUserVariant?: AskUserVariant;"}
@@ -625,15 +735,9 @@
   :auto-tier-type
   {:path "nodejs/src/generated/session-events.ts"
    :symbol "export type AutoTier ="}
-  :auto-tier-builder
-  {:path "nodejs/src/client.ts"
-   :symbol "capi: config.capi,"}
   :autopilot-idle-wait
   {:path "nodejs/src/session.ts"
    :symbol "event.type === \"session.idle\" && event.data.mode !== \"autopilot\""}
-  :generated-session-events-root-export
-  {:path "nodejs/src/index.ts"
-   :symbol "export type * from \"./generated/session-events.js\";"}
   :tool-request-caller-type
   {:path "nodejs/src/generated/session-events.ts"
    :symbol "export type AssistantMessageToolRequestCallerType = \"program\";"}
@@ -652,6 +756,27 @@
   :subagent-configured-event
   {:path "nodejs/src/generated/session-events.ts"
    :symbol "export interface SubagentConfiguredEvent {"}
+  :assistant-usage-output-ttft
+  {:path "nodejs/src/generated/session-events.ts"
+   :symbol "outputTtftMs?: number;"}
+  :compaction-behavior-model
+  {:path "nodejs/src/generated/session-events.ts"
+   :symbol "behaviorModelId?: string;"}
+  :hook-parent-tool-call
+  {:path "nodejs/src/generated/session-events.ts"
+   :symbol "parentToolCallId?: string;"}
+  :permission-server-wide-approval
+  {:path "nodejs/src/generated/session-events.ts"
+   :symbol "canOfferServerWideApproval?: boolean;"}
+  :subagent-started-metadata
+  {:path "nodejs/src/generated/session-events.ts"
+   :symbol "agentType?: string;"}
+  :subagent-model-tracking
+  {:path "nodejs/src/generated/session-events.ts"
+   :symbol "firstDispatchedModel?: string;"}
+  :tool-output-file-path
+  {:path "nodejs/src/generated/session-events.ts"
+   :symbol "outputFilePath?: string;"}
   :factory-list-runs-options
   {:path "nodejs/src/factory.ts"
    :symbol "export type FactoryListRunsOptions = FactoryListRunsRequest;"}
@@ -669,7 +794,7 @@
    :symbol "export function materializeRuntimeBundle("}
   :generated-factory-list-request
   {:path "nodejs/src/generated/rpc.ts"
-   :symbol "export interface FactoryListRunsRequest {"}
+   :symbol "export interface FactoryToolRunOptions {"}
    :python-client-implementation
    {:path "python/copilot/client.py"}
    :java-release-workflow
@@ -686,7 +811,7 @@
   {:source "@github/copilot-linux-x64@1.0.83-1/schemas/session-events.schema.json"
    :sha256 "11d24b4e8de44590d70e261ebf15be18d91de14d674fdcfb1f2554ad43a48169"}
   :generated-clojure-output
-  {:event-specs-sha256 "4eb8e9a71fb5f96de6b3941f0f084585d6d21dbd19a0ecfc6e7ec7fd7ea1e33a"
+  {:event-specs-sha256 "55c3223c69905548cd9314aad75e1b129dc426037aff955a96578b5ef92e71e3"
    :coercions-sha256 "5688dbc7cc1f5cc3ef05eab7ffd3230b516c431e7ed344dad137f45eee359d33"}}
 
  :published-schema-artifact

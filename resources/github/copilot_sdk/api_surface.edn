@@ -229,7 +229,7 @@
    {client-info {:kind :fn, :arglists ([])}
     query {:kind :fn, :arglists ([prompt & {:keys [client session timeout-ms], :or {timeout-ms 60000}}])}
     query-chan {:kind :fn, :arglists ([prompt & {:keys [client session buffer], :or {buffer 256}}])}
-    query-seq! {:kind :fn, :arglists ([prompt & {:keys [client session max-events], :or {max-events 256}}])}
+    query-seq! {:kind :fn, :arglists ([prompt & {:keys [client session max-events timeout-ms], :or {max-events 256, timeout-ms 60000}}])}
     shutdown! {:kind :fn, :arglists ([])}
     with-query-seq {:kind :macro, :arglists ([bindings & body])}}
    :fdefs
@@ -479,7 +479,6 @@
     :github.copilot-sdk.specs/approval
     :github.copilot-sdk.specs/approval-key
     :github.copilot-sdk.specs/approved?
-    :github.copilot-sdk.specs/arguments
     :github.copilot-sdk.specs/ask
     :github.copilot-sdk.specs/ask-user-variant
     :github.copilot-sdk.specs/assistant-message-tool-request
@@ -641,7 +640,6 @@
     :github.copilot-sdk.specs/env
     :github.copilot-sdk.specs/environment-variables
     :github.copilot-sdk.specs/ephemeral?
-    :github.copilot-sdk.specs/error
     :github.copilot-sdk.specs/error-code
     :github.copilot-sdk.specs/error-reason
     :github.copilot-sdk.specs/error-type
@@ -959,7 +957,6 @@
     :github.copilot-sdk.specs/reset-date
     :github.copilot-sdk.specs/resolved-by-hook
     :github.copilot-sdk.specs/restricted
-    :github.copilot-sdk.specs/result
     :github.copilot-sdk.specs/result-type
     :github.copilot-sdk.specs/resumable
     :github.copilot-sdk.specs/resume-session-config

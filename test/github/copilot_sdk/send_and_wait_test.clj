@@ -220,6 +220,60 @@
                 "ignored autopilot idle must not reset the original deadline")))
         (finally (close))))))
 
+(deftest send-and-wait-times-out-after-autopilot-only-idle
+  (testing "autopilot idle does not reset or defeat the blocking deadline"
+    (let [client (sdk/client {:auto-start? false})
+          copilot-session (session/create-session client "autopilot-timeout" {})
+          session-id (sdk/session-id copilot-session)
+          deadline-ch (async/chan)
+          timeout-calls (atom [])
+          send-started (promise)
+          autopilot-observed (promise)
+          terminal-idle-event? session/terminal-idle-event?
+          pending (atom nil)]
+      (try
+        (with-redefs [async/timeout
+                      (fn [^long timeout-ms]
+                        (swap! timeout-calls conj timeout-ms)
+                        deadline-ch)
+                      session/send!
+                      (fn [_session _opts]
+                        (deliver send-started true)
+                        "message-id")
+                      session/terminal-idle-event?
+                      (fn [event]
+                        (let [terminal? (terminal-idle-event? event)]
+                          (when (= "autopilot" (get-in event [:data :mode]))
+                            (deliver autopilot-observed true))
+                          terminal?))]
+          (reset! pending
+                  (future
+                    (try
+                      (session/send-and-wait!
+                       copilot-session
+                       {:prompt "wait"}
+                       5000)
+                      ::completed
+                      (catch Throwable error
+                        error))))
+          (is (true? (deref send-started 1000 false)))
+          (session/dispatch-event!
+           client
+           session-id
+           {:type :copilot/session.idle
+            :data {:mode "autopilot"}})
+          (is (true? (deref autopilot-observed 1000 false)))
+          (async/close! deadline-ch)
+          (let [caught (deref @pending 1000 ::timeout)]
+            (is (instance? clojure.lang.ExceptionInfo caught))
+            (is (= 5000 (:timeout-ms (ex-data caught)))))
+          (is (= [5000] @timeout-calls)))
+        (finally
+          (async/close! deadline-ch)
+          (sdk/force-stop! client)
+          (when-let [send @pending]
+            (deref send 1000 nil)))))))
+
 (deftest autopilot-idle-is-not-terminal-for-async-sends
   (testing "both async send paths remain open across autopilot idle"
     (doseq [[label start]
@@ -249,6 +303,53 @@
                 (is (= :copilot/session.idle (:type (last events))))
                 (is (nil? (get-in (last events) [:data :mode])))))
             (finally (close))))))))
+
+(deftest async-send-times-out-after-autopilot-only-idle
+  (testing "autopilot idle is forwarded before the original async deadline wins"
+    (let [client (sdk/client {:auto-start? false})
+          copilot-session (session/create-session client "async-autopilot-timeout" {})
+          session-id (sdk/session-id copilot-session)
+          deadline-ch (async/chan)
+          timeout-calls (atom [])
+          send-started (promise)
+          send-methods (atom [])
+          real-timeout async/timeout]
+      (try
+        (with-redefs [async/timeout
+                      (fn [^long timeout-ms]
+                        (swap! timeout-calls conj timeout-ms)
+                        deadline-ch)
+                      github.copilot-sdk.protocol/send-request
+                      (fn [_connection method _params]
+                        (swap! send-methods conj method)
+                        (deliver send-started true)
+                        (async/to-chan! [{:result {:message-id "message-id"}}]))]
+          (let [events-ch
+                (session/send-async
+                 copilot-session
+                 {:prompt "wait" :timeout-ms 5000})]
+            (is (true? (deref send-started 1000 false)))
+            (session/dispatch-event!
+             client
+             session-id
+             {:type :copilot/session.idle
+              :data {:mode "autopilot"}})
+            (let [[event port] (async/alts!! [events-ch (real-timeout 1000)])]
+              (is (identical? events-ch port))
+              (is (= "autopilot" (get-in event [:data :mode]))))
+            (async/close! deadline-ch)
+            (let [[event port] (async/alts!! [events-ch (real-timeout 1000)])]
+              (is (identical? events-ch port))
+              (is (= :copilot/session.error (:type event)))
+              (is (= 5000 (get-in event [:data :timeout-ms]))))
+            (let [[event port] (async/alts!! [events-ch (real-timeout 1000)])]
+              (is (identical? events-ch port))
+              (is (nil? event)))
+            (is (= ["session.send"] @send-methods))
+            (is (= [5000] @timeout-calls))))
+        (finally
+          (async/close! deadline-ch)
+          (sdk/force-stop! client))))))
 
 (deftest autopilot-idle-is-not-terminal-for-channel-convenience-wrappers
   (testing "<send! and <send-and-wait! remain open across autopilot idle"

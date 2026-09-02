@@ -32,7 +32,7 @@
     (h/query "What is my name?" :session session))) ;; context preserved!
 </code></pre>
 <h3><a href="#with-query-seq" id="with-query-seq"></a><code>with-query-seq</code></h3>
-<pre><code class="language-clojure">(h/with-query-seq [events prompt &amp; {:keys [client session max-events]}]
+<pre><code class="language-clojure">(h/with-query-seq [events prompt &amp; {:keys [client session max-events timeout-ms]}]
   body)
 </code></pre>
 <p>Execute a query, bind a bounded lazy sequence of events for the dynamic extent of <code>body</code>, and disconnect the session when the body exits.</p>
@@ -45,6 +45,7 @@
 <tr><td> <code>:client</code> </td><td> map or <code>CopilotClient</code> </td><td> <code>nil</code> </td><td> Client options map or caller-owned client </td></tr>
 <tr><td> <code>:max-events</code> </td><td> integer </td><td> <code>256</code> </td><td> Maximum number of events to emit; <code>0</code> disconnects immediately </td></tr>
 <tr><td> <code>:session</code> </td><td> map </td><td> <code>nil</code> </td><td> Session options map </td></tr>
+<tr><td> <code>:timeout-ms</code> </td><td> positive integer or nil </td><td> <code>60000</code> </td><td> One deadline covering session creation and event consumption; nonterminal autopilot idle events do not reset it. <code>nil</code> disables the deadline </td></tr>
 </tbody>
 </table>
 <pre><code class="language-clojure">(h/with-query-seq [events "Tell me a story"
@@ -57,9 +58,20 @@
 </code></pre>
 <p>Do not let <code>events</code> escape the body. The session is closed when the macro exits, like <code>with-open</code>.</p>
 <h3><a href="#query-seq" id="query-seq"></a><code>query-seq!</code></h3>
-<pre><code class="language-clojure">(h/query-seq! prompt &amp; {:keys [client session max-events]})
+<pre><code class="language-clojure">(h/query-seq! prompt &amp; {:keys [client session max-events timeout-ms]})
 </code></pre>
 <p>Execute a query and return a bounded lazy sequence of events (default: 256 events). This function is still supported. Pass a client options map to use the helpers-managed client, or a started <code>CopilotClient</code> instance to keep client lifecycle ownership with the caller.</p>
+<table>
+<thead>
+<tr><th> Key </th><th> Type </th><th> Default </th><th> Description </th></tr>
+</thead>
+<tbody>
+<tr><td> <code>:client</code> </td><td> map or <code>CopilotClient</code> </td><td> <code>nil</code> </td><td> Client options map or caller-owned client </td></tr>
+<tr><td> <code>:max-events</code> </td><td> integer </td><td> <code>256</code> </td><td> Maximum number of events to emit; <code>0</code> disconnects immediately </td></tr>
+<tr><td> <code>:session</code> </td><td> map </td><td> <code>nil</code> </td><td> Session options map </td></tr>
+<tr><td> <code>:timeout-ms</code> </td><td> positive integer or nil </td><td> <code>60000</code> </td><td> One deadline covering session creation and event consumption; nonterminal autopilot idle events do not reset it. <code>nil</code> disables the deadline </td></tr>
+</tbody>
+</table>
 <p><strong>Warning:</strong> cleanup (session disconnect) runs only when the sequence is consumed to its natural end — a terminal <code>:copilot/session.idle</code> / <code>:copilot/session.error</code> event, or the events channel closing (detected when the next read yields <code>nil</code>, the end-of-stream sentinel — not an emitted element). An idle event whose wire <code>:mode</code> is the string <code>"autopilot"</code> is emitted as a nonterminal turn boundary. Abandoning the seq before it reaches a terminal event (e.g. <code>(first ...)</code> or <code>(take 1 ...)</code> when the first element isn’t already terminal), or hitting a positive <code>:max-events</code> bound before that end of stream, leaks the session and its event tap (the sole exception is <code>:max-events 0</code>, which disconnects immediately without emitting anything). Consume the whole seq, or use <code>with-query-seq</code> or <code>query</code> when you may stop reading early.</p>
 <pre><code class="language-clojure">(run! println
       (h/query-seq! "Tell me a story"
@@ -76,7 +88,7 @@
 </thead>
 <tbody>
 <tr><td> <code>:buffer</code> </td><td> positive integer </td><td> <code>256</code> </td><td> Maximum number of events buffered before producer backpressure </td></tr>
-<tr><td> <code>:client</code> </td><td> map </td><td> <code>nil</code> </td><td> Client options map </td></tr>
+<tr><td> <code>:client</code> </td><td> map or <code>CopilotClient</code> </td><td> <code>nil</code> </td><td> Client options map or caller-owned client </td></tr>
 <tr><td> <code>:session</code> </td><td> map </td><td> <code>nil</code> </td><td> Session options map </td></tr>
 </tbody>
 </table>
@@ -97,6 +109,7 @@
 </code></pre>
 <p>Close the returned channel when you stop consuming before a terminal event. Closing cancels the hidden query and disconnects its session even when the output buffer is full. The example above closes after ten events instead of abandoning the channel.</p>
 <p>Values accepted into the buffer before cancellation remain readable after <code>close!</code>. An in-flight event whose parked put loses to cancellation may be dropped; cancellation is not a lossless drain.</p>
+<p>On natural completion, <code>query-chan</code> disconnects its hidden session before closing. If that disconnect fails, the channel yields the <code>Throwable</code> after the terminal event and then closes. When a consumer explicitly closes the channel, cleanup still runs, but a cleanup failure cannot be delivered through the already-closed channel.</p>
 <h3><a href="#shutdown" id="shutdown"></a><code>shutdown!</code></h3>
 <pre><code class="language-clojure">(h/shutdown!)
 </code></pre>
@@ -201,7 +214,7 @@
   ;; use session
   )
 </code></pre>
-<p>Create a session and ensure <code>disconnect!</code> runs on exit.</p>
+<p>Create a session and ensure <code>disconnect!</code> runs on exit. If the body and <code>disconnect!</code> both fail, the body failure remains primary and the cleanup failure is attached as a suppressed exception. A cleanup-only failure is thrown.</p>
 <h4><a href="#with-client-session" id="with-client-session"></a><code>with-client-session</code></h4>
 <pre><code class="language-clojure">;; Form 1: [session session-opts] - anonymous client with default options
 (copilot/with-client-session [session {:model "gpt-5.4"
@@ -227,7 +240,7 @@
   ;; use client and session
   )
 </code></pre>
-<p>Create a client and session together, ensuring both are cleaned up on exit.</p>
+<p>Create a client and session together, ensuring both are cleaned up on exit. Nested cleanup follows the same failure contract as <code>with-session</code>: body failures remain primary and cleanup failures are attached as suppressed exceptions.</p>
 <p><strong>Config:</strong></p>
 <table>
 <thead>
@@ -374,7 +387,7 @@
 <h4><a href="#join-session" id="join-session"></a><code>join-session</code></h4>
 <pre><code class="language-clojure">(copilot/join-session config)
 </code></pre>
-<p>Join the current foreground session from an extension running as a child process of the Copilot CLI. Reads the <code>SESSION_ID</code> environment variable, creates a child-process client, and resumes the session with <code>:disable-resume?</code> defaulting to <code>true</code>. It accepts <code>:request-extensions?</code>, <code>:extension-info</code>, and the join-only <code>:requested-environment-variables</code>, but rejects the create/resume-only <code>:extension-sdk-path</code>.</p>
+<p>Join the current foreground session from an extension running as a child process of the Copilot CLI. Reads the <code>SESSION_ID</code> environment variable, creates a child-process client, and resumes the session with <code>:disable-resume?</code> defaulting to <code>true</code>. It accepts <code>:request-extensions?</code>, <code>:extension-info</code>, and the join-only <code>:requested-environment-variables</code>, but rejects the create/resume-only <code>:extension-sdk-path</code>. Session-scoped <code>:github-token</code> and <code>:github-token-provider</code> authentication are supported; the provider uses the same callback contract, lifecycle, and transport-security requirements as <code>resume-session</code>.</p>
 <p>Returns a map with <code>:client</code> and <code>:session</code> keys. When the request vector is non-empty, the map also contains <code>:granted-environment-variables</code>. Its string keys preserve the requested environment names, and it contains only values the parent CLI granted for those exact names. The map may be empty when none were approved. The caller is responsible for stopping the client when done.</p>
 <p>Throws if <code>SESSION_ID</code> is not set in the environment.</p>
 <p>In addition to the <code>resume-session</code> config options, <code>join-session</code> accepts:</p>
@@ -724,15 +737,15 @@
 <h4><a href="#send-async" id="send-async"></a><code>send-async</code></h4>
 <pre><code class="language-clojure">(copilot/send-async session options)
 </code></pre>
-<p>Send a message and return a core.async channel that receives all events for this message, closing on an ordinary idle event. Autopilot idle events are emitted without closing the channel. Safe for use inside <code>go</code> blocks — no blocking operations. Supports <code>:timeout-ms</code> in options (default: <code>60000</code>) to force cleanup on long-running requests.</p>
+<p>Send a message and return a core.async channel that receives all events for this message, closing on an ordinary idle event. Autopilot idle events are emitted without closing the channel. Safe for use inside <code>go</code> blocks — no blocking operations. Supports <code>:timeout-ms</code> in options (default: <code>60000</code>, set to <code>nil</code> to disable). On timeout, the channel emits a final <code>:copilot/session.error</code> event whose data includes <code>:timeout-ms</code>, releases the event subscription and send lock, then closes.</p>
 <h4><a href="#send-async-with-id" id="send-async-with-id"></a><code>send-async-with-id</code></h4>
 <pre><code class="language-clojure">(copilot/send-async-with-id session options)
 </code></pre>
-<p>Send a message and return <code>{:message-id :events-ch}</code> for correlating responses. Supports <code>:timeout-ms</code> in options (default: <code>60000</code>).</p>
+<p>Send a message and return <code>{:message-id :events-ch}</code> for correlating responses. Supports <code>:timeout-ms</code> in options (default: <code>60000</code>, set to <code>nil</code> to disable). The event channel follows <code>send-async</code>, including its final timeout event.</p>
 <h4><a href="#send" id="send"></a><code>&lt;send!</code></h4>
 <pre><code class="language-clojure">(copilot/&lt;send! session options)
 </code></pre>
-<p>Async equivalent of <code>send-and-wait!</code> for use inside <code>go</code> blocks. Returns a channel that yields the final content string. Supports <code>:timeout-ms</code> in options (default: <code>60000</code>).</p>
+<p>Async equivalent of <code>send-and-wait!</code> for use inside <code>go</code> blocks. Returns a channel that yields the final content string. Supports <code>:timeout-ms</code> in options (default: <code>60000</code>, set to <code>nil</code> to disable). Session errors and timeouts close the channel after delivering the latest assistant content, if any; otherwise the channel closes without a value.</p>
 <p>Combined with <code>&lt;create-session</code>, enables fully non-blocking pipelines:</p>
 <pre><code class="language-clojure">(go
   (let [session (&lt;! (copilot/&lt;create-session client {:model "gpt-5.4"
@@ -851,7 +864,7 @@
 <h4><a href="#disconnect" id="disconnect"></a><code>disconnect!</code></h4>
 <pre><code class="language-clojure">(copilot/disconnect! session)
 </code></pre>
-<p>Disconnect the session and free resources. This is the preferred way to close a session. The runtime is notified before local resources are released. If that request fails, the exception propagates and the local session remains usable. While one disconnect is in progress, concurrent calls return without sending another runtime request.</p>
+<p>Disconnect the session and free resources. This is the preferred way to close a session. The runtime is destroyed before local resources are released. If that request fails, the exception propagates and the local session remains connected so the caller can retry. While one disconnect is in progress, concurrent calls return without sending another runtime request.</p>
 <h4><a href="#destroy-deprecated" id="destroy-deprecated"></a><code>destroy!</code> <em>(deprecated)</em></h4>
 <pre><code class="language-clojure">(copilot/destroy! session)
 </code></pre>
@@ -1331,7 +1344,7 @@ copilot/interaction-events
 <tr><td> <code>:copilot/assistant.reasoning</code> </td><td> Model reasoning (if supported); optional data: <code>:rte</code> (opaque round-trip encrypted reasoning token, for providers that require it to be replayed back) (upstream schema 1.0.79-5/6) </td></tr>
 <tr><td> <code>:copilot/assistant.reasoning_delta</code> </td><td> Streaming reasoning chunk </td></tr>
 <tr><td> <code>:copilot/assistant.message_start</code> </td><td> Streaming assistant message start metadata </td></tr>
-<tr><td> <code>:copilot/assistant.message</code> </td><td> Complete assistant response; optional data: <code>:chunk-index</code>, <code>:chunk-count</code> (position/count when the response was split across multiple messages), <code>:citations</code> (see <a href="#citations-experimental">Citations</a>), and <code>:rte</code> (upstream schema 1.0.79-5/6). Each <code>:tool-requests</code> entry may include <code>:type</code> (<code>"function"</code> or <code>"custom"</code>) and hosted-program attribution as <code>:caller {:caller-id "..." :type "program"}</code>; its <code>:arguments</code> is an opaque JSON object whose keys are preserved verbatim (not kebab-cased) — the SDK does not interpret or validate its shape. </td></tr>
+<tr><td> <code>:copilot/assistant.message</code> </td><td> Complete assistant response; optional data: <code>:chunk-index</code>, <code>:chunk-count</code> (position/count when the response was split across multiple messages), <code>:citations</code> (see <a href="#citations-experimental">Citations</a>), and <code>:rte</code> (upstream schema 1.0.79-5/6). Each <code>:tool-requests</code> entry may include <code>:type</code> (<code>"function"</code> or <code>"custom"</code>) and hosted-program attribution as <code>:caller {:caller-id "..." :type "program"}</code>. Its <code>:arguments</code> is validated only as recursive JSON (<code>nil</code>, strings, booleans, finite non-ratio numbers, vectors, and maps with string or keyword keys); source-defined keys are preserved verbatim rather than kebab-cased. </td></tr>
 <tr><td> <code>:copilot/assistant.message_delta</code> </td><td> Streaming response chunk </td></tr>
 <tr><td> <code>:copilot/assistant.streaming_delta</code> </td><td> Response size update during streaming; data: <code>{:total-response-size-bytes N}</code> </td></tr>
 <tr><td> <code>:copilot/assistant.turn_end</code> </td><td> Assistant turn completed </td></tr>
@@ -2314,7 +2327,7 @@ tool-set/isolated
 </tbody>
 </table>
 <p>The SDK converts these keywords to the runtime’s snake-case strings and sends <code>decisionContext</code> beside <code>result</code>. Plain permission decisions omit <code>decisionContext</code> entirely. An attributed <code>{:kind :no-result}</code> still suppresses the response RPC. Handlers may return attributed results directly or through a core.async channel.</p>
-<p>The context may also include <code>:response-capability</code>, one of <code>:interactive</code>, <code>:headless</code>, or <code>:none</code>. The SDK serializes the keyword as the exact wire string and omits the field when absent. (<a href="https://github.com/github/copilot-sdk/pull/2294">upstream PR #2294</a>)</p>
+<p>The context may also include the experimental <code>:response-capability</code>, one of <code>:interactive</code>, <code>:headless</code>, or <code>:none</code>. The SDK serializes the keyword as the exact wire string and omits the field when absent. This field is excluded from stable SDK parity certification and may change independently of stable APIs. (<a href="https://github.com/github/copilot-sdk/pull/2294">upstream PR #2294</a>)</p>
 <h4><a href="#approve-all" id="approve-all"></a><code>approve-all</code></h4>
 <pre><code class="language-clojure">(copilot/approve-all request ctx)
 </code></pre>

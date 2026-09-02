@@ -25,6 +25,7 @@
             [github.copilot-sdk.factory :as factory]
             [github.copilot-sdk.session :as session]
             [github.copilot-sdk.specs :as specs]
+            [github.copilot-sdk.teardown :as teardown]
             [github.copilot-sdk.tools :as tools]))
 
 ;; =============================================================================
@@ -408,10 +409,9 @@
   [[client-sym & [opts]] & body]
   `(let [~client-sym ~(if opts `(client ~opts) `(client))]
      (start! ~client-sym)
-     (try
-       ~@body
-       (finally
-         (stop! ~client-sym)))))
+     (teardown/call-with-cleanup
+      (fn [] ~@body)
+      #(stop! ~client-sym))))
 
 (defn notifications
   "Get the channel that receives non-session notifications.
@@ -618,16 +618,18 @@
 (defmacro with-session
   "Create a session and ensure disconnect! on exit.
 
+   `disconnect!` can throw. If both the body and disconnect fail, the body
+   failure remains primary and the disconnect failure is attached as suppressed.
+
    Usage:
    (with-session [s client {:on-permission-request copilot/approve-all
                             :model \"gpt-5.4\"}]
      ...)"
   [[session-sym client config] & body]
   `(let [~session-sym (create-session ~client ~config)]
-     (try
-       ~@body
-       (finally
-         (disconnect! ~session-sym)))))
+     (teardown/call-with-cleanup
+      (fn [] ~@body)
+      #(disconnect! ~session-sym))))
 
 (defmacro with-client-session
   "Create a client + session and ensure cleanup on exit.
@@ -763,6 +765,8 @@
    `:request-extensions?`, `:extension-info`, and the join-only
    `:requested-environment-variables` vector are accepted. An omitted or empty
    environment-variable vector sends no request; explicit nil is invalid.
+   `:github-token-provider` uses the same callback contract, lifecycle, and
+   transport-security requirements as `resume-session`.
    `:on-permission-request` is **optional**;
    when omitted, join-session uses `default-join-session-permission-handler`.
    The `:disable-resume?` option defaults to true.
@@ -903,7 +907,12 @@
    idle event whose `:data :mode` is the string \"autopilot\" is a
    nonterminal turn boundary (the agent keeps working) and is delivered on
    the channel without closing it.
+   A timeout is delivered as a final `:copilot/session.error` event whose data
+   includes `:timeout-ms`, then the channel closes.
    Serialized per session to avoid mixing concurrent sends.
+
+   Options: same as send!, plus:
+   - :timeout-ms   - Timeout in milliseconds (default: 60000, set to nil to disable)
 
    Example:
    ```clojure
@@ -922,6 +931,12 @@
    As with send-and-wait!, a nonterminal autopilot session.idle (`:data
    :mode` = \"autopilot\") does not end the wait.
 
+   Options: same as send!, plus:
+   - :timeout-ms   - Timeout in milliseconds (default: 60000, set to nil to disable)
+
+   Session errors and timeouts close the channel after delivering the latest
+   assistant content, if any; otherwise the channel closes without a value.
+
    Example:
    ```clojure
    (go
@@ -938,6 +953,8 @@
    the final content string), this delivers the full assistant message event.
    As with send-and-wait!, an idle event whose `:data :mode` is the string
    \"autopilot\" is a nonterminal turn boundary, so the wait continues past it.
+   Session errors and timeouts close the channel after delivering the latest
+   assistant message event, if any; otherwise the channel closes without a value.
 
    Options: same as send!, plus:
    - :timeout-ms   - Timeout in milliseconds (default: 60000, set to nil to disable)
@@ -955,7 +972,14 @@
   (session/<send-and-wait! session opts))
 
 (defn send-async-with-id
-  "Send a message and return {:message-id :events-ch}."
+  "Send a message and return `{:message-id :events-ch}`.
+
+   Options: same as send!, plus:
+   - :timeout-ms   - Timeout in milliseconds (default: 60000, set to nil to disable)
+
+   `:events-ch` follows `send-async`: a timeout is delivered as a final
+   `:copilot/session.error` event whose data includes `:timeout-ms`, then the
+   channel closes."
   [session opts]
   (session/send-async-with-id session opts))
 
@@ -1012,7 +1036,11 @@
   "Disconnects the session and releases in-memory resources (event handlers,
    tool handlers, permission handler). Session data on disk is preserved for
    later resumption via `resume-session`. To permanently remove all session
-   data, use `delete-session!` instead."
+   data, use `delete-session!` instead.
+
+   The runtime session is destroyed before local resources are released. A
+   runtime destroy failure is rethrown and leaves the local session connected
+   so the caller can retry."
   [session]
   (session/disconnect! session))
 

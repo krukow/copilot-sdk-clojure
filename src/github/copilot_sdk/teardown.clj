@@ -66,3 +66,36 @@
   `(let [collected# (volatile! nil)
          thrown# (attempt ~step (vreset! collected# (do ~@body)))]
      (collect (conj (vec @collected#) thrown#))))
+
+(defn cleanup-preserving!
+  "Run `cleanup`, preserving `primary` when both body and cleanup fail.
+
+   Cleanup-only failures are rethrown. Interrupted failures restore the current
+   thread's interrupt status before control returns to the caller."
+  [primary cleanup]
+  (let [interrupted? (or (.isInterrupted (Thread/currentThread))
+                         (instance? InterruptedException primary))]
+    (try
+      (cleanup)
+      (catch Throwable cleanup-failure
+        (when (instance? InterruptedException cleanup-failure)
+          (.interrupt (Thread/currentThread)))
+        (if primary
+          (when-not (identical? primary cleanup-failure)
+            (.addSuppressed ^Throwable primary cleanup-failure))
+          (throw cleanup-failure)))
+      (finally
+        (when interrupted?
+          (.interrupt (Thread/currentThread)))))))
+
+(defn call-with-cleanup
+  "Call `body`, then `cleanup`, preserving a body failure as the primary error."
+  [body cleanup]
+  (let [primary (volatile! nil)]
+    (try
+      (body)
+      (catch Throwable failure
+        (vreset! primary failure)
+        (throw failure))
+      (finally
+        (cleanup-preserving! @primary cleanup)))))

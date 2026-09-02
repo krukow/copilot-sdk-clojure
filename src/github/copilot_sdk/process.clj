@@ -285,7 +285,7 @@
           (if (neg? ch)
             (throw (ex-info "CLI stdout closed unexpectedly" {}))
             (let [new-buffer (str buffer (char ch))
-                  matcher (re-find #"listening on port (\d+)\r?\n"
+                  matcher (re-find #"listening on port (\d+)[^\r\n]*\r?\n"
                                    (str/lower-case new-buffer))]
               (if matcher
                 (do

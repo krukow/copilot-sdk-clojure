@@ -304,7 +304,9 @@
         (is (nil? (get-in @(:state client-with-fs) [:sessions session-id])))))
     (is (empty? @requests)
         "local handler preparation must complete before any session RPC")
-    (is (empty? (:github-token-providers @(:state client-with-fs)))
+    (is (empty?
+         (get-in @(:state client-with-fs)
+                 [:github-token-provider-runtime :registrations]))
         "pre-RPC setup failure must roll back provisional provider state")))
 
 (deftest test-resume-pre-registration-failure-preserves-existing-session
@@ -315,7 +317,9 @@
         state-before @(:state *test-client*)
         existing-state (get-in state-before [:sessions session-id])
         existing-io (get-in state-before [:session-io session-id])
-        providers-before (:github-token-providers state-before)]
+        providers-before
+        (get-in state-before
+                [:github-token-provider-runtime :registrations])]
     (with-redefs [session/create-session
                   (fn [& _]
                     (throw (ex-info "pre-registration failed" {})))]
@@ -337,7 +341,9 @@
                         (get restored-io channel-key)))
         (is (false? (async-protocols/closed?
                      (get restored-io channel-key)))))
-      (is (= providers-before (:github-token-providers state-after))))))
+      (is (= providers-before
+             (get-in state-after
+                     [:github-token-provider-runtime :registrations]))))))
 
 (defn- test-session-fs-provider [sqlite]
   {:read-file (fn [_] "x")

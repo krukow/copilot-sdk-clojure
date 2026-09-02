@@ -58,12 +58,15 @@
             "(let [bounded-spec (eval (emit/emit-type {:type \"integer\" :minimum 2 :maximum 4} "
             "                                          {:type \"integer\" :minimum 2 :maximum 4})) "
             "      exclusive-spec (eval (emit/emit-type {:type \"number\" :exclusiveMinimum 1 :exclusiveMaximum 2} "
-            "                                            {:type \"number\" :exclusiveMinimum 1 :exclusiveMaximum 2}))] "
+            "                                            {:type \"number\" :exclusiveMinimum 1 :exclusiveMaximum 2})) "
+            "      nullable-spec (eval (emit/emit-type {:type [\"string\" \"null\"]} "
+            "                                           {:type [\"string\" \"null\"]}))] "
             "  (prn {:keys (mapv core/wire-key->kebab "
             "                    [\"_meta\" \"sessionId\" \"tool_efficiency\" "
             "                     \"URLValue\" \"someURLValue\" \"__foo_bar\"]) "
             "        :bounded (mapv #(s/valid? bounded-spec %) [1 2 2.5 4 5]) "
-            "        :exclusive (mapv #(s/valid? exclusive-spec %) [1 1.5 2])}))"))]
+            "        :exclusive (mapv #(s/valid? exclusive-spec %) [1 1.5 2]) "
+            "        :nullable (mapv #(s/valid? nullable-spec %) [\"value\" nil 1])}))"))]
       (when-not (zero? exit)
         (throw (ex-info "Codegen probe failed" {:exit exit :stderr err})))
       (edn/read-string out))))
@@ -75,7 +78,8 @@
 
 (deftest codegen-emits-json-schema-numeric-bounds
   (is (= [false true false true false] (:bounded @codegen-probe)))
-  (is (= [false true false] (:exclusive @codegen-probe))))
+  (is (= [false true false] (:exclusive @codegen-probe)))
+  (is (= [true true false] (:nullable @codegen-probe))))
 
 ;; ---------------------------------------------------------------------------
 ;; Schema introspection helpers — used by the envelope helper to honour
@@ -568,6 +572,22 @@
     (doseq [value [0 0.5 42]]
       (is (s/valid? ::gen/dispatch-duration-ms value)
           (pr-str value)))))
+
+(deftest generated-opaque-json-specs-require-recursive-json-values
+  (let [valid-blocks [{:signatureId "sig-1"
+                       :content ["text" true 42 nil]}]]
+    (is (s/valid? ::gen/assistant-message-reasoning-blocks-shape
+                  {:provider "anthropic"
+                   :blocks valid-blocks}))
+    (doseq [invalid [(Object.)
+                     {:nested (Object.)}
+                     {:nested #{1 2}}
+                     {:nested 1/2}
+                     {:nested Double/POSITIVE_INFINITY}]]
+      (is (not (s/valid? ::gen/assistant-message-reasoning-blocks-shape
+                         {:provider "anthropic"
+                          :blocks [invalid]}))
+          (pr-str invalid)))))
 
 (deftest generated-event-data-remains-open-at-the-top-level
   (testing "future event fields pass while nested schema objects stay closed"

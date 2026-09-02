@@ -65,10 +65,10 @@
     :events/assistant-message-tool-request-caller
     :events/mode-notice-delivered
     :events/model-call-finished
+    :events/stable-payload-fields
     :events/subagent-configured
     :mode/builtin-skill-isolation
     :permissions/managed-bypass-policy
-    :permissions/response-capability
     :session/ask-user-variant
     :session/auto-tier
     :session/autopilot-idle
@@ -451,6 +451,39 @@
         (mapcat :evidence (:stable-deltas report))
         (mapcat :evidence (:intentional-exclusions report)))))
 
+(defn- stable-inventory-items
+  [inventory]
+  (set
+   (concat
+    (for [[path classifications] (:exported-symbols inventory)
+          symbol (:stable-public classifications)]
+      [:exported-symbol path symbol])
+    (for [[interface-name fields] (:session-config-fields inventory)
+          field fields]
+      [:session-config-field interface-name field])
+    (for [[interface-name classifications] (:event-interface-fields inventory)
+          field (:stable-public classifications)]
+      [:event-interface-field interface-name field])
+    (for [[path classifications] (:changed-declarations inventory)
+          declaration (:stable-public classifications)]
+      [:changed-declaration path declaration]))))
+
+(defn- changed-source-lines
+  [upstream base target path]
+  (->> (git-lines upstream "diff" "--unified=0" base target "--" path)
+       (keep (fn [line]
+               (cond
+                 (and (str/starts-with? line "+")
+                      (not (str/starts-with? line "+++")))
+                 (subs line 1)
+
+                 (and (str/starts-with? line "-")
+                      (not (str/starts-with? line "---")))
+                 (subs line 1)
+
+                 :else nil)))
+       vec))
+
 (deftest exact-upstream-range-is-fully-classified
   (let [report (read-report)]
     (is (some? report) "The 2980c78 parity oracle must be committed")
@@ -528,12 +561,19 @@
         (is (= stable-delta-ids (:stable-delta-ids report)))
         (is (= stable-delta-ids
                (set (:stable-public-deltas public-surface-audit))))
+        (let [expected-items (stable-inventory-items inventory)
+              traced-items (set (mapcat :inventory-items stable-deltas))]
+          (is (= expected-items traced-items)
+              (str "Every stable inventory item must trace to a stable delta. "
+                   "Missing: " (pr-str (set/difference expected-items traced-items))
+                   "; unknown: " (pr-str (set/difference traced-items expected-items)))))
         (is (empty? (:unclassified-deltas public-surface-audit)))
         (is (= expected-event-interface-fields (:event-interface-fields inventory))
             "committed event-interface-fields oracle must match the certified expectations")
         (is (every? #(and (= :stable-public (:classification %))
                           (= :ported (:status %))
                           (seq (:evidence %))
+                          (seq (:inventory-items %))
                           (seq (:clojure-paths %))
                           (seq (get-in % [:contract :tests]))
                           (seq (get-in % [:contract :docs])))
@@ -549,6 +589,9 @@
         (let [exclusions (into {}
                                (map (juxt :id identity))
                                intentional-exclusions)]
+          (is (= :experimental
+                 (get-in exclusions
+                         [:permissions/response-capability :classification])))
           (is (= #{"session.fusion_handoff"
                    "session.fusion_commit_started"}
                  (get-in exclusions
@@ -636,21 +679,26 @@
                     (sh/sh "git" "-C" upstream-repo "cat-file" "-e"
                            (str (get-in report [:upstream :target-commit])
                                 ":" path)))))))
-          (doseq [[evidence-id {:keys [path symbol]}] source-evidence]
-            (testing (name evidence-id)
-              (if symbol
-                (let [{:keys [exit out]}
-                      (sh/sh "git" "-C" upstream-repo "grep" "-F"
-                             symbol
-                             (get-in report [:upstream :target-commit])
-                             "--" path)]
-                  (is (zero? exit))
-                  (is (str/includes? out symbol)))
-                (is (zero?
-                     (:exit
-                      (sh/sh "git" "-C" upstream-repo "cat-file" "-e"
-                             (str (get-in report [:upstream :target-commit])
-                                  ":" path)))))))))))))
+          (let [{:keys [base-commit target-commit]} (:upstream report)
+                changed-lines-by-path
+                (into {}
+                      (map (fn [path]
+                             [path (changed-source-lines
+                                    upstream-repo base-commit target-commit path)]))
+                      (set (map :path (vals source-evidence))))]
+            (doseq [[evidence-id {:keys [path symbol]}] source-evidence]
+              (testing (name evidence-id)
+                (if symbol
+                  (let [{:keys [exit out]}
+                        (sh/sh "git" "-C" upstream-repo "grep" "-F"
+                               symbol target-commit "--" path)]
+                    (is (zero? exit))
+                    (is (str/includes? out symbol))
+                    (is (some #(str/includes? % symbol)
+                              (get changed-lines-by-path path))
+                        "evidence symbols must occur on a line changed within the certified range"))
+                  (is (seq (get changed-lines-by-path path))
+                      "path-only evidence must identify a path changed within the certified range"))))))))))
 
 (deftest runtime-schema-and-version-are-exact
   (let [report (read-report)]
@@ -817,13 +865,49 @@
                                 {:message "boom" :extra true}))))
       (is (not (s/valid? ::specs/hook.end-data (dissoc base :success)))))))
 
-(deftest opaque-result-and-error-fields-require-recursive-json-values
-  (doseq [spec [::specs/result ::specs/error]]
-    (is (s/valid? spec nil))
-    (is (s/valid? spec {:nested [true 1 "value" nil]}))
-    (is (not (s/valid? spec {:nested [(Object.)]})))
-    (is (not (s/valid? spec Double/POSITIVE_INFINITY)))
-    (is (not (s/valid? spec 1/2)))))
+(deftest event-fields-with-colliding-names-use-field-specific-contracts
+  (testing "shared leaf specs do not silently constrain unrelated event fields"
+    (doseq [spec [::specs/result ::specs/error ::specs/arguments]]
+      (is (nil? (s/get-spec spec)))))
+  (testing "assistant tool arguments accept every recursive JSON value"
+    (let [base {:tool-call-id "call-1" :name "tool"}]
+      (doseq [arguments [nil "text" 42 true [1 nil] {:camelCase "value"}]]
+        (is (s/valid? ::specs/assistant-message-tool-request
+                      (assoc base :arguments arguments))))
+      (is (not (s/valid? ::specs/assistant-message-tool-request
+                         (assoc base :arguments (Object.)))))))
+  (testing "tool execution fields remain open recursive JSON"
+    (is (s/valid? ::specs/tool.execution_start-data
+                  {:tool-call-id "call-1" :tool-name "tool"
+                   :arguments [1 {:camelCase true}]}))
+    (is (s/valid? ::specs/tool.execution_complete-data
+                  {:tool-call-id "call-1" :success false
+                   :result {:nested [true 1 "value" nil]}
+                   :error ["provider" {:code 42}]}))
+    (is (not (s/valid? ::specs/tool.execution_complete-data
+                       {:tool-call-id "call-1" :success false
+                        :result (Object.)}))))
+  (testing "tool-result-object error remains open recursive JSON"
+    (is (s/valid? ::specs/tool-result-object
+                  {:text-result-for-llm "failed"
+                   :result-type :failure
+                   :error {:nested ["message"]}}))
+    (is (not (s/valid? ::specs/tool-result-object
+                       {:text-result-for-llm "failed"
+                        :result-type :failure
+                        :error (Object.)}))))
+  (testing "string-valued errors reject unrelated JSON values"
+    (is (not (s/valid? ::specs/session.compaction_complete-data
+                       {:success false :error {:message "boom"}})))
+    (is (not (s/valid? ::specs/subagent.failed-data
+                       {:tool-call-id "call-1"
+                        :agent-name "reviewer"
+                        :agent-display-name "Reviewer"
+                        :error {:message "boom"}})))
+    (is (not (s/valid? ::specs/mcp-loaded-server
+                       {:name "server"
+                        :status "failed"
+                        :error {:message "boom"}})))))
 
 (deftest permission-response-capability-maps-to-pinned-wire-values
   (doseq [capability [:interactive :headless :none]]

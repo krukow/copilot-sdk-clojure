@@ -479,6 +479,12 @@
       (contains? (:data raw-event) :payload)
       (assoc-in [:data :payload] (get-in raw-event [:data :payload])))
 
+    "assistant.message"
+    (cond-> converted-event
+      (contains? (:data raw-event) :reasoningBlocks)
+      (assoc-in [:data :reasoning-blocks]
+                (get-in raw-event [:data :reasoningBlocks])))
+
     ;; Upstream schema 1.0.52-4 (SEP-1865): MCP App invoked a tool on an MCP
     ;; server. Both the supplied `:arguments` map and the returned `:result`
     ;; (standard MCP CallToolResult) are source-defined opaque payloads —
@@ -521,11 +527,11 @@
    kept in their original wire format so user-defined tool handlers receive
    the keys the server sent. For v3 `session.custom_notification` events,
    the source-defined `:subject` and opaque `:payload` are also preserved
-   verbatim. For v3 `mcp_app.tool_call_complete` events (schema 1.0.52-4,
-   SEP-1865), the `:arguments` and `:result` payloads are similarly
-   preserved. The same preservation applies to historical events returned
-   in `session.getMessages` responses so live and historical event shapes
-   agree."
+   verbatim. Assistant `:reasoning-blocks` retain provider-defined key
+   spelling. For v3 `mcp_app.tool_call_complete` events (schema 1.0.52-4,
+   SEP-1865), the `:arguments` and `:result` payloads are similarly preserved.
+   The same preservation applies to historical events returned in
+   `session.getMessages` responses so live and historical event shapes agree."
   [msg]
   (let [method (:method msg)
         params (:params msg)

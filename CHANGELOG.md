@@ -22,11 +22,13 @@ All notable changes to this project will be documented in this file. This change
   [upstream PR #2432](https://github.com/github/copilot-sdk/pull/2432),
   [upstream PR #2437](https://github.com/github/copilot-sdk/pull/2437),
   [upstream PR #2451](https://github.com/github/copilot-sdk/pull/2451))
-- Added managed bypass-policy values and permission response-capability
-  forwarding, and curated the stable `session.mode_notice_delivered`,
+- Added managed bypass-policy values and experimental permission
+  `:response-capability` forwarding, and curated the stable
+  `session.mode_notice_delivered`,
   `model.call_finished`, and `subagent.configured` events with open idiomatic
   payload specs. Assistant tool requests now expose hosted-program caller
-  attribution while preserving opaque argument keys.
+  attribution while preserving opaque argument keys. The experimental
+  response-capability field is excluded from stable parity certification.
   ([upstream PR #2401](https://github.com/github/copilot-sdk/pull/2401),
   [upstream PR #2409](https://github.com/github/copilot-sdk/pull/2409),
   [upstream PR #2467](https://github.com/github/copilot-sdk/pull/2467))
@@ -47,6 +49,11 @@ All notable changes to this project will be documented in this file. This change
   `:judge-recommendation` / `"judge_recommendation"` to the pinned public schema's
   `:assisted-approval` / `"assisted_approval"`.
   ([upstream PR #2294](https://github.com/github/copilot-sdk/pull/2294))
+- **BREAKING:** `disconnect!` now destroys the runtime session before releasing
+  local resources. Runtime destroy failures are rethrown and leave the local
+  session connected for retry instead of being ignored. Lifecycle macros keep
+  a body failure primary and attach concurrent cleanup failures as suppressed
+  exceptions; client shutdown still force-releases local session resources.
 - Updated the runtime and schema pin to `1.0.83-1` and recertified the complete
   stable Node SDK public surface through upstream commit
   [`2980c7828d35754bfc2b334831efec309ab8a2eb`](https://github.com/github/copilot-sdk/commit/2980c7828d35754bfc2b334831efec309ab8a2eb).
@@ -77,9 +84,6 @@ All notable changes to this project will be documented in this file. This change
   Async local filesystem factory failures throw before a result channel is
   returned, failed resumes restore the exact prior local registration, and
   cleanup failures remain observable without replacing the primary failure.
-- `disconnect!` now sends `session.destroy` before releasing local resources,
-  permits only one in-flight destroy request per tracked session, and preserves
-  the usable local session when the runtime request fails.
 - TCP startup now waits for the complete newline-terminated server announcement
   before parsing its port, preventing multi-digit ports from being truncated.
 - The commands example now avoids the runtime-reserved `/help` command.

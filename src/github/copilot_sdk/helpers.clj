@@ -33,11 +33,14 @@
    All query functions accept keyword arguments:
    - `:client` - Client options (cli-path, log-level, cwd, env)
    - `:session` - Session options (model, tools, streaming?, etc.)
-   - `:timeout-ms` - Timeout for blocking `query` (default: 60000)
+   - `:timeout-ms` - Whole-operation timeout for `query`, `query-seq!`, and
+     `with-query-seq` (default: 60000)
    "
   (:require [clojure.core.async :as async :refer [go-loop <! chan close! alts!]]
             [clojure.core.async.impl.protocols :as async-protocols]
-            [github.copilot-sdk :as copilot]))
+            [github.copilot-sdk :as copilot]
+            [github.copilot-sdk.session :as session]
+            [github.copilot-sdk.teardown :as teardown]))
 
 ;; =============================================================================
 ;; Internal State
@@ -245,24 +248,28 @@
     (let [c (ensure-client! client)
           session-config (build-session-config session)
           sess (copilot/create-session c session-config)]
-      (try
-        (let [response (copilot/send-and-wait! sess {:prompt prompt} timeout-ms)]
+      (teardown/call-with-cleanup
+       #(let [response (copilot/send-and-wait! sess {:prompt prompt} timeout-ms)]
           (get-in response [:data :content]))
-        (finally
-          (copilot/disconnect! sess))))))
+       #(copilot/disconnect! sess)))))
 
 (defn- terminal-query-event?
   [event]
   (or (= :copilot/session.error (:type event))
-      (and (= :copilot/session.idle (:type event))
-           (not= "autopilot" (get-in event [:data :mode])))))
+      (session/terminal-idle-event? event)))
 
 (defn- query-seq-source
-  [prompt & {:keys [client session max-events] :or {max-events 256}}]
+  [prompt & {:keys [client session max-events timeout-ms]
+             :or {max-events 256
+                  timeout-ms 60000}}]
   (when-not (nat-int? max-events)
     (throw (ex-info ":max-events must be a non-negative integer"
                     {:max-events max-events})))
-  (let [c (if (client-instance? client)
+  (when-not (or (nil? timeout-ms) (pos-int? timeout-ms))
+    (throw (ex-info ":timeout-ms must be a positive integer or nil"
+                    {:timeout-ms timeout-ms})))
+  (let [deadline-ch (when timeout-ms (async/timeout timeout-ms))
+        c (if (client-instance? client)
             client
             (ensure-client! client))
         session-config (build-session-config session)
@@ -274,8 +281,20 @@
             (event-seq [events-ch remaining]
               (lazy-seq
                (when (pos? remaining)
-                 (let [event (async/<!! events-ch)]
+                 (let [[event port]
+                       (if deadline-ch
+                         (async/alts!! [deadline-ch events-ch] :priority true)
+                         [(async/<!! events-ch) events-ch])]
                    (cond
+                     (identical? port deadline-ch)
+                     (let [failure
+                           (ex-info
+                            (str "Query timed out after " timeout-ms " ms")
+                            {:type :query-timeout
+                             :timeout-ms timeout-ms})]
+                       (teardown/cleanup-preserving! failure finish!)
+                       (throw failure))
+
                      (nil? event)
                      (do (finish!) nil)
 
@@ -291,7 +310,7 @@
             (when (zero? max-events) (finish!))
             [events finish!]))
         (catch Throwable t
-          (finish!)
+          (teardown/cleanup-preserving! t finish!)
           (throw t))))))
 
 (defmacro with-query-seq
@@ -300,15 +319,17 @@
    Use this for seq-style streaming consumption when the body may stop before the
    session reaches a terminal event. Cleanup runs in a `finally`, so the session
    disconnects whether the body returns normally, stops after a partial realization,
-   or throws.
+   or throws. If both the body and disconnect fail, the body failure remains
+   primary and the disconnect failure is attached as suppressed.
 
    Binding form:
-     [events prompt & {:keys [client session max-events]}]
+     [events prompt & {:keys [client session max-events timeout-ms]}]
 
    Keyword options match `query-seq!`:
      :client - Client options map or CopilotClient instance
      :session - Session options map
      :max-events - Maximum number of events to emit (default: 256)
+     :timeout-ms - One deadline for the whole query (default: 60000); nil disables it
 
    Examples:
      (with-query-seq [events \"Tell me a story\"
@@ -325,10 +346,9 @@
         query-args (rest bindings)
         finish-sym (gensym "finish!")]
     `(let [[~events-sym ~finish-sym] (#'query-seq-source ~@query-args)]
-       (try
-         ~@body
-         (finally
-           (~finish-sym))))))
+       (teardown/call-with-cleanup
+        (fn [] ~@body)
+        ~finish-sym))))
 
 (defn query-seq!
   "Execute a query and return a bounded lazy sequence of events.
@@ -359,12 +379,15 @@
      :client - Client options map or CopilotClient instance
      :session - Session options map
      :max-events - Maximum number of events to emit (default: 256)
+     :timeout-ms - One deadline for the whole query (default: 60000); nil disables it
 
    Returns a lazy sequence of at most :max-events events."
-  [prompt & {:keys [client session max-events] :or {max-events 256}}]
+  [prompt & {:keys [client session max-events timeout-ms]
+             :or {max-events 256
+                  timeout-ms 60000}}]
   (first (apply query-seq-source
                 prompt
-                (cond-> [:max-events max-events]
+                (cond-> [:max-events max-events :timeout-ms timeout-ms]
                   (some? client) (into [:client client])
                   (some? session) (into [:session session])))))
 
@@ -386,8 +409,12 @@
      :buffer - Channel buffer size (default: 256)
 
    Returns a channel that yields event maps. The channel closes when the
-   session ordinarily becomes idle or errors. An idle event whose wire `:mode`
-   is the string `\"autopilot\"` is emitted without closing the channel.
+   session ordinarily becomes idle or errors. If disconnecting the hidden
+   session then fails, the channel yields that `Throwable` after the terminal
+   event and closes. An idle event whose wire `:mode` is the string
+   `\"autopilot\"` is emitted without closing the channel. When a consumer
+   explicitly closes the channel, cleanup still runs, but a cleanup failure
+   cannot be delivered through that already-closed channel.
 
    Examples:
      (let [ch (query-chan \"Tell me a story\" :session {:on-permission-request copilot/approve-all
@@ -407,8 +434,16 @@
         session-config (build-session-config session)
         sess (copilot/create-session c session-config)
         ;; disconnect! blocks (thread joins), so start it at most once on a real
-        ;; thread. Producers await the completion channel, not a result value.
-        disconnect-ch (delay (async/thread (copilot/disconnect! sess)))]
+        ;; thread and retain its failure as a value for the producer.
+        disconnect-ch
+        (delay
+          (async/thread
+            (try
+              (copilot/disconnect! sess)
+              {:status :ok}
+              (catch Throwable failure
+                {:status :error
+                 :failure failure}))))]
     (try
       (let [cancel-ch (chan)
             out-ch (chan buffer)
@@ -421,18 +456,22 @@
             (let [[accepted? port] (alts! [cancel-ch [out-ch event]] :priority true)]
               (if (and (identical? port out-ch) (true? accepted?))
                 (if (terminal-query-event? event)
-                  (do
-                    (<! (force disconnect-ch))
+                  (let [{:keys [status failure]} (<! (force disconnect-ch))]
+                    (when (= :error status)
+                      (alts! [cancel-ch [out-ch failure]] :priority true))
                     (close! out-ch))
                   (recur))
                 (do
                   (<! (force disconnect-ch))
                   (close! out-ch))))
-            (do
-              (<! (force disconnect-ch))
+            (let [{:keys [status failure]} (<! (force disconnect-ch))]
+              (when (= :error status)
+                (alts! [cancel-ch [out-ch failure]] :priority true))
               (close! out-ch))))
 
         result-ch)
       (catch Throwable t
-        (async/<!! (force disconnect-ch))
+        (let [{:keys [failure]} (async/<!! (force disconnect-ch))]
+          (when failure
+            (teardown/cleanup-preserving! t #(throw failure))))
         (throw t)))))

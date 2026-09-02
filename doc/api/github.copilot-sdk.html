@@ -43,12 +43,14 @@
       )))
 </code></pre>
 </div></div></div><div class="public anchor" id="var-.3Crun-factory.21"><h3>&lt;run-factory!</h3><div class="usage"><code>(&lt;run-factory! session name-or-handle)</code><code>(&lt;run-factory! session name-or-handle options)</code></div><div class="doc"><div class="markdown"></div></div></div><div class="public anchor" id="var-.3Csend.21"><h3>&lt;send!</h3><div class="usage"><code>(&lt;send! session opts)</code></div><div class="doc"><div class="markdown"><p>Send a message and return a channel that delivers the final content string. This is the async equivalent of send-and-wait! - use inside go blocks. As with send-and-wait!, a nonterminal autopilot session.idle (<code>:data :mode</code> = “autopilot”) does not end the wait.</p>
+<p>Options: same as send!, plus: - :timeout-ms   - Timeout in milliseconds (default: 60000, set to nil to disable)</p>
+<p>Session errors and timeouts close the channel after delivering the latest assistant content, if any; otherwise the channel closes without a value.</p>
 <p>Example:</p>
 <pre><code class="language-clojure">(go
   (let [answer (&lt;! (copilot/&lt;send! session {:prompt "What is 2+2?"}))]
     (println answer)))
 </code></pre>
-</div></div></div><div class="public anchor" id="var-.3Csend-and-wait.21"><h3>&lt;send-and-wait!</h3><div class="usage"><code>(&lt;send-and-wait! session opts)</code></div><div class="doc"><div class="markdown"><p>Send a message and return a channel that delivers the final assistant message event - the channel-based equivalent of <code>send-and-wait!</code>. Use it inside go blocks instead of blocking a dispatch thread. Unlike <code>&lt;send!</code> (which delivers the final content string), this delivers the full assistant message event. As with send-and-wait!, an idle event whose <code>:data :mode</code> is the string “autopilot” is a nonterminal turn boundary, so the wait continues past it.</p>
+</div></div></div><div class="public anchor" id="var-.3Csend-and-wait.21"><h3>&lt;send-and-wait!</h3><div class="usage"><code>(&lt;send-and-wait! session opts)</code></div><div class="doc"><div class="markdown"><p>Send a message and return a channel that delivers the final assistant message event - the channel-based equivalent of <code>send-and-wait!</code>. Use it inside go blocks instead of blocking a dispatch thread. Unlike <code>&lt;send!</code> (which delivers the final content string), this delivers the full assistant message event. As with send-and-wait!, an idle event whose <code>:data :mode</code> is the string “autopilot” is a nonterminal turn boundary, so the wait continues past it. Session errors and timeouts close the channel after delivering the latest assistant message event, if any; otherwise the channel closes without a value.</p>
 <p>Options: same as send!, plus: - :timeout-ms   - Timeout in milliseconds (default: 60000, set to nil to disable)</p>
 <p>The returned channel delivers a single value (the final assistant message event, or nothing if none was received) then closes.</p>
 <p>Example:</p>
@@ -132,6 +134,7 @@
 </div></div></div><div class="public anchor" id="var-delete-session.21"><h3>delete-session!</h3><div class="usage"><code>(delete-session! client session-id)</code></div><div class="doc"><div class="markdown"><p>Delete a session and its data from disk.</p>
 </div></div></div><div class="public anchor" id="var-destroy.21"><h3>destroy!</h3><div class="usage"><code>(destroy! session)</code></div><div class="doc"><div class="markdown"><p>Deprecated: Use disconnect! instead. This function will be removed in a future release. Disconnects the session and releases in-memory resources. Session data on disk is preserved for later resumption.</p>
 </div></div></div><div class="public anchor" id="var-disconnect.21"><h3>disconnect!</h3><div class="usage"><code>(disconnect! session)</code></div><div class="doc"><div class="markdown"><p>Disconnects the session and releases in-memory resources (event handlers, tool handlers, permission handler). Session data on disk is preserved for later resumption via <code>resume-session</code>. To permanently remove all session data, use <code>delete-session!</code> instead.</p>
+<p>The runtime session is destroyed before local resources are released. A runtime destroy failure is rethrown and leaves the local session connected so the caller can retry.</p>
 </div></div></div><div class="public anchor" id="var-elicitation-supported.3F"><h3>elicitation-supported?</h3><div class="usage"><code>(elicitation-supported? session)</code></div><div class="doc"><div class="markdown"><p>Check if the CLI host supports interactive elicitation dialogs.</p>
 <p>Example:</p>
 <pre><code class="language-clojure">(when (copilot/elicitation-supported? session)
@@ -213,7 +216,7 @@
 </div></div></div><div class="public anchor" id="var-interaction-events"><h3>interaction-events</h3><div class="usage"></div><div class="doc"><div class="markdown"><p>Events related to permission, user input, elicitation, sampling, and external tool flows.</p>
 </div></div></div><div class="public anchor" id="var-join-session"><h3>join-session</h3><div class="usage"><code>(join-session config)</code></div><div class="doc"><div class="markdown"><p>Join the current foreground session from an extension running as a child process.</p>
 <p>Reads the SESSION_ID environment variable and connects to the parent CLI process via stdio. Intended for extensions spawned by the Copilot CLI.</p>
-<p>Config is the same as <code>resume-session</code> except <code>:extension-sdk-path</code> is not accepted. <code>:request-extensions?</code>, <code>:extension-info</code>, and the join-only <code>:requested-environment-variables</code> vector are accepted. An omitted or empty environment-variable vector sends no request; explicit nil is invalid. <code>:on-permission-request</code> is <strong>optional</strong>; when omitted, join-session uses <code>default-join-session-permission-handler</code>. The <code>:disable-resume?</code> option defaults to true.</p>
+<p>Config is the same as <code>resume-session</code> except <code>:extension-sdk-path</code> is not accepted. <code>:request-extensions?</code>, <code>:extension-info</code>, and the join-only <code>:requested-environment-variables</code> vector are accepted. An omitted or empty environment-variable vector sends no request; explicit nil is invalid. <code>:github-token-provider</code> uses the same callback contract, lifecycle, and transport-security requirements as <code>resume-session</code>. <code>:on-permission-request</code> is <strong>optional</strong>; when omitted, join-session uses <code>default-join-session-permission-handler</code>. The <code>:disable-resume?</code> option defaults to true.</p>
 <p>Returns a map with <code>:client</code> and <code>:session</code> keys. When environment variables are requested, the result also includes <code>:granted-environment-variables</code>, filtered to the exact requested names. Unlike Node.js, the JVM cannot portably mutate process environment variables, so extensions read approved values from this map. The caller is responsible for stopping the client when done.</p>
 <p>Throws if SESSION_ID is not set in the environment.</p>
 <p>Example:</p>
@@ -322,7 +325,8 @@
 <pre><code class="language-clojure">(let [response (copilot/send-and-wait! session {:prompt "What is 2+2?"})]
   (println (get-in response [:data :content])))
 </code></pre>
-</div></div></div><div class="public anchor" id="var-send-async"><h3>send-async</h3><div class="usage"><code>(send-async session opts)</code></div><div class="doc"><div class="markdown"><p>Send a message and return a core.async channel that receives events. The channel closes after an ordinary session.idle or session.error. An idle event whose <code>:data :mode</code> is the string “autopilot” is a nonterminal turn boundary (the agent keeps working) and is delivered on the channel without closing it. Serialized per session to avoid mixing concurrent sends.</p>
+</div></div></div><div class="public anchor" id="var-send-async"><h3>send-async</h3><div class="usage"><code>(send-async session opts)</code></div><div class="doc"><div class="markdown"><p>Send a message and return a core.async channel that receives events. The channel closes after an ordinary session.idle or session.error. An idle event whose <code>:data :mode</code> is the string “autopilot” is a nonterminal turn boundary (the agent keeps working) and is delivered on the channel without closing it. A timeout is delivered as a final <code>:copilot/session.error</code> event whose data includes <code>:timeout-ms</code>, then the channel closes. Serialized per session to avoid mixing concurrent sends.</p>
+<p>Options: same as send!, plus: - :timeout-ms   - Timeout in milliseconds (default: 60000, set to nil to disable)</p>
 <p>Example:</p>
 <pre><code class="language-clojure">(let [ch (copilot/send-async session {:prompt "Tell me a story"})]
   (go-loop []
@@ -330,7 +334,9 @@
       (println (:type event))
       (recur))))
 </code></pre>
-</div></div></div><div class="public anchor" id="var-send-async-with-id"><h3>send-async-with-id</h3><div class="usage"><code>(send-async-with-id session opts)</code></div><div class="doc"><div class="markdown"><p>Send a message and return {:message-id :events-ch}.</p>
+</div></div></div><div class="public anchor" id="var-send-async-with-id"><h3>send-async-with-id</h3><div class="usage"><code>(send-async-with-id session opts)</code></div><div class="doc"><div class="markdown"><p>Send a message and return <code>{:message-id :events-ch}</code>.</p>
+<p>Options: same as send!, plus: - :timeout-ms   - Timeout in milliseconds (default: 60000, set to nil to disable)</p>
+<p><code>:events-ch</code> follows <code>send-async</code>: a timeout is delivered as a final <code>:copilot/session.error</code> event whose data includes <code>:timeout-ms</code>, then the channel closes.</p>
 </div></div></div><div class="public anchor" id="var-session-config"><h3>session-config</h3><div class="usage"><code>(session-config session)</code></div><div class="doc"><div class="markdown"><p>Get the configuration that was passed to create this session.</p>
 <p>Returns the user-provided config map. This reflects what was requested, not necessarily what the server is using (e.g., if a model was unavailable, the server may have selected a different one).</p>
 <p>The session.start event contains the actual selected model if validation is needed.</p>
@@ -421,6 +427,7 @@
   (copilot/send! session {:prompt "Hi"}))
 </code></pre>
 </div></div></div><div class="public anchor" id="var-with-session"><h3>with-session</h3><h4 class="type">macro</h4><div class="usage"><code>(with-session [session-sym client config] &amp; body)</code></div><div class="doc"><div class="markdown"><p>Create a session and ensure disconnect! on exit.</p>
+<p><code>disconnect!</code> can throw. If both the body and disconnect fail, the body failure remains primary and the disconnect failure is attached as suppressed.</p>
 <p>Usage: (with-session <a href="s client {:on-permission-request copilot/approve-all
 :model &quot;gpt-5.4&quot;}">s client {:on-permission-request copilot/approve-all :model “gpt-5.4”}</a> …)</p>
 </div></div></div><div class="public anchor" id="var-workspace-path"><h3>workspace-path</h3><div class="usage"><code>(workspace-path session)</code></div><div class="doc"><div class="markdown"><p>Get the session workspace path when provided by the CLI.</p>

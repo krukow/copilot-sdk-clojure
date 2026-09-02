@@ -48,7 +48,7 @@ When `:session` is a CopilotSession instance, the query uses that session direct
 ### `with-query-seq`
 
 ```clojure
-(h/with-query-seq [events prompt & {:keys [client session max-events]}]
+(h/with-query-seq [events prompt & {:keys [client session max-events timeout-ms]}]
   body)
 ```
 
@@ -61,6 +61,7 @@ Use this as the default seq-style streaming helper. Cleanup runs when `body` ret
 | `:client` | map or `CopilotClient` | `nil` | Client options map or caller-owned client |
 | `:max-events` | integer | `256` | Maximum number of events to emit; `0` disconnects immediately |
 | `:session` | map | `nil` | Session options map |
+| `:timeout-ms` | positive integer or nil | `60000` | One deadline covering session creation and event consumption; nonterminal autopilot idle events do not reset it. `nil` disables the deadline |
 
 ```clojure
 (h/with-query-seq [events "Tell me a story"
@@ -77,12 +78,19 @@ Do not let `events` escape the body. The session is closed when the macro exits,
 ### `query-seq!`
 
 ```clojure
-(h/query-seq! prompt & {:keys [client session max-events]})
+(h/query-seq! prompt & {:keys [client session max-events timeout-ms]})
 ```
 
 Execute a query and return a bounded lazy sequence of events (default: 256 events). This function is still supported.
 Pass a client options map to use the helpers-managed client, or a started
 `CopilotClient` instance to keep client lifecycle ownership with the caller.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `:client` | map or `CopilotClient` | `nil` | Client options map or caller-owned client |
+| `:max-events` | integer | `256` | Maximum number of events to emit; `0` disconnects immediately |
+| `:session` | map | `nil` | Session options map |
+| `:timeout-ms` | positive integer or nil | `60000` | One deadline covering session creation and event consumption; nonterminal autopilot idle events do not reset it. `nil` disables the deadline |
 
 **Warning:** cleanup (session disconnect) runs only when the sequence is consumed to its natural end — a
 terminal `:copilot/session.idle` / `:copilot/session.error` event, or the events channel closing (detected
@@ -113,7 +121,7 @@ terminal `:copilot/session.idle` or `:copilot/session.error` event. An idle even
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `:buffer` | positive integer | `256` | Maximum number of events buffered before producer backpressure |
-| `:client` | map | `nil` | Client options map |
+| `:client` | map or `CopilotClient` | `nil` | Client options map or caller-owned client |
 | `:session` | map | `nil` | Session options map |
 
 ```clojure
@@ -140,6 +148,11 @@ above closes after ten events instead of abandoning the channel.
 Values accepted into the buffer before cancellation remain readable after `close!`. An
 in-flight event whose parked put loses to cancellation may be dropped; cancellation is not a
 lossless drain.
+
+On natural completion, `query-chan` disconnects its hidden session before closing. If that
+disconnect fails, the channel yields the `Throwable` after the terminal event and then closes.
+When a consumer explicitly closes the channel, cleanup still runs, but a cleanup failure cannot
+be delivered through the already-closed channel.
 
 ### `shutdown!`
 
@@ -308,7 +321,10 @@ Create a new conversation session.
   )
 ```
 
-Create a session and ensure `disconnect!` runs on exit.
+Create a session and ensure `disconnect!` runs on exit. If the body and
+`disconnect!` both fail, the body failure remains primary and the cleanup
+failure is attached as a suppressed exception. A cleanup-only failure is
+thrown.
 
 #### `with-client-session`
 
@@ -339,6 +355,9 @@ Create a session and ensure `disconnect!` runs on exit.
 ```
 
 Create a client and session together, ensuring both are cleaned up on exit.
+Nested cleanup follows the same failure contract as `with-session`: body
+failures remain primary and cleanup failures are attached as suppressed
+exceptions.
 
 **Config:**
 
@@ -524,7 +543,7 @@ to consume inside `go` blocks.
 (copilot/join-session config)
 ```
 
-Join the current foreground session from an extension running as a child process of the Copilot CLI. Reads the `SESSION_ID` environment variable, creates a child-process client, and resumes the session with `:disable-resume?` defaulting to `true`. It accepts `:request-extensions?`, `:extension-info`, and the join-only `:requested-environment-variables`, but rejects the create/resume-only `:extension-sdk-path`.
+Join the current foreground session from an extension running as a child process of the Copilot CLI. Reads the `SESSION_ID` environment variable, creates a child-process client, and resumes the session with `:disable-resume?` defaulting to `true`. It accepts `:request-extensions?`, `:extension-info`, and the join-only `:requested-environment-variables`, but rejects the create/resume-only `:extension-sdk-path`. Session-scoped `:github-token` and `:github-token-provider` authentication are supported; the provider uses the same callback contract, lifecycle, and transport-security requirements as `resume-session`.
 
 Returns a map with `:client` and `:session` keys. When the request vector is
 non-empty, the map also contains `:granted-environment-variables`. Its string
@@ -986,7 +1005,10 @@ Send a message and return a core.async channel that receives all events for this
 message, closing on an ordinary idle event. Autopilot idle events are emitted
 without closing the channel.
 Safe for use inside `go` blocks — no blocking operations.
-Supports `:timeout-ms` in options (default: `60000`) to force cleanup on long-running requests.
+Supports `:timeout-ms` in options (default: `60000`, set to `nil` to disable).
+On timeout, the channel emits a final `:copilot/session.error` event whose data
+includes `:timeout-ms`, releases the event subscription and send lock, then
+closes.
 
 #### `send-async-with-id`
 
@@ -995,7 +1017,8 @@ Supports `:timeout-ms` in options (default: `60000`) to force cleanup on long-ru
 ```
 
 Send a message and return `{:message-id :events-ch}` for correlating responses.
-Supports `:timeout-ms` in options (default: `60000`).
+Supports `:timeout-ms` in options (default: `60000`, set to `nil` to disable).
+The event channel follows `send-async`, including its final timeout event.
 
 #### `<send!`
 
@@ -1004,7 +1027,9 @@ Supports `:timeout-ms` in options (default: `60000`).
 ```
 
 Async equivalent of `send-and-wait!` for use inside `go` blocks. Returns a channel that yields the final content string.
-Supports `:timeout-ms` in options (default: `60000`).
+Supports `:timeout-ms` in options (default: `60000`, set to `nil` to disable).
+Session errors and timeouts close the channel after delivering the latest
+assistant content, if any; otherwise the channel closes without a value.
 
 Combined with `<create-session`, enables fully non-blocking pipelines:
 
@@ -1216,8 +1241,9 @@ Log a message to the session timeline. Returns the event ID string.
 ```
 
 Disconnect the session and free resources. This is the preferred way to close a
-session. The runtime is notified before local resources are released. If that
-request fails, the exception propagates and the local session remains usable.
+session. The runtime is destroyed before local resources are released. If that
+request fails, the exception propagates and the local session remains connected
+so the caller can retry.
 While one disconnect is in progress, concurrent calls return without sending
 another runtime request.
 
@@ -1798,7 +1824,7 @@ nested schema objects marked closed by upstream reject unknown keys.
 | `:copilot/assistant.reasoning` | Model reasoning (if supported); optional data: `:rte` (opaque round-trip encrypted reasoning token, for providers that require it to be replayed back) (upstream schema 1.0.79-5/6) |
 | `:copilot/assistant.reasoning_delta` | Streaming reasoning chunk |
 | `:copilot/assistant.message_start` | Streaming assistant message start metadata |
-| `:copilot/assistant.message` | Complete assistant response; optional data: `:chunk-index`, `:chunk-count` (position/count when the response was split across multiple messages), `:citations` (see [Citations](#citations-experimental)), and `:rte` (upstream schema 1.0.79-5/6). Each `:tool-requests` entry may include `:type` (`"function"` or `"custom"`) and hosted-program attribution as `:caller {:caller-id "..." :type "program"}`; its `:arguments` is an opaque JSON object whose keys are preserved verbatim (not kebab-cased) — the SDK does not interpret or validate its shape. |
+| `:copilot/assistant.message` | Complete assistant response; optional data: `:chunk-index`, `:chunk-count` (position/count when the response was split across multiple messages), `:citations` (see [Citations](#citations-experimental)), and `:rte` (upstream schema 1.0.79-5/6). Each `:tool-requests` entry may include `:type` (`"function"` or `"custom"`) and hosted-program attribution as `:caller {:caller-id "..." :type "program"}`. Its `:arguments` is validated only as recursive JSON (`nil`, strings, booleans, finite non-ratio numbers, vectors, and maps with string or keyword keys); source-defined keys are preserved verbatim rather than kebab-cased. |
 | `:copilot/assistant.message_delta` | Streaming response chunk |
 | `:copilot/assistant.streaming_delta` | Response size update during streaming; data: `{:total-response-size-bytes N}` |
 | `:copilot/assistant.turn_end` | Assistant turn completed |
@@ -3036,9 +3062,10 @@ The SDK converts these keywords to the runtime's snake-case strings and sends
 the response RPC. Handlers may return attributed results directly or through a
 core.async channel.
 
-The context may also include `:response-capability`, one of `:interactive`,
-`:headless`, or `:none`. The SDK serializes the keyword as the exact wire string
-and omits the field when absent.
+The context may also include the experimental `:response-capability`, one of
+`:interactive`, `:headless`, or `:none`. The SDK serializes the keyword as the
+exact wire string and omits the field when absent. This field is excluded from
+stable SDK parity certification and may change independently of stable APIs.
 ([upstream PR #2294](https://github.com/github/copilot-sdk/pull/2294))
 
 #### `approve-all`
