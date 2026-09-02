@@ -278,7 +278,7 @@
 <tr><td> <code>:infinite-sessions</code> </td><td> map </td><td> Infinite session config (see below) </td></tr>
 <tr><td> <code>:reasoning-effort</code> </td><td> string </td><td> Reasoning effort level: <code>"low"</code>, <code>"medium"</code>, <code>"high"</code>, <code>"xhigh"</code>, or <code>"max"</code> (<a href="https://github.com/github/copilot-sdk/pull/2228">upstream PR #2228</a>) </td></tr>
 <tr><td> <code>:github-token</code> </td><td> string </td><td> Static GitHub token for this session. Sent as <code>gitHubToken</code>; mutually exclusive with <code>:github-token-provider</code>. </td></tr>
-<tr><td> <code>:github-token-provider</code> </td><td> fn </td><td> Session-scoped, refreshable GitHub credential callback. Receives <code>{:host string :session-id string? :reason :initial\|:refresh}</code> and returns <code>{:kind :token :access-token string :expires-in integer&gt;=3601 :token-type string?}</code> or <code>{:kind :cancelled}</code>, directly or on a core.async channel. Create, resume, and join configuration carries only an opaque registration ID; the callback remains local, while acquired credentials cross the JSON-RPC connection to the CLI when requested. Requires the SDK-managed child-process stdio transport, or an external <code>:cli-url</code> whose resolved host is syntactically loopback (<code>localhost</code>/<code>127.0.0.1</code>/<code>::1</code>); any other <code>:cli-url</code> host is rejected at connect time — an <code>https://</code> scheme does not make a remote <code>:cli-url</code> TLS-protected in the SDK’s eyes, so a protected remote tunnel must itself terminate on loopback. Registration is rolled back on failed create/resume/join and removed on session/client teardown. Mutually exclusive with <code>:github-token</code>. See <a href="doc-auth-index.html#session-scoped-token-provider">Authentication</a>. (<a href="https://github.com/github/copilot-sdk/pull/2412">upstream PR #2412</a>) </td></tr>
+<tr><td> <code>:github-token-provider</code> </td><td> fn </td><td> Session-scoped, refreshable GitHub credential callback. Receives <code>{:host string :session-id string? :reason :initial\|:refresh}</code> and returns <code>{:kind :token :access-token string :expires-in integer&gt;=3601 :token-type string?}</code> or <code>{:kind :cancelled}</code>, directly or on a core.async channel. Both result variants are open to additional extension fields. Create, resume, and join configuration carries only an opaque registration ID; the callback remains local, while acquired credentials cross the JSON-RPC connection to the CLI when requested. Requires the SDK-managed child-process stdio transport, or an external <code>:cli-url</code> whose parsed host has a recognized loopback spelling (<code>localhost</code>, any valid <code>127.x.x.x</code>, <code>::1</code>, or its fully expanded IPv6 spelling). This is a syntactic allowlist; arbitrary DNS names are not resolved to test whether they point at loopback. Any other <code>:cli-url</code> host is rejected before provider-backed session setup. An <code>https://</code> scheme does not make the raw TCP socket TLS-protected, so a protected remote tunnel must expose a local loopback endpoint. Provider work runs on a bounded client-owned executor. Failed create/resume/join calls roll back provisional registrations; session and client teardown remove committed registrations and cancel in-flight work. Mutually exclusive with <code>:github-token</code>. See <a href="doc-auth-index.html#session-scoped-token-provider">Authentication</a>. (<a href="https://github.com/github/copilot-sdk/pull/2412">upstream PR #2412</a>) </td></tr>
 <tr><td> <code>:on-user-input-request</code> </td><td> fn </td><td> Handler for <code>ask_user</code> requests (see below) </td></tr>
 <tr><td> <code>:ask-user-variant</code> </td><td> keyword </td><td> Selects the built-in <code>ask_user</code> tool shape: <code>:legacy</code> or <code>:elicitation</code>. Omission preserves the runtime default; explicit values serialize as <code>askUserVariant</code> on create/resume/join. The <code>:elicitation</code> variant requires an <code>:on-elicitation-request</code> handler when the host must answer requests. (<a href="https://github.com/github/copilot-sdk/pull/2432">upstream PR #2432</a>) </td></tr>
 <tr><td> <code>:hooks</code> </td><td> map </td><td> Lifecycle hooks (see below) </td></tr>
@@ -346,7 +346,7 @@
 <pre><code class="language-clojure">(copilot/&lt;create-session client config)
 </code></pre>
 <p>Async version of <code>create-session</code>. Returns a channel that delivers a <code>CopilotSession</code>.</p>
-<p>Validation is synchronous (throws immediately on invalid config). The RPC call parks instead of blocking, making this safe inside <code>go</code> blocks. On RPC error, delivers an <code>ExceptionInfo</code> to the channel instead of a session — check with <code>(instance? Throwable result)</code>.</p>
+<p>Configuration validation, connection setup, and local session preparation happen before the result channel is returned. For standard local creates and cloud creates with a caller-supplied <code>:session-id</code>, this includes constructing the session filesystem handler. A failure in any of those steps throws synchronously. A cloud create with <code>:cloud</code> and no <code>:session-id</code> must defer filesystem-handler construction until the server assigns an ID; that failure, RPC failures, and later setup failures are delivered as a <code>Throwable</code> on the channel. The RPC wait parks instead of blocking, making the returned channel safe to consume inside <code>go</code> blocks.</p>
 <pre><code class="language-clojure">(require '[clojure.core.async :refer [go &lt;!]])
 
 (go
@@ -361,12 +361,15 @@
 <pre><code class="language-clojure">(copilot/&lt;resume-session client session-id config)
 </code></pre>
 <p>Async version of <code>resume-session</code>. Returns a channel that delivers a <code>CopilotSession</code>.</p>
-<p>Same config options as <code>resume-session</code>. Safe for use inside <code>go</code> blocks. On RPC error, delivers an <code>ExceptionInfo</code> to the channel — check with <code>(instance? Throwable result)</code>.</p>
+<p>Same config options as <code>resume-session</code>. Configuration validation, connection setup, and local session preparation — including construction of any session filesystem handler — happen before the result channel is returned and throw synchronously on failure. RPC and later setup failures are delivered as a <code>Throwable</code> on the channel. The RPC wait parks, so the returned channel is safe to consume inside <code>go</code> blocks.</p>
 <pre><code class="language-clojure">(go
-  (let [session (&lt;! (copilot/&lt;resume-session client "session-123"
-                                                     {:on-permission-request copilot/approve-all}))]
-    ;; use resumed session
-    ))
+  (let [result (&lt;! (copilot/&lt;resume-session
+                    client
+                    "session-123"
+                    {:on-permission-request copilot/approve-all}))]
+    (if (instance? Throwable result)
+      (throw result)
+      (&lt;! (copilot/&lt;send! result {:prompt "Continue"})))))
 </code></pre>
 <h4><a href="#join-session" id="join-session"></a><code>join-session</code></h4>
 <pre><code class="language-clojure">(copilot/join-session config)

@@ -2,7 +2,8 @@
   "Clojure specs for Copilot SDK data structures."
   (:require [clojure.spec.alpha :as s]
             [clojure.set :as set]
-            [clojure.string :as str])
+            [clojure.string :as str]
+            [github.copilot-sdk.util :as util])
   (:import [java.nio.file InvalidPathException Paths]))
 
 ;; -----------------------------------------------------------------------------
@@ -956,7 +957,7 @@
 (s/def ::custom-agents-local-only boolean?)
 (s/def ::coauthor-enabled boolean?)
 (s/def ::manage-schedule-enabled boolean?)
-(s/def ::included-builtin-skills (s/coll-of ::non-blank-string))
+(s/def ::included-builtin-skills (s/coll-of string?))
 
 ;; Reasoning summary mode (upstream PR #813 - pre-existing parity gap).
 ;; Wire enum: "none" | "concise" | "detailed". Mirrors upstream's ReasoningSummary type.
@@ -995,14 +996,9 @@
               (s/valid? ::non-blank-string (:session-id %)))
          #(s/valid? ::github-token-acquire-reason (:reason %))))
 
-(def ^:private github-token-provider-cancelled-keys #{:kind})
-(def ^:private github-token-provider-token-keys
-  #{:kind :access-token :expires-in :token-type})
-
 (defn ^:no-doc github-token-provider-result-constraint
   "Return the first violated provider-result constraint, or nil when valid.
-   Closed result contract: `:cancelled` permits only `:kind`; `:token` permits
-   only `:kind`, `:access-token`, `:expires-in`, and optional `:token-type`."
+   Both result variants are open to additional upstream-compatible fields."
   [result]
   (cond
     (not (map? result))
@@ -1012,11 +1008,7 @@
     :kind-must-be-token-or-cancelled
 
     (= :cancelled (:kind result))
-    (when (seq (unknown-keys result github-token-provider-cancelled-keys))
-      :cancelled-result-must-only-contain-kind)
-
-    (seq (unknown-keys result github-token-provider-token-keys))
-    :token-result-has-unknown-keys
+    nil
 
     (not (s/valid? ::non-blank-string (:access-token result)))
     :access-token-must-be-non-blank-string
@@ -1072,16 +1064,11 @@
   (or (not (contains? config :extension-info))
       (s/valid? ::extension-identity (:extension-info config))))
 
-(defn- valid-github-token-auth?
-  [config]
-  (not (and (contains? config :github-token)
-            (contains? config :github-token-provider))))
-
 (defn- closed-session-config
   [keys-spec allowed-keys]
   (s/and (closed-keys keys-spec allowed-keys)
          valid-extension-identity?
-         valid-github-token-auth?))
+         (complement util/github-token-auth-conflict?)))
 
 (s/def ::enable-all-tools? boolean?)
 (s/def ::additional-toolsets (s/coll-of ::non-blank-string :kind vector?))
@@ -1884,11 +1871,13 @@
 ;; from the ::provider BYOK client-config spec reused elsewhere in this file
 ;; (a map of ::base-url etc.), so it's validated via a dedicated predicate
 ;; instead of s/keys :req-un [::provider]. `blocks` items are x-opaque-json in
-;; the pinned schema, so only the containing vector shape is checked.
+;; the pinned schema, so each item is recursively checked as opaque JSON.
 (s/def ::reasoning-blocks
   (s/and map?
          #(string? (:provider %))
-         #(or (not (contains? % :blocks)) (vector? (:blocks %)))))
+         #(or (not (contains? % :blocks))
+              (and (vector? (:blocks %))
+                   (every? opaque-json-value? (:blocks %))))))
 (s/def ::assistant.message-data
   (s/keys :req-un [::message-id ::content]
           :opt-un [::tool-requests ::parent-tool-call-id ::encrypted-content
@@ -2088,8 +2077,8 @@
 ;; `hook.end-data`'s `:error` reuses the shared (unvalidated) ::error keyword,
 ;; matching the existing codebase-wide convention for HookEndError's shape
 ;; (message/stack/source) rather than modeling it as a dedicated spec.
-(s/def ::hook-invocation-id ::non-blank-string)
-(s/def ::hook-type ::non-blank-string)
+(s/def ::hook-invocation-id string?)
+(s/def ::hook-type string?)
 (s/def ::hook.start-data
   (s/keys :req-un [::hook-invocation-id ::hook-type]
           :opt-un [::parent-tool-call-id]))

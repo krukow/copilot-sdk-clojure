@@ -287,11 +287,27 @@
              [{:outcome :auto-approved
                :source :host-policy
                :surface :sdk
+               :response-capability :interactive}
+              {:outcome "auto_approved"
+               :source "host_policy"
+               :surface "sdk"
+               :response-capability "interactive"}]
+             [{:outcome :auto-approved
+               :source :host-policy
+               :surface :sdk
                :response-capability :headless}
               {:outcome "auto_approved"
                :source "host_policy"
                :surface "sdk"
-               :response-capability "headless"}]]]
+               :response-capability "headless"}]
+             [{:outcome :auto-approved
+               :source :host-policy
+               :surface :sdk
+               :response-capability :none}
+              {:outcome "auto_approved"
+               :source "host_policy"
+               :surface "sdk"
+               :response-capability "none"}]]]
       (let [session
             (sdk/create-session
              *test-client*

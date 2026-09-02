@@ -43,8 +43,9 @@
 (defn wire-key->kebab
   "Transform a wire JSON key to a kebab-case Clojure name part.
    Rules:
-   - Insert `-` between a lowercase letter and an uppercase letter (camelCase → kebab).
-   - Replace `_` with `-` (snake_case → kebab).
+   - Preserve acronym word boundaries (`URLValue` → `url-value`).
+   - Insert `-` between a lowercase letter or digit and an uppercase letter.
+   - Collapse separators and strip them from the edges.
    - Lowercase the result.
    Examples:
      `sessionId`     → `session-id`
@@ -53,8 +54,10 @@
      `parentId`      → `parent-id`"
   [s]
   (-> s
+      (str/replace #"([A-Z]+)([A-Z][a-z])" "$1-$2")
       (str/replace #"([a-z0-9])([A-Z])" "$1-$2")
-      (str/replace #"_" "-")
+      (str/replace #"[_\s-]+" "-")
+      (str/replace #"^-+|-+$" "")
       str/lower-case))
 
 (defn wire-key->kw

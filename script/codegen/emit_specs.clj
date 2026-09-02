@@ -88,6 +88,25 @@
     (:const node) #{(:const node)}
     :else         `string?))
 
+(defn- emit-number
+  [node predicate]
+  (let [bounds
+        (cond-> []
+          (contains? node :minimum)
+          (conj `(~'fn [~'n] (~'<= ~(:minimum node) ~'n)))
+
+          (contains? node :exclusiveMinimum)
+          (conj `(~'fn [~'n] (~'< ~(:exclusiveMinimum node) ~'n)))
+
+          (contains? node :maximum)
+          (conj `(~'fn [~'n] (~'<= ~'n ~(:maximum node))))
+
+          (contains? node :exclusiveMaximum)
+          (conj `(~'fn [~'n] (~'< ~'n ~(:exclusiveMaximum node)))))]
+    (if (seq bounds)
+      `(~'s/and ~predicate ~@bounds)
+      predicate)))
+
 (defn- emit-array [root node]
   (let [items (:items node)]
     (if items
@@ -172,8 +191,8 @@
     (cond
       (:anyOf node)              (emit-anyOf root node)
       (= "string"  (:type node)) (emit-string node)
-      (= "integer" (:type node)) `integer?
-      (= "number"  (:type node)) `number?
+      (= "integer" (:type node)) (emit-number node `integer?)
+      (= "number"  (:type node)) (emit-number node `number?)
       (= "boolean" (:type node)) `boolean?
       (= "null"    (:type node)) `nil?
       (= "array"   (:type node)) (emit-array root node)

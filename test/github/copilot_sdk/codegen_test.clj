@@ -35,7 +35,9 @@
    regression coverage for the codegen pipeline."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.data.json :as json]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.java.shell :as sh]
             [clojure.set]
             [clojure.spec.alpha :as s]
             [clojure.string :as str]
@@ -44,6 +46,36 @@
             [github.copilot-sdk :as sdk]
             [github.copilot-sdk.specs :as specs])
   (:import [java.time Instant]))
+
+(def ^:private codegen-probe
+  (delay
+    (let [{:keys [exit out err]}
+          (sh/sh
+           "bb" "-cp" "script" "-e"
+           (str
+            "(require '[clojure.spec.alpha :as s] "
+            "         '[codegen.core :as core] '[codegen.emit-specs :as emit]) "
+            "(let [bounded-spec (eval (emit/emit-type {:type \"integer\" :minimum 2 :maximum 4} "
+            "                                          {:type \"integer\" :minimum 2 :maximum 4})) "
+            "      exclusive-spec (eval (emit/emit-type {:type \"number\" :exclusiveMinimum 1 :exclusiveMaximum 2} "
+            "                                            {:type \"number\" :exclusiveMinimum 1 :exclusiveMaximum 2}))] "
+            "  (prn {:keys (mapv core/wire-key->kebab "
+            "                    [\"_meta\" \"sessionId\" \"tool_efficiency\" "
+            "                     \"URLValue\" \"someURLValue\" \"__foo_bar\"]) "
+            "        :bounded (mapv #(s/valid? bounded-spec %) [1 2 2.5 4 5]) "
+            "        :exclusive (mapv #(s/valid? exclusive-spec %) [1 1.5 2])}))"))]
+      (when-not (zero? exit)
+        (throw (ex-info "Codegen probe failed" {:exit exit :stderr err})))
+      (edn/read-string out))))
+
+(deftest codegen-wire-key-normalization-matches-runtime
+  (is (= ["meta" "session-id" "tool-efficiency"
+          "url-value" "some-url-value" "foo-bar"]
+         (:keys @codegen-probe))))
+
+(deftest codegen-emits-json-schema-numeric-bounds
+  (is (= [false true false true false] (:bounded @codegen-probe)))
+  (is (= [false true false] (:exclusive @codegen-probe))))
 
 ;; ---------------------------------------------------------------------------
 ;; Schema introspection helpers — used by the envelope helper to honour
@@ -768,7 +800,7 @@
 
 (deftest generated-top-level-forms-stay-well-under-jvm-method-size-limit
   (let [sized (map (fn [form] {:form form :len (count (pr-str form))})
-                    generated-event-specs-forms)
+                   generated-event-specs-forms)
         max-entry (apply max-key :len sized)]
     (testing "no single generated top-level form approaches the 64KB JVM per-method bytecode limit"
       (is (<= (:len max-entry) 32000)

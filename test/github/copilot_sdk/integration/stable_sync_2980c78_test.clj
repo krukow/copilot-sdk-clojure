@@ -97,12 +97,12 @@
    {:stable-public #{"agentType" "executionMode" "parentId" "resumable"}}
    "SubagentCompletedData"
    {:stable-public #{"configuredModelMatchesActual" "configuredModelPreference"
-                      "explicitModelMatchesPreference" "explicitModelOverride"
-                      "firstDispatchedModel"}}
+                     "explicitModelMatchesPreference" "explicitModelOverride"
+                     "firstDispatchedModel"}}
    "SubagentFailedData"
    {:stable-public #{"configuredModelMatchesActual" "configuredModelPreference"
-                      "explicitModelMatchesPreference" "explicitModelOverride"
-                      "firstDispatchedModel"}}
+                     "explicitModelMatchesPreference" "explicitModelOverride"
+                     "firstDispatchedModel"}}
    "ToolExecutionCompleteContentShellExit"
    {:stable-public #{"outputFilePath"}}})
 
@@ -131,7 +131,6 @@
            (if upstream-validation-enabled?
              ": external upstream-diff validation ran."
              ": external upstream-diff validation was SKIPPED; only the committed EDN oracle was certified in this run."))))
-
 
 (defn- read-report
   []
@@ -263,6 +262,124 @@
    (interface-fields
     (git-output upstream "show" (str base ":" path))
     interface-name)))
+
+(def ^:private exported-declaration-pattern
+  #"(?m)^\s*export\s+(type|interface)\s+([A-Za-z_$][A-Za-z0-9_$]*)\b")
+
+(defn- strip-typescript-comments
+  [source]
+  (-> source
+      (str/replace #"(?s)/\*.*?\*/" " ")
+      (str/replace #"(?m)//[^\r\n]*" " ")))
+
+(defn- declaration-end
+  [source start kind]
+  (loop [index start
+         quote-char nil
+         escaped? false
+         paren-depth 0
+         bracket-depth 0
+         brace-depth 0
+         angle-depth 0
+         interface-body? false]
+    (when (>= index (count source))
+      (throw (ex-info "Unterminated exported TypeScript declaration"
+                      {:kind kind :start start})))
+    (let [ch (.charAt source index)]
+      (cond
+        quote-char
+        (cond
+          escaped?
+          (recur (inc index) quote-char false
+                 paren-depth bracket-depth brace-depth angle-depth interface-body?)
+
+          (= ch \\)
+          (recur (inc index) quote-char true
+                 paren-depth bracket-depth brace-depth angle-depth interface-body?)
+
+          (= ch quote-char)
+          (recur (inc index) nil false
+                 paren-depth bracket-depth brace-depth angle-depth interface-body?)
+
+          :else
+          (recur (inc index) quote-char false
+                 paren-depth bracket-depth brace-depth angle-depth interface-body?))
+
+        (#{\" \' \`} ch)
+        (recur (inc index) ch false
+               paren-depth bracket-depth brace-depth angle-depth interface-body?)
+
+        (= kind "interface")
+        (cond
+          (= ch \{)
+          (recur (inc index) nil false
+                 paren-depth bracket-depth (inc brace-depth) angle-depth true)
+
+          (and interface-body? (= ch \}) (= brace-depth 1))
+          (inc index)
+
+          (= ch \})
+          (recur (inc index) nil false
+                 paren-depth bracket-depth (dec brace-depth) angle-depth interface-body?)
+
+          :else
+          (recur (inc index) nil false
+                 paren-depth bracket-depth brace-depth angle-depth interface-body?))
+
+        :else
+        (case ch
+          \( (recur (inc index) nil false
+                    (inc paren-depth) bracket-depth brace-depth angle-depth interface-body?)
+          \) (recur (inc index) nil false
+                    (dec paren-depth) bracket-depth brace-depth angle-depth interface-body?)
+          \[ (recur (inc index) nil false
+                    paren-depth (inc bracket-depth) brace-depth angle-depth interface-body?)
+          \] (recur (inc index) nil false
+                    paren-depth (dec bracket-depth) brace-depth angle-depth interface-body?)
+          \{ (recur (inc index) nil false
+                    paren-depth bracket-depth (inc brace-depth) angle-depth interface-body?)
+          \} (recur (inc index) nil false
+                    paren-depth bracket-depth (dec brace-depth) angle-depth interface-body?)
+          \< (recur (inc index) nil false
+                    paren-depth bracket-depth brace-depth (inc angle-depth) interface-body?)
+          \> (recur (inc index) nil false
+                    paren-depth bracket-depth brace-depth (max 0 (dec angle-depth)) interface-body?)
+          \; (if (every? zero? [paren-depth bracket-depth brace-depth angle-depth])
+               (inc index)
+               (recur (inc index) nil false
+                      paren-depth bracket-depth brace-depth angle-depth interface-body?))
+          (recur (inc index) nil false
+                 paren-depth bracket-depth brace-depth angle-depth interface-body?))))))
+
+(defn- exported-declarations
+  [source]
+  (let [source (strip-typescript-comments source)
+        matcher (re-matcher exported-declaration-pattern source)]
+    (loop [declarations {}]
+      (if (.find matcher)
+        (let [kind (.group matcher 1)
+              declaration-name (.group matcher 2)
+              start (.start matcher)
+              end (declaration-end source (.end matcher) kind)
+              normalized (-> (subs source start end)
+                             (str/replace #"\s+" " ")
+                             str/trim)]
+          (recur (assoc declarations declaration-name normalized)))
+        declarations))))
+
+(defn- changed-exported-declarations
+  [upstream base target path]
+  (let [base-declarations
+        (exported-declarations
+         (git-output upstream "show" (str base ":" path)))
+        target-declarations
+        (exported-declarations
+         (git-output upstream "show" (str target ":" path)))]
+    (->> (set/intersection (set (keys base-declarations))
+                           (set (keys target-declarations)))
+         (filter #(not= (get base-declarations %)
+                        (get target-declarations %)))
+         set)))
 
 (defn- class-method-symbols
   [source]
@@ -481,6 +598,19 @@
                             "nodejs/src/generated/session-events.ts" interface-name)]
                 (is (= expected actual)
                     (str "Added event-interface fields drifted for " interface-name))))
+            (doseq [[path classifications] (:changed-declarations inventory)]
+              (let [expected (apply set/union #{} (vals classifications))
+                    actual (changed-exported-declarations
+                            upstream-repo base-commit target-commit path)]
+                (is (= expected actual)
+                    (str "Modified exported declarations drifted for " path))
+                (doseq [[left-class left] classifications
+                        [right-class right] classifications
+                        :when (neg? (compare (name left-class)
+                                             (name right-class)))]
+                  (is (empty? (set/intersection left right))
+                      (str "Declaration classifications overlap in " path
+                           ": " left-class " and " right-class)))))
             (doseq [[path expected] (:internal-methods inventory)]
               (is (= expected
                      (added-class-method-symbols
@@ -571,23 +701,23 @@
                 :outcome "success"
                 :edit-classifier-version 1}]
       (is (s/valid? ::specs/model.call_finished-data
-                     (assoc base :dispatch-duration-ms 0)))
+                    (assoc base :dispatch-duration-ms 0)))
       (is (s/valid? ::specs/model.call_finished-data
-                     (assoc base :dispatch-duration-ms 123.5)))
+                    (assoc base :dispatch-duration-ms 123.5)))
       (is (not (s/valid? ::specs/model.call_finished-data
-                          (assoc base :dispatch-duration-ms -1)))
+                         (assoc base :dispatch-duration-ms -1)))
           "negative durations must be rejected")
       (is (not (s/valid? ::specs/model.call_finished-data
-                          (assoc base :dispatch-duration-ms Double/NaN)))
+                         (assoc base :dispatch-duration-ms Double/NaN)))
           "##NaN must be rejected")
       (is (not (s/valid? ::specs/model.call_finished-data
-                          (assoc base :dispatch-duration-ms Double/POSITIVE_INFINITY)))
+                         (assoc base :dispatch-duration-ms Double/POSITIVE_INFINITY)))
           "##Inf must be rejected")
       (is (not (s/valid? ::specs/model.call_finished-data
-                          (assoc base :dispatch-duration-ms Double/NEGATIVE_INFINITY)))
+                         (assoc base :dispatch-duration-ms Double/NEGATIVE_INFINITY)))
           "##-Inf must be rejected")
       (is (not (s/valid? ::specs/model.call_finished-data
-                          (assoc base :dispatch-duration-ms "123")))
+                         (assoc base :dispatch-duration-ms "123")))
           "non-numeric durations must be rejected"))))
 
 (deftest tool-call-id-permits-empty-string
@@ -620,17 +750,22 @@
       (is (s/valid? ::specs/assistant.message-data base)
           "reasoningBlocks remains optional")
       (is (s/valid? ::specs/assistant.message-data
-                     (assoc base :reasoning-blocks {:provider "anthropic"
-                                                     :blocks [{:type "text" :text "..."}]})))
+                    (assoc base :reasoning-blocks {:provider "anthropic"
+                                                   :blocks [{:type "text" :text "..."}]})))
       (is (s/valid? ::specs/assistant.message-data
-                     (assoc base :reasoning-blocks {:provider "anthropic"}))
+                    (assoc base :reasoning-blocks {:provider "anthropic"}))
           "blocks is itself optional within reasoning-blocks")
       (is (not (s/valid? ::specs/assistant.message-data
-                          (assoc base :reasoning-blocks {:blocks []})))
+                         (assoc base :reasoning-blocks {:blocks []})))
           "provider is required within reasoning-blocks")
       (is (not (s/valid? ::specs/assistant.message-data
-                          (assoc base :reasoning-blocks {:provider "anthropic" :blocks "nope"})))
-          "blocks must be a vector when present"))))
+                         (assoc base :reasoning-blocks {:provider "anthropic" :blocks "nope"})))
+          "blocks must be a vector when present")
+      (is (not (s/valid? ::specs/assistant.message-data
+                         (assoc base :reasoning-blocks
+                                {:provider "anthropic"
+                                 :blocks [{:nested [(Object.)]}]})))
+          "every reasoning block must be recursively JSON-safe"))))
 
 (deftest assistant-usage-output-ttft-ms-non-negative
   (testing "assistant.usage outputTtftMs accepts non-negative numbers only"
@@ -646,20 +781,24 @@
   (testing "session.compaction_complete behaviorModelId is a plain optional string"
     (is (s/valid? ::specs/session.compaction_complete-data {:success true}))
     (is (s/valid? ::specs/session.compaction_complete-data
-                   {:success true :behavior-model-id "gpt-5-compaction"}))
+                  {:success true :behavior-model-id "gpt-5-compaction"}))
     (is (not (s/valid? ::specs/session.compaction_complete-data
-                        {:success true :behavior-model-id 42})))))
+                       {:success true :behavior-model-id 42})))))
 
 (deftest hook-start-and-end-data-required-fields
   (testing "hook.start requires hookInvocationId and hookType, parentToolCallId optional"
     (let [base {:hook-invocation-id "hook-1" :hook-type "pre-tool-use"}]
       (is (s/valid? ::specs/hook.start-data base))
+      (is (s/valid? ::specs/hook.start-data
+                    {:hook-invocation-id "" :hook-type ""}))
       (is (s/valid? ::specs/hook.start-data (assoc base :parent-tool-call-id "call-1")))
       (is (not (s/valid? ::specs/hook.start-data (dissoc base :hook-invocation-id))))
       (is (not (s/valid? ::specs/hook.start-data (dissoc base :hook-type))))))
   (testing "hook.end additionally requires success, parentToolCallId optional"
     (let [base {:hook-invocation-id "hook-1" :hook-type "pre-tool-use" :success true}]
       (is (s/valid? ::specs/hook.end-data base))
+      (is (s/valid? ::specs/hook.end-data
+                    {:hook-invocation-id "" :hook-type "" :success true}))
       (is (s/valid? ::specs/hook.end-data (assoc base :parent-tool-call-id "call-1")))
       (is (s/valid? ::specs/hook.end-data (assoc base :error "boom")))
       (is (not (s/valid? ::specs/hook.end-data (dissoc base :success)))))))
@@ -673,11 +812,11 @@
       (is (s/valid? ::specs/subagent.started-data base)
           "all additive fields remain optional")
       (is (s/valid? ::specs/subagent.started-data
-                     (assoc base
-                            :agent-type "review"
-                            :execution-mode "autopilot"
-                            :resumable true
-                            :parent-id "parent-call-1")))
+                    (assoc base
+                           :agent-type "review"
+                           :execution-mode "autopilot"
+                           :resumable true
+                           :parent-id "parent-call-1")))
       (is (not (s/valid? ::specs/subagent.started-data (assoc base :resumable "yes"))))
       (is (not (s/valid? ::specs/subagent.started-data (assoc base :agent-type 42))))
       (is (not (s/valid? ::specs/subagent.started-data (assoc base :execution-mode 42))))
@@ -686,42 +825,42 @@
 
 (deftest subagent-completed-and-failed-model-tracking-fields
   (let [model-tracking {:first-dispatched-model "gpt-5"
-                         :configured-model-preference "gpt-5"
-                         :explicit-model-override "gpt-5-mini"
-                         :explicit-model-matches-preference false
-                         :configured-model-matches-actual true}]
+                        :configured-model-preference "gpt-5"
+                        :explicit-model-override "gpt-5-mini"
+                        :explicit-model-matches-preference false
+                        :configured-model-matches-actual true}]
     (testing "subagent.completed accepts the five model-tracking fields"
       (let [base {:tool-call-id "call-1" :agent-name "reviewer" :agent-display-name "Reviewer"}]
         (is (s/valid? ::specs/subagent.completed-data base))
         (is (s/valid? ::specs/subagent.completed-data (merge base model-tracking)))
         (is (not (s/valid? ::specs/subagent.completed-data
-                            (assoc base :explicit-model-matches-preference "false"))))))
+                           (assoc base :explicit-model-matches-preference "false"))))))
     (testing "subagent.failed accepts the five model-tracking fields"
       (let [base {:tool-call-id "call-1" :agent-name "reviewer" :agent-display-name "Reviewer"
                   :error "boom"}]
         (is (s/valid? ::specs/subagent.failed-data base))
         (is (s/valid? ::specs/subagent.failed-data (merge base model-tracking)))
         (is (not (s/valid? ::specs/subagent.failed-data
-                            (assoc base :configured-model-matches-actual "true"))))))))
+                           (assoc base :configured-model-matches-actual "true"))))))))
 
 (deftest permission-request-can-offer-server-wide-approval
   (testing "PermissionPromptRequestMcp canOfferServerWideApproval is a plain optional boolean"
     (is (s/valid? ::specs/permission-request {:permission-kind :mcp}))
     (is (s/valid? ::specs/permission-request
-                   {:permission-kind :mcp :can-offer-server-wide-approval true}))
+                  {:permission-kind :mcp :can-offer-server-wide-approval true}))
     (is (not (s/valid? ::specs/permission-request
-                        {:permission-kind :mcp :can-offer-server-wide-approval "true"})))))
+                       {:permission-kind :mcp :can-offer-server-wide-approval "true"})))))
 
 (deftest generated-assistant-message-tool-request-caller-is-closed
   (testing "the generated wire spec for AssistantMessageToolRequestCaller stays closed"
     (is (s/valid? ::generated-events/assistant-message-tool-request-caller-shape
-                   {:caller-id "abc" :type "program"}))
+                  {:caller-id "abc" :type "program"}))
     (is (not (s/valid? ::generated-events/assistant-message-tool-request-caller-shape
-                        {:type "program"}))
+                       {:type "program"}))
         "callerId is required")
     (is (not (s/valid? ::generated-events/assistant-message-tool-request-caller-shape
-                        {:caller-id "abc" :type "user"}))
+                       {:caller-id "abc" :type "user"}))
         "type must be the literal \"program\"")
     (is (not (s/valid? ::generated-events/assistant-message-tool-request-caller-shape
-                        {:caller-id "abc" :type "program" :extra "nope"}))
+                       {:caller-id "abc" :type "program" :extra "nope"}))
         "additionalProperties=false must reject unknown keys")))

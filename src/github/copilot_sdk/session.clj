@@ -1223,14 +1223,19 @@
    :prompt-mode "prompt_mode"
    :copilot-app "copilot_app"
    :sdk "sdk"
-   :acp "acp"})
+   :acp "acp"
+   :interactive "interactive"
+   :headless "headless"
+   :none "none"})
 
 (defn- permission-context->wire
   [{:keys [outcome source surface response-capability]}]
   (cond-> {:outcome (permission-context-wire-values outcome)
            :source (permission-context-wire-values source)
            :surface (permission-context-wire-values surface)}
-    response-capability (assoc :response-capability (name response-capability))))
+    response-capability
+    (assoc :response-capability
+           (permission-context-wire-values response-capability))))
 
 (defn- normalize-permission-handler-result
   [result]

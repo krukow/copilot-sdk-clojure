@@ -168,9 +168,10 @@
  {:count 365
   :sha256 "abae40ae39c147606b2f06d64f594a99c6ae592045ba1a5b350e89b77c314fae"
   :classification-counts
-  {:stable-public 6
+  {:stable-public 10
    :experimental 2
-   :internal 10
+   :internal 5
+   :mixed 1
    :generated-only 6
    :language-specific 291
    :test-harness 50}
@@ -178,13 +179,19 @@
   [{:classification :language-specific
     :prefixes [".github/" "dotnet/" "go/" "java/" "python/" "rust/"]}
    {:classification :internal
-    :paths ["CHANGELOG.md"
+    :paths ["docs/setup/backend-services.md"
+            "docs/setup/scaling.md"
             "nodejs/package.json"
             "nodejs/src/ffiRuntimeHost.ts"
-            "nodejs/src/runtimeArtifacts.ts"]
-    :prefixes ["docs/"]}
+            "nodejs/src/runtimeArtifacts.ts"]}
+   {:classification :mixed
+    :paths ["CHANGELOG.md"]}
    {:classification :stable-public
-    :paths ["nodejs/README.md"
+    :paths ["docs/auth/authenticate.md"
+            "docs/features/session-persistence.md"
+            "docs/features/skills.md"
+            "docs/setup/multi-tenancy.md"
+            "nodejs/README.md"
             "nodejs/src/client.ts"
             "nodejs/src/extension.ts"
             "nodejs/src/index.ts"
@@ -321,6 +328,33 @@
                     "firstDispatchedModel"}}
   "ToolExecutionCompleteContentShellExit"
   {:stable-public #{"outputFilePath"}}}
+  :changed-declarations
+  {"nodejs/src/types.ts"
+  {:stable-public #{"CapiSessionOptions"
+                    "ManagedSettingsPermissions"
+                    "SessionConfigBase"}}
+  "nodejs/src/generated/session-events.ts"
+  {:stable-public #{"AssistantMessageToolRequest"
+                    "CompactionCompleteData"
+                    "HookEndData"
+                    "HookStartData"
+                    "IdleData"
+                    "ModelCallFailureData"
+                    "PermissionPromptRequestMcp"
+                    "ResumeData"
+                    "StartData"
+                    "SubagentCompletedData"
+                    "SubagentFailedData"
+                    "SubagentStartedData"
+                    "ToolExecutionCompleteContentShellExit"
+                    "ToolExecutionCompleteData"
+                    "ToolExecutionStartData"}
+   :experimental #{"ManagedSettingsEnforcedEscalation"
+                   "ManagedSettingsResolvedData"
+                   "ManagedSettingsResolvedSource"}
+   :mixed #{"AssistantMessageData"
+            "AssistantUsageData"
+            "SessionEvent"}}}
   :internal-methods
   {"nodejs/src/client.ts"
   #{"acquireGitHubToken"
@@ -637,7 +671,7 @@
   {:source "@github/copilot-linux-x64@1.0.83-1/schemas/session-events.schema.json"
    :sha256 "11d24b4e8de44590d70e261ebf15be18d91de14d674fdcfb1f2554ad43a48169"}
   :generated-clojure-output
-  {:event-specs-sha256 "f65b271c0f4485deb80158c4b2ad0a531dab81579036ca4f3066255a5954c222"
+  {:event-specs-sha256 "e8d04e0cf33289993340215f1bcb72e6d94303e2376fa3ef9d203f04a978e2bd"
    :coercions-sha256 "5688dbc7cc1f5cc3ef05eab7ffd3230b516c431e7ed344dad137f45eee359d33"}}
 
  :published-schema-artifact

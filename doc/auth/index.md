@@ -99,20 +99,53 @@ without restarting the client:
 
 ```clojure
 (require '[github.copilot-sdk :as copilot]
-         '[clojure.data.json :as json])
-(import '[java.net URI]
-        '[java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers])
+         '[clojure.data.json :as json]
+         '[clojure.string :as str])
+(import '[java.net URI URLEncoder]
+        '[java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers]
+        '[java.nio.charset StandardCharsets]
+        '[java.time Duration])
 
-(def http-client (HttpClient/newHttpClient))
+(def http-client
+  (-> (HttpClient/newBuilder)
+      (.connectTimeout (Duration/ofSeconds 10))
+      (.build)))
+
+(defn encode-query-component [value]
+  (URLEncoder/encode (if (keyword? value) (name value) (str value))
+                     StandardCharsets/UTF_8))
+
+(defn query-string [params]
+  (->> params
+       (keep (fn [[key value]]
+               (when (some? value)
+                 (str (encode-query-component key)
+                      "="
+                      (encode-query-component value)))))
+       (str/join "&")))
 
 (defn token-provider
-  [{:keys [host session-id]}]
+  [{:keys [host session-id reason]}]
   ;; Replace this URI with your own token-issuance endpoint; it must return
   ;; a JSON body with "access_token" and "expires_in".
-  (let [uri (URI/create (str "https://auth.example.com/copilot-tokens"
-                              "?host=" host "&sessionId=" session-id))
-        request (-> (HttpRequest/newBuilder uri) (.GET) (.build))
+  (let [uri (URI/create
+             (str "https://auth.example.com/copilot-tokens?"
+                  (query-string
+                   (cond-> {:host host
+                            :reason reason}
+                     session-id (assoc :session-id session-id)))))
+        request (-> (HttpRequest/newBuilder uri)
+                    (.timeout (Duration/ofSeconds 15))
+                    (.GET)
+                    (.build))
         response (.send http-client request (HttpResponse$BodyHandlers/ofString))
+        status (.statusCode response)
+        _ (when-not (<= 200 status 299)
+            (throw
+             (ex-info "Credential broker rejected GitHub token request"
+                      {:status status
+                       :host host
+                       :reason reason})))
         {:strs [access_token expires_in]} (json/read-str (.body response))]
     {:kind :token
      :access-token access_token
@@ -141,7 +174,9 @@ The callback receives:
 Return `{:kind :token :access-token ... :expires-in ...}` with an integer expiry
 of at least 3,601 seconds and optional `:token-type`, or return
 `{:kind :cancelled}`. Either result may be returned directly or through a
-core.async channel.
+core.async channel. Both result variants may contain additional extension
+fields; the SDK validates the known discriminator and payload fields without
+stripping those extensions.
 
 `:github-token-provider` and session `:github-token` are mutually exclusive.
 Create, resume, and join requests carry only an opaque registration ID in session
@@ -149,16 +184,19 @@ configuration. The callback remains inside the SDK process; when the runtime
 requests a credential, its result crosses the JSON-RPC connection to the CLI.
 `:github-token-provider` therefore requires a transport the SDK trusts: the
 SDK-managed child-process stdio transport, or an external `:cli-url` whose
-resolved host is syntactically loopback (`localhost`, `127.0.0.1`, `::1`).
-Any other `:cli-url` host is rejected outright at connect time — an `https://`
-scheme on `:cli-url` is parsed for host/port only and does not make a remote
-endpoint TLS-protected in the SDK's eyes. To reach a CLI on another host,
-terminate a protected tunnel (SSH port-forward, VPN, etc.) locally so
-`:cli-url` itself resolves to loopback; the SDK never treats a remote address
-as safe for `:github-token-provider`. Failed create/resume/join calls roll
-back provisional registrations, a successful resume replaces the session's
-previous provider, and disconnect, delete, or client stop removes the
-registration.
+parsed host has a recognized loopback spelling (`localhost`, any valid
+`127.x.x.x`, `::1`, or its fully expanded IPv6 spelling). This is a syntactic
+allowlist; the SDK does not resolve arbitrary DNS names to determine whether
+they point at loopback.
+
+Any other `:cli-url` host is rejected before provider-backed session setup — an
+`https://` scheme on `:cli-url` is parsed for host/port only and does not make
+the SDK's raw TCP socket TLS-protected. To reach a CLI on another host,
+terminate a protected tunnel locally and connect `:cli-url` to that loopback
+endpoint. Failed create/resume/join calls roll back provisional registrations,
+a successful resume replaces the session's previous provider, and disconnect,
+delete, or client stop removes the registration and cancels in-flight
+acquisition work.
 ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412))
 
 ## Environment Variables

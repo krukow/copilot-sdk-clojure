@@ -198,15 +198,26 @@
 
 (deftest autopilot-idle-is-not-terminal-for-send-and-wait
   (testing "send-and-wait! ignores autopilot idle and returns after the regular idle"
-    (let [{:keys [session release send-started close] :as ctx} (gated-send-context)]
+    (let [{:keys [session release send-started close] :as ctx} (gated-send-context)
+          timeout-calls (atom [])
+          real-timeout async/timeout]
       (try
-        (let [pending (future (session/send-and-wait! session {:prompt "hi"} 5000))]
-          (is (true? (deref send-started 2000 ::timeout)))
-          (inject-idle! ctx {:mode "autopilot"})
-          (release)
-          (let [result (deref pending 5000 ::timeout)]
-            (is (= :copilot/assistant.message (:type result)))
-            (is (= "Mock response to: hi" (get-in result [:data :content])))))
+        (with-redefs [async/timeout
+                      (fn [^long timeout-ms]
+                        (swap! timeout-calls conj timeout-ms)
+                        (real-timeout timeout-ms))]
+          (let [pending (future (session/send-and-wait! session {:prompt "hi"} 5000))]
+            (is (true? (deref send-started 2000 ::timeout)))
+            (session/dispatch-event!
+             (:client ctx) (:session-id ctx)
+             {:type :copilot/session.idle
+              :data {:mode "autopilot"}})
+            (release)
+            (let [result (deref pending 5000 ::timeout)]
+              (is (= :copilot/assistant.message (:type result)))
+              (is (= "Mock response to: hi" (get-in result [:data :content]))))
+            (is (= 1 (count (filter #(= 5000 %) @timeout-calls)))
+                "ignored autopilot idle must not reset the original deadline")))
         (finally (close))))))
 
 (deftest autopilot-idle-is-not-terminal-for-async-sends

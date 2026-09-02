@@ -47,10 +47,10 @@ All notable changes to this project will be documented in this file. This change
 ### Changed (stable 2980c78 sync)
 - **BREAKING:** Wait and stream APIs now treat `session.idle` events whose wire
   `mode` is the string `"autopilot"` as nonterminal turn boundaries (upstream
-  PR #2157).
+  [PR #2157](https://github.com/github/copilot-sdk/pull/2157)).
 - **BREAKING:** `:empty` client mode now disables runtime-bundled skills unless
   explicitly allowlisted with `:included-builtin-skills`, matching upstream safe
-  defaults (upstream PR #1428).
+  defaults ([upstream PR #1428](https://github.com/github/copilot-sdk/pull/1428)).
 - Updated the runtime and schema pin to `1.0.83-1` and recertified the complete
   stable Node SDK public surface through upstream commit
   [`2980c7828d35754bfc2b334831efec309ab8a2eb`](https://github.com/github/copilot-sdk/commit/2980c7828d35754bfc2b334831efec309ab8a2eb).
@@ -78,9 +78,11 @@ All notable changes to this project will be documented in this file. This change
   instead of silently reporting success for the disabled external-checkout
   path. Interface extraction was generalized to an oracle-driven inventory
   (`test/resources/stable_upstream_delta_2980c78.edn`) covering additions to
-  existing public event interfaces, and the managed-settings wording was
-  corrected to the nested `managedSettings.permissions.disableBypassPermissionsMode`
-  path.
+  existing public event interfaces. Declaration ownership now attributes
+  `ManagedSettingsEnforcedEscalation`, `ManagedSettingsResolvedSource`, and
+  `SessionEvent` to generated `session-events.ts`, and the managed-settings
+  wording was corrected to the nested
+  `managedSettings.permissions.disableBypassPermissionsMode` path.
 - `.github/workflows/ci.yml` now uses `fetch-depth: 0` for the secondary
   upstream checkout, so exact-pin commit validation can resolve full history.
 - Bounded the autopilot streaming assertions in `helper_lifecycle_test.clj`
@@ -93,11 +95,10 @@ All notable changes to this project will be documented in this file. This change
   and `tool.execution_complete` `:result` as opaque JSON; documented autopilot
   `session.idle` nonterminal semantics directly on the event-table row;
   documented the newly-reconciled stable fields listed above).
-- `::github-token-provider-result` (and the underlying
-  `github-token-provider-result-constraint`) now closes the token-provider
-  result contract: a `:cancelled` result permits only `:kind`, and a `:token`
-  result permits only `:kind`, `:access-token`, `:expires-in`, and optional
-  `:token-type`, rejecting any other keys in both cases.
+- `::github-token-provider-result` now validates the token-provider result
+  discriminator and known payload fields while preserving extension fields on
+  both token and cancelled variants. `:expires-in` remains a strict integer
+  greater than `3600`.
 - **Follow-up codegen fix:** `emit-envelope-spec` in
   `script/codegen/emit_specs.clj` computed a global "conflicted" set of
   kebab-cased property names (across every event schema) and redundantly
@@ -113,6 +114,18 @@ All notable changes to this project will be documented in this file. This change
   (`codegen_test.clj`/`generated-top-level-forms-stay-well-under-jvm-method-size-limit`)
   that bounds the size of every top-level generated form so a future
   regression is caught before it reaches the JVM verifier.
+- Token-provider executor generations now fence teardown and reconnect races so
+  stale work cannot recreate a retired executor. Malformed results, callback
+  failures, and executor saturation emit only bounded, sanitized diagnostic
+  metadata.
+- Create/resume setup now prepares locally owned resources transactionally.
+  Async local filesystem factory failures throw before a result channel is
+  returned, failed resumes restore the exact prior local registration, and
+  cleanup failures remain observable without replacing the primary failure.
+- Generated wire-key normalization now matches runtime normalization for
+  acronyms, separators, and leading underscores. Numeric schemas preserve
+  integer versus general-number predicates and emit inclusive and exclusive
+  bounds correctly.
 
 ### Changed (upstream parity)
 - Recertified the complete stable Node SDK public surface through upstream

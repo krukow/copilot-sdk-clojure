@@ -266,6 +266,11 @@
   (let [client-with-fs (assoc *test-client* :session-fs {:initial-cwd "/workspace"
                                                          :session-state-path "/state"
                                                          :conventions "posix"})
+        requests (atom [])
+        _ (mock/set-request-hook! *mock-server*
+                                  (fn [method _]
+                                    (when (#{"session.create" "session.resume"} method)
+                                      (swap! requests conj method))))
         invalid-factory (fn [_session]
                           {:read-file (fn [_params] {:content "partial"})})
         config {:on-permission-request sdk/approve-all
@@ -295,7 +300,11 @@
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
                               #"Invalid sessionFs handler"
                               (sdk/<resume-session client-with-fs session-id config)))
-        (is (nil? (get-in @(:state client-with-fs) [:sessions session-id])))))))
+        (is (nil? (get-in @(:state client-with-fs) [:sessions session-id])))))
+    (is (empty? @requests)
+        "local handler preparation must complete before any session RPC")
+    (is (empty? (:github-token-providers @(:state client-with-fs)))
+        "pre-RPC setup failure must roll back provisional provider state")))
 
 (defn- test-session-fs-provider [sqlite]
   {:read-file (fn [_] "x")

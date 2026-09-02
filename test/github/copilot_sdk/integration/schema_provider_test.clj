@@ -81,11 +81,12 @@
         (is (s/valid? spec config) (s/explain-str spec config))))))
 
 (deftest test-included-builtin-skills-spec
-  (testing "built-in skill inclusion accepts Clojure collections of non-blank names"
+  (testing "built-in skill inclusion mirrors the unrestricted upstream string array"
     (doseq [skills [(list "search" "edit")
-                    #{"search" "edit"}]]
+                    #{"search" "edit"}
+                    ["" " "]]]
       (is (s/valid? ::specs/included-builtin-skills skills)))
-    (doseq [skills [[""] [" "] [:search] "search"]]
+    (doseq [skills [[:search] "search"]]
       (is (not (s/valid? ::specs/included-builtin-skills skills))))))
 
 (deftest test-upstream-1-0-79-event-schema
@@ -1018,7 +1019,7 @@
   (testing "malformed callback results expose only their failed constraint"
     (let [secret "invalid-result-secret"
           invalid-results
-          [["non-map" :result-must-be-map]
+          [[(str secret "-non-map") :result-must-be-map]
            [{:kind :unknown
              :access-token secret}
             :kind-must-be-token-or-cancelled]
@@ -1043,20 +1044,59 @@
         (let [client (sdk/client {:auto-start? false})
               registration-id
               (@#'client/register-github-token-provider!
-               client (constantly result) "invalid-result")
-              response
+               client (constantly result) "invalid-result")]
+          (log-test/with-log
+            (let [response
+                  (<!!
+                   (@#'client/github-token-provider-response
+                    client
+                    {:registration-id registration-id
+                     :host "github.com"
+                     :reason "initial"}))
+                  log-output
+                  (str/join "\n" (map :message (log-test/the-log)))]
+              (is (= -32603 (get-in response [:error :code])))
+              (is (= "Internal error: GitHub token provider returned an invalid result"
+                     (get-in response [:error :message])))
+              (is (not (str/includes? (pr-str response) secret)))
+              (is (not (str/includes? log-output secret)))
+              (is (str/includes? log-output (str constraint)))
+              (is (str/includes? log-output registration-id))
+              (is (str/includes? log-output "github.com"))
+              (is (str/includes? log-output ":initial"))
+              (is (empty? (:github-token-provider-invocations
+                           @(:state client))))))))))
+
+  (testing "callback failure logs only exception classes and request identity"
+    (let [secret "provider-exception-secret"
+          cause-secret "provider-cause-secret"
+          client (sdk/client {:auto-start? false})
+          registration-id
+          (@#'client/register-github-token-provider!
+           client
+           (fn [_]
+             (throw
+              (ex-info secret {}
+                       (RuntimeException. cause-secret))))
+           "failure-log-session")]
+      (log-test/with-log
+        (let [response
               (<!!
                (@#'client/github-token-provider-response
                 client
                 {:registration-id registration-id
-                 :host "github.com"
-                 :reason "initial"}))]
+                 :host "github.example"
+                 :reason "refresh"}))
+              log-output (str/join "\n" (map :message (log-test/the-log)))]
           (is (= -32603 (get-in response [:error :code])))
-          (is (= "Internal error: GitHub token provider returned an invalid result"
-                 (get-in response [:error :message])))
-          (is (not (str/includes? (pr-str response) secret)))
-          (is (empty? (:github-token-provider-invocations
-                       @(:state client))))))))
+          (is (not (str/includes? log-output secret)))
+          (is (not (str/includes? log-output cause-secret)))
+          (is (str/includes? log-output "clojure.lang.ExceptionInfo"))
+          (is (str/includes? log-output "java.lang.RuntimeException"))
+          (is (str/includes? log-output registration-id))
+          (is (str/includes? log-output "failure-log-session"))
+          (is (str/includes? log-output "github.example"))
+          (is (str/includes? log-output ":refresh"))))))
 
   (testing "callback arguments are validated before invocation"
     (let [client (sdk/client {:auto-start? false})
@@ -1092,7 +1132,7 @@
              :reason "initial"})))
       (is (false? @called?))))
 
-  (testing "provider results are closed maps with integer expiry above one hour"
+  (testing "provider results are open maps with integer expiry above one hour"
     (doseq [expires-in [3600 3600.5]]
       (is (not (s/valid? ::specs/github-token-provider-result
                          {:kind :token
@@ -1103,12 +1143,12 @@
                      :access-token "token"
                      :expires-in 3601
                      :account-label "enterprise"}]]
-      (is (not (s/valid? ::specs/github-token-provider-result result)))
+      (is (s/valid? ::specs/github-token-provider-result result))
       (let [client (sdk/client {:auto-start? false})
             registration-id
             (@#'client/register-github-token-provider!
              client (constantly result) "extended-result")]
-        (is (= "Internal error: GitHub token provider returned an invalid result"
+        (is (= result
                (get-in
                 (<!!
                  (@#'client/github-token-provider-response
@@ -1116,7 +1156,7 @@
                   {:registration-id registration-id
                    :host "github.com"
                    :reason "initial"}))
-                [:error :message]))))))
+                [:result]))))))
 
   (testing "failed creation rolls back its provisional provider registration"
     (let [registrations-before
@@ -1160,7 +1200,10 @@
         t))
 
     :async
-    (<!! (sdk/<create-session client config))))
+    (try
+      (<!! (sdk/<create-session client config))
+      (catch Throwable t
+        t))))
 
 (defn- invoke-resume
   [mode client session-id config]
@@ -1172,7 +1215,10 @@
         t))
 
     :async
-    (<!! (sdk/<resume-session client session-id config))))
+    (try
+      (<!! (sdk/<resume-session client session-id config))
+      (catch Throwable t
+        t))))
 
 (deftest test-failed-create-setup-owns-complete-cleanup
   (doseq [mode [:sync :async]
@@ -1625,6 +1671,47 @@
         (is (not (identical? first-executor second-executor))))
       (@#'client/release-transport! client {:process :none})))
 
+  (testing "a stale invocation cannot recreate an executor after release"
+    (let [client (sdk/client {:auto-start? false})
+          registration-id
+          (@#'client/register-github-token-provider!
+           client (constantly {:kind :cancelled}) "stale-generation")
+          original-executor @#'client/github-token-provider-executor!
+          acquiring (promise)
+          continue (promise)]
+      (with-redefs-fn
+        {#'client/github-token-provider-executor!
+         (fn [client generation]
+           (deliver acquiring true)
+           @continue
+           (original-executor client generation))}
+        (fn []
+          (let [response-call
+                (future
+                  (@#'client/github-token-provider-response
+                   client
+                   {:registration-id registration-id
+                    :host "github.com"
+                    :reason "refresh"}))]
+            (try
+              (is (= true (deref acquiring 1000 ::timeout)))
+              (@#'client/release-github-token-provider-runtime! client)
+              (deliver continue true)
+              (let [response-ch (deref response-call 1000 ::timeout)]
+                (is (= {:result {:kind :cancelled}}
+                       (first (alts!! [response-ch (timeout 1000)])))))
+              (is (nil? (:github-token-provider-executor @(:state client))))
+              (is (= 1
+                     (:github-token-provider-runtime-generation
+                      @(:state client))))
+              (is (zero?
+                   (:github-token-provider-saturation-count
+                    @(:state client))))
+              (finally
+                (deliver continue true)
+                (future-cancel response-call)
+                (@#'client/release-github-token-provider-runtime! client))))))))
+
   (testing "executor saturation produces an explicit sanitized response"
     (with-redefs-fn
       {#'client/github-token-provider-thread-count 1
@@ -1649,27 +1736,41 @@
                 :reason "refresh"})]
           (try
             (await-atom! entered #(= 1 %) "first provider task" 1000)
-            (let [second-response
-                  (@#'client/github-token-provider-response
-                   client
-                   {:registration-id registration-id
-                    :host "github.com"
-                    :reason "refresh"})
-                  third-response
-                  (@#'client/github-token-provider-response
-                   client
-                   {:registration-id registration-id
-                    :host "github.com"
-                    :reason "refresh"})]
-              (is (= {:error
-                      {:code -32000
-                       :message "GitHub token provider executor saturated"}}
-                     (<!! third-response)))
-              (@#'client/release-transport! client {:process :none})
-              (is (= {:result {:kind :cancelled}}
-                     (first (alts!! [first-response (timeout 1000)]))))
-              (is (= {:result {:kind :cancelled}}
-                     (first (alts!! [second-response (timeout 1000)])))))
+            (log-test/with-log
+              (let [second-response
+                    (@#'client/github-token-provider-response
+                     client
+                     {:registration-id registration-id
+                      :host "github.com"
+                      :reason "refresh"})
+                    third-response
+                    (@#'client/github-token-provider-response
+                     client
+                     {:registration-id registration-id
+                      :host "github.com"
+                      :reason "refresh"})]
+                (is (= {:error
+                        {:code -32000
+                         :message "GitHub token provider executor saturated"}}
+                       (<!! third-response)))
+                (is (= 1
+                       (:github-token-provider-saturation-count
+                        @(:state client))))
+                (let [log-output
+                      (str/join "\n" (map :message (log-test/the-log)))]
+                  (is (str/includes? log-output
+                                     "GitHub token provider executor saturated"))
+                  (is (str/includes? log-output registration-id))
+                  (is (str/includes? log-output "github.com"))
+                  (is (str/includes? log-output ":refresh"))
+                  (is (str/includes? log-output ":saturation-count 1"))
+                  (is (str/includes? log-output ":thread-limit 1"))
+                  (is (str/includes? log-output ":queue-limit 1")))
+                (@#'client/release-transport! client {:process :none})
+                (is (= {:result {:kind :cancelled}}
+                       (first (alts!! [first-response (timeout 1000)]))))
+                (is (= {:result {:kind :cancelled}}
+                       (first (alts!! [second-response (timeout 1000)]))))))
             (finally
               (deliver gate true)
               (@#'client/release-transport! client {:process :none}))))))))

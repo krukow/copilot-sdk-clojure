@@ -388,7 +388,7 @@ Create a client and session together, ensuring both are cleaned up on exit.
 | `:infinite-sessions` | map | Infinite session config (see below) |
 | `:reasoning-effort` | string | Reasoning effort level: `"low"`, `"medium"`, `"high"`, `"xhigh"`, or `"max"` ([upstream PR #2228](https://github.com/github/copilot-sdk/pull/2228)) |
 | `:github-token` | string | Static GitHub token for this session. Sent as `gitHubToken`; mutually exclusive with `:github-token-provider`. |
-| `:github-token-provider` | fn | Session-scoped, refreshable GitHub credential callback. Receives `{:host string :session-id string? :reason :initial\|:refresh}` and returns `{:kind :token :access-token string :expires-in integer>=3601 :token-type string?}` or `{:kind :cancelled}`, directly or on a core.async channel. Create, resume, and join configuration carries only an opaque registration ID; the callback remains local, while acquired credentials cross the JSON-RPC connection to the CLI when requested. Requires the SDK-managed child-process stdio transport, or an external `:cli-url` whose resolved host is syntactically loopback (`localhost`/`127.0.0.1`/`::1`); any other `:cli-url` host is rejected at connect time — an `https://` scheme does not make a remote `:cli-url` TLS-protected in the SDK's eyes, so a protected remote tunnel must itself terminate on loopback. Registration is rolled back on failed create/resume/join and removed on session/client teardown. Mutually exclusive with `:github-token`. See [Authentication](../auth/index.md#session-scoped-token-provider). ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412)) |
+| `:github-token-provider` | fn | Session-scoped, refreshable GitHub credential callback. Receives `{:host string :session-id string? :reason :initial\|:refresh}` and returns `{:kind :token :access-token string :expires-in integer>=3601 :token-type string?}` or `{:kind :cancelled}`, directly or on a core.async channel. Both result variants are open to additional extension fields. Create, resume, and join configuration carries only an opaque registration ID; the callback remains local, while acquired credentials cross the JSON-RPC connection to the CLI when requested. Requires the SDK-managed child-process stdio transport, or an external `:cli-url` whose parsed host has a recognized loopback spelling (`localhost`, any valid `127.x.x.x`, `::1`, or its fully expanded IPv6 spelling). This is a syntactic allowlist; arbitrary DNS names are not resolved to test whether they point at loopback. Any other `:cli-url` host is rejected before provider-backed session setup. An `https://` scheme does not make the raw TCP socket TLS-protected, so a protected remote tunnel must expose a local loopback endpoint. Provider work runs on a bounded client-owned executor. Failed create/resume/join calls roll back provisional registrations; session and client teardown remove committed registrations and cancel in-flight work. Mutually exclusive with `:github-token`. See [Authentication](../auth/index.md#session-scoped-token-provider). ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412)) |
 | `:on-user-input-request` | fn | Handler for `ask_user` requests (see below) |
 | `:ask-user-variant` | keyword | Selects the built-in `ask_user` tool shape: `:legacy` or `:elicitation`. Omission preserves the runtime default; explicit values serialize as `askUserVariant` on create/resume/join. The `:elicitation` variant requires an `:on-elicitation-request` handler when the host must answer requests. ([upstream PR #2432](https://github.com/github/copilot-sdk/pull/2432)) |
 | `:hooks` | map | Lifecycle hooks (see below) |
@@ -466,7 +466,15 @@ When `:on-permission-request` is set to `default-join-session-permission-handler
 
 Async version of `create-session`. Returns a channel that delivers a `CopilotSession`.
 
-Validation is synchronous (throws immediately on invalid config). The RPC call parks instead of blocking, making this safe inside `go` blocks. On RPC error, delivers an `ExceptionInfo` to the channel instead of a session — check with `(instance? Throwable result)`.
+Configuration validation, connection setup, and local session preparation happen
+before the result channel is returned. For standard local creates and cloud
+creates with a caller-supplied `:session-id`, this includes constructing the
+session filesystem handler. A failure in any of those steps throws
+synchronously. A cloud create with `:cloud` and no `:session-id` must defer
+filesystem-handler construction until the server assigns an ID; that failure,
+RPC failures, and later setup failures are delivered as a `Throwable` on the
+channel. The RPC wait parks instead of blocking, making the returned channel
+safe to consume inside `go` blocks.
 
 ```clojure
 (require '[clojure.core.async :refer [go <!]])
@@ -486,16 +494,25 @@ Validation is synchronous (throws immediately on invalid config). The RPC call p
 (copilot/<resume-session client session-id config)
 ```
 
-Async version of `resume-session`. Returns a channel that delivers a `CopilotSession`.
+Async version of `resume-session`. Returns a channel that delivers a
+`CopilotSession`.
 
-Same config options as `resume-session`. Safe for use inside `go` blocks. On RPC error, delivers an `ExceptionInfo` to the channel — check with `(instance? Throwable result)`.
+Same config options as `resume-session`. Configuration validation, connection
+setup, and local session preparation — including construction of any session
+filesystem handler — happen before the result channel is returned and throw
+synchronously on failure. RPC and later setup failures are delivered as a
+`Throwable` on the channel. The RPC wait parks, so the returned channel is safe
+to consume inside `go` blocks.
 
 ```clojure
 (go
-  (let [session (<! (copilot/<resume-session client "session-123"
-                                                     {:on-permission-request copilot/approve-all}))]
-    ;; use resumed session
-    ))
+  (let [result (<! (copilot/<resume-session
+                    client
+                    "session-123"
+                    {:on-permission-request copilot/approve-all}))]
+    (if (instance? Throwable result)
+      (throw result)
+      (<! (copilot/<send! result {:prompt "Continue"})))))
 ```
 
 #### `join-session`

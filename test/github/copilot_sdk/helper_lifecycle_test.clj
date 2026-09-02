@@ -229,8 +229,8 @@
           :disconnect-fn (fn [_session] (swap! disconnects inc))}
          (fn []
            (let [realized (deref (future (doall (h/query-seq! "autopilot sequence")))
-                                  read-timeout-ms
-                                  ::timeout)]
+                                 read-timeout-ms
+                                 ::timeout)]
              (is (= [autopilot-idle terminal-idle] realized))
              (is (= 1 @disconnects)))))))))
 
