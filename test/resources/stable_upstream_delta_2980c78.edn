@@ -296,6 +296,31 @@
     "includedBuiltinSkills"}
   "CapiSessionOptions"
   #{"autoTier"}}
+  :event-interface-fields
+  {"AssistantMessageData"
+  {:stable-public #{"reasoningBlocks"} :experimental #{"fusion"}}
+  "AssistantUsageData"
+  {:stable-public #{"outputTtftMs"} :experimental #{"fusion"}}
+  "CompactionCompleteData"
+  {:stable-public #{"behaviorModelId"}}
+  "HookEndData"
+  {:stable-public #{"parentToolCallId"}}
+  "HookStartData"
+  {:stable-public #{"parentToolCallId"}}
+  "PermissionPromptRequestMcp"
+  {:stable-public #{"canOfferServerWideApproval"}}
+  "SubagentStartedData"
+  {:stable-public #{"agentType" "executionMode" "parentId" "resumable"}}
+  "SubagentCompletedData"
+  {:stable-public #{"configuredModelMatchesActual" "configuredModelPreference"
+                    "explicitModelMatchesPreference" "explicitModelOverride"
+                    "firstDispatchedModel"}}
+  "SubagentFailedData"
+  {:stable-public #{"configuredModelMatchesActual" "configuredModelPreference"
+                    "explicitModelMatchesPreference" "explicitModelOverride"
+                    "firstDispatchedModel"}}
+  "ToolExecutionCompleteContentShellExit"
+  {:stable-public #{"outputFilePath"}}}
   :internal-methods
   {"nodejs/src/client.ts"
   #{"acquireGitHubToken"
@@ -378,7 +403,7 @@
    :clojure-paths ["src/github/copilot_sdk/specs.clj"
                    "src/github/copilot_sdk/client.clj"]
    :contract
-   {:wire "managedPermissionPolicy is omitted when absent and forwarded unchanged when present; known values are disable and allow-auto-only."
+   {:wire "managedSettings.permissions.disableBypassPermissionsMode is omitted when absent and forwarded unchanged when present; known values are disable and allow-auto-only."
     :tests ["test/github/copilot_sdk/integration/permissions_oauth_test.clj"]
     :docs ["doc/reference/API.md"]}}
   {:id :permissions/response-capability
@@ -612,7 +637,7 @@
   {:source "@github/copilot-linux-x64@1.0.83-1/schemas/session-events.schema.json"
    :sha256 "11d24b4e8de44590d70e261ebf15be18d91de14d674fdcfb1f2554ad43a48169"}
   :generated-clojure-output
-  {:event-specs-sha256 "f30692af6b4e1f898e9c813326c8652ddf1fc41afa955e0b9b5cdcc071fa095c"
+  {:event-specs-sha256 "f65b271c0f4485deb80158c4b2ad0a531dab81579036ca4f3066255a5954c222"
    :coercions-sha256 "5688dbc7cc1f5cc3ef05eab7ffd3230b516c431e7ed344dad137f45eee359d33"}}
 
  :published-schema-artifact

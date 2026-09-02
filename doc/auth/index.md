@@ -98,17 +98,25 @@ access token. The callback is local to that session and can refresh credentials
 without restarting the client:
 
 ```clojure
-(require '[github.copilot-sdk :as copilot])
+(require '[github.copilot-sdk :as copilot]
+         '[clojure.data.json :as json])
+(import '[java.net URI]
+        '[java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers])
+
+(def http-client (HttpClient/newHttpClient))
 
 (defn token-provider
-  [{:keys [host session-id reason]}]
-  (let [{:keys [access-token expires-in]}
-        (fetch-user-token! {:host host
-                            :session-id session-id
-                            :refresh? (= :refresh reason)})]
+  [{:keys [host session-id]}]
+  ;; Replace this URI with your own token-issuance endpoint; it must return
+  ;; a JSON body with "access_token" and "expires_in".
+  (let [uri (URI/create (str "https://auth.example.com/copilot-tokens"
+                              "?host=" host "&sessionId=" session-id))
+        request (-> (HttpRequest/newBuilder uri) (.GET) (.build))
+        response (.send http-client request (HttpResponse$BodyHandlers/ofString))
+        {:strs [access_token expires_in]} (json/read-str (.body response))]
     {:kind :token
-     :access-token access-token
-     :expires-in expires-in
+     :access-token access_token
+     :expires-in expires_in
      :token-type "Bearer"}))
 
 (copilot/with-client [client {}]
@@ -139,11 +147,18 @@ core.async channel.
 Create, resume, and join requests carry only an opaque registration ID in session
 configuration. The callback remains inside the SDK process; when the runtime
 requests a credential, its result crosses the JSON-RPC connection to the CLI.
-Use the SDK-managed stdio/local transport, or an explicitly protected tunnel
-for `:cli-url`; a plaintext TCP endpoint exposes the credential. Failed
-create/resume/join calls roll back provisional registrations, a successful
-resume replaces the session's previous provider, and disconnect, delete, or
-client stop removes the registration.
+`:github-token-provider` therefore requires a transport the SDK trusts: the
+SDK-managed child-process stdio transport, or an external `:cli-url` whose
+resolved host is syntactically loopback (`localhost`, `127.0.0.1`, `::1`).
+Any other `:cli-url` host is rejected outright at connect time — an `https://`
+scheme on `:cli-url` is parsed for host/port only and does not make a remote
+endpoint TLS-protected in the SDK's eyes. To reach a CLI on another host,
+terminate a protected tunnel (SSH port-forward, VPN, etc.) locally so
+`:cli-url` itself resolves to loopback; the SDK never treats a remote address
+as safe for `:github-token-provider`. Failed create/resume/join calls roll
+back provisional registrations, a successful resume replaces the session's
+previous provider, and disconnect, delete, or client stop removes the
+registration.
 ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412))
 
 ## Environment Variables

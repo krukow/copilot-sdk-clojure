@@ -1,12 +1,15 @@
 (ns github.copilot-sdk.integration.stable-sync-2980c78-test
-  "Executable certification for the post-93351c upstream delta."
+  "Executable certification for the upstream delta through 2980c78."
   (:require [clojure.data.json :as json]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as sh]
             [clojure.set :as set]
+            [clojure.spec.alpha :as s]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]])
+            [clojure.test :refer [deftest is testing]]
+            [github.copilot-sdk.generated.event-specs :as generated-events]
+            [github.copilot-sdk.specs :as specs])
   (:import (java.math BigInteger)
            (java.nio.charset StandardCharsets)
            (java.nio.file Files Paths)
@@ -70,12 +73,65 @@
     :session/autopilot-idle
     :session/feature-flags})
 
+;; Ground truth for fields added to existing public event-payload interfaces
+;; in `nodejs/src/generated/session-events.ts` between the base and target
+;; commits, verified directly against the pinned upstream git history.
+;; `:stable-public` fields are the ones curated into `specs.clj`;
+;; `:experimental` fields (e.g. the fusion rollout) are intentionally
+;; excluded from the curated idiom specs but must still be accounted for so
+;; the oracle cannot silently drift out of sync with the real upstream diff.
+(def ^:private expected-event-interface-fields
+  {"AssistantMessageData"
+   {:stable-public #{"reasoningBlocks"} :experimental #{"fusion"}}
+   "AssistantUsageData"
+   {:stable-public #{"outputTtftMs"} :experimental #{"fusion"}}
+   "CompactionCompleteData"
+   {:stable-public #{"behaviorModelId"}}
+   "HookEndData"
+   {:stable-public #{"parentToolCallId"}}
+   "HookStartData"
+   {:stable-public #{"parentToolCallId"}}
+   "PermissionPromptRequestMcp"
+   {:stable-public #{"canOfferServerWideApproval"}}
+   "SubagentStartedData"
+   {:stable-public #{"agentType" "executionMode" "parentId" "resumable"}}
+   "SubagentCompletedData"
+   {:stable-public #{"configuredModelMatchesActual" "configuredModelPreference"
+                      "explicitModelMatchesPreference" "explicitModelOverride"
+                      "firstDispatchedModel"}}
+   "SubagentFailedData"
+   {:stable-public #{"configuredModelMatchesActual" "configuredModelPreference"
+                      "explicitModelMatchesPreference" "explicitModelOverride"
+                      "firstDispatchedModel"}}
+   "ToolExecutionCompleteContentShellExit"
+   {:stable-public #{"outputFilePath"}}})
+
 (def ^:private allowed-classifications
   #{:experimental :generated-only :internal :language-specific :mixed
     :stable-public :test-harness})
 
 (def ^:private upstream-validation-enabled?
   (= "true" (System/getenv "COPILOT_UPSTREAM_VALIDATION")))
+
+(defn- note-upstream-validation-status!
+  "Emit a visible pass/skip signal for the external upstream-diff checks
+   gated behind COPILOT_UPSTREAM_VALIDATION. Without this, a disabled run
+   contributes zero assertions from the `when-let` blocks below and can look
+   like a silent, unqualified success. This never fails the hermetic
+   (default) run; it only makes the skip state impossible to miss."
+  [test-name]
+  (println
+   (str "[stable-sync-2980c78] " test-name
+        ": external upstream-diff validation "
+        (if upstream-validation-enabled?
+          "ENABLED (comparing the committed report against a resolved local upstream checkout)"
+          "SKIPPED (set COPILOT_UPSTREAM_VALIDATION=true with a local upstream checkout to run the exact-pin git-diff assertions)")))
+  (is true
+      (str test-name
+           (if upstream-validation-enabled?
+             ": external upstream-diff validation ran."
+             ": external upstream-diff validation was SKIPPED; only the committed EDN oracle was certified in this run."))))
+
 
 (defn- read-report
   []
@@ -167,6 +223,13 @@
    (exported-symbols (git-output upstream "show" (str base ":" path)))))
 
 (defn- interface-fields
+  "Return the set of top-level field names declared directly in the named
+   TypeScript interface. The interface's own field indentation is detected
+   from its first declared field rather than assumed, so this works across
+   generation conventions that differ in indent width (e.g. the hand-written
+   4-space `nodejs/src/types.ts` vs. the generated 2-space
+   `nodejs/src/generated/session-events.ts`), while still ignoring anything
+   nested deeper than that top-level indent."
   [source interface-name]
   (let [pattern
         (re-pattern
@@ -177,11 +240,19 @@
     (when-not body
       (throw (ex-info "Upstream interface not found"
                       {:interface interface-name})))
-    (into #{}
-          (map second)
-          (re-seq
-           #"(?m)^    (?:readonly\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\??:"
-           body))))
+    (let [indent (second
+                  (re-find
+                   #"(?m)^([ \t]+)(?:readonly\s+)?[A-Za-z_$][A-Za-z0-9_$]*\??:"
+                   body))]
+      (if-not indent
+        #{}
+        (into #{}
+              (map second)
+              (re-seq
+               (re-pattern
+                (str "(?m)^" (java.util.regex.Pattern/quote indent)
+                     "(?:readonly\\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\\??:"))
+               body))))))
 
 (defn- added-interface-fields
   [upstream base target path interface-name]
@@ -266,10 +337,11 @@
 
 (deftest exact-upstream-range-is-fully-classified
   (let [report (read-report)]
-    (is (some? report) "The post-93351c parity oracle must be committed")
+    (is (some? report) "The 2980c78 parity oracle must be committed")
     (when report
       (let [{:keys [upstream commit-classifications changed-paths]} report
             {:keys [base-commit target-commit]} upstream]
+        (note-upstream-validation-status! "exact-upstream-range-is-fully-classified")
         (is (= "93351c9217a65960c14a863fc0fa540afd93fa15"
                base-commit))
         (is (= "2980c7828d35754bfc2b334831efec309ab8a2eb"
@@ -329,16 +401,20 @@
 
 (deftest stable-public-surface-and-evidence-are-complete
   (let [report (read-report)]
-    (is (some? report) "The post-93351c parity oracle must be committed")
+    (is (some? report) "The 2980c78 parity oracle must be committed")
     (when report
       (let [{:keys [public-surface-audit stable-deltas intentional-exclusions
                     source-evidence]} report
-            stable-delta-ids (set (map :id stable-deltas))]
+            stable-delta-ids (set (map :id stable-deltas))
+            inventory (:symbol-inventory report)]
+        (note-upstream-validation-status! "stable-public-surface-and-evidence-are-complete")
         (is (= expected-stable-delta-ids stable-delta-ids))
         (is (= stable-delta-ids (:stable-delta-ids report)))
         (is (= stable-delta-ids
                (set (:stable-public-deltas public-surface-audit))))
         (is (empty? (:unclassified-deltas public-surface-audit)))
+        (is (= expected-event-interface-fields (:event-interface-fields inventory))
+            "committed event-interface-fields oracle must match the certified expectations")
         (is (every? #(and (= :stable-public (:classification %))
                           (= :ported (:status %))
                           (seq (:evidence %))
@@ -375,8 +451,7 @@
           (testing (str (name id) " local path " path)
             (is (.isFile (io/file path)))))
         (when-let [upstream-repo @upstream-repo]
-          (let [{:keys [base-commit target-commit]} (:upstream report)
-                inventory (:symbol-inventory report)]
+          (let [{:keys [base-commit target-commit]} (:upstream report)]
             (doseq [[path classifications]
                     (:exported-symbols inventory)]
               (let [expected (apply set/union #{} (vals classifications))
@@ -398,6 +473,14 @@
                       upstream-repo base-commit target-commit
                       "nodejs/src/types.ts" interface-name))
                   (str "Added config fields drifted for " interface-name)))
+            (doseq [[interface-name {:keys [stable-public experimental]}]
+                    (:event-interface-fields inventory)]
+              (let [expected (set/union (or stable-public #{}) (or experimental #{}))
+                    actual (added-interface-fields
+                            upstream-repo base-commit target-commit
+                            "nodejs/src/generated/session-events.ts" interface-name)]
+                (is (= expected actual)
+                    (str "Added event-interface fields drifted for " interface-name))))
             (doseq [[path expected] (:internal-methods inventory)]
               (is (= expected
                      (added-class-method-symbols
@@ -428,7 +511,7 @@
 
 (deftest runtime-schema-and-version-are-exact
   (let [report (read-report)]
-    (is (some? report) "The post-93351c parity oracle must be committed")
+    (is (some? report) "The 2980c78 parity oracle must be committed")
     (when report
       (let [{:keys [upstream schema version published-schema-artifact]} report
             package-json
@@ -437,6 +520,7 @@
                (git-output upstream-repo "show"
                            (str (:target-commit upstream)
                                 ":nodejs/package.json"))))]
+        (note-upstream-validation-status! "runtime-schema-and-version-are-exact")
         (is (= "1.0.83-1" (:runtime-pin schema)))
         (is (= (:runtime-pin schema)
                (str/trim (slurp ".copilot-schema-version"))))
@@ -468,3 +552,176 @@
           (is (= (:schemas published-schema-artifact)
                  (published-schema-hashes published-schema-artifact))
               "vendored schemas must match the exact published npm artifact"))))))
+
+;; -----------------------------------------------------------------------
+;; Stable 2980c78 sync (schema 1.0.83-1) additive-field contract tests.
+;;
+;; These are lightweight, hermetic `s/valid?` checks (no mock server, no
+;; upstream checkout) covering the curated idiom specs reconciled in
+;; `github.copilot-sdk.specs` for the additive fields introduced by this
+;; sync. They complement the oracle/inventory tests above by pinning down
+;; the *value-level* contract for each field, including the previously
+;; under-specified `map?`-only nested shapes that Lane 1's codegen fix now
+;; also enforces structurally on the generated wire side.
+;; -----------------------------------------------------------------------
+
+(deftest dispatch-duration-ms-requires-finite-non-negative-value
+  (testing "model.call_finished dispatchDurationMs rejects NaN/Infinity/negative"
+    (let [base {:turn-id "turn-1"
+                :outcome "success"
+                :edit-classifier-version 1}]
+      (is (s/valid? ::specs/model.call_finished-data
+                     (assoc base :dispatch-duration-ms 0)))
+      (is (s/valid? ::specs/model.call_finished-data
+                     (assoc base :dispatch-duration-ms 123.5)))
+      (is (not (s/valid? ::specs/model.call_finished-data
+                          (assoc base :dispatch-duration-ms -1)))
+          "negative durations must be rejected")
+      (is (not (s/valid? ::specs/model.call_finished-data
+                          (assoc base :dispatch-duration-ms Double/NaN)))
+          "##NaN must be rejected")
+      (is (not (s/valid? ::specs/model.call_finished-data
+                          (assoc base :dispatch-duration-ms Double/POSITIVE_INFINITY)))
+          "##Inf must be rejected")
+      (is (not (s/valid? ::specs/model.call_finished-data
+                          (assoc base :dispatch-duration-ms Double/NEGATIVE_INFINITY)))
+          "##-Inf must be rejected")
+      (is (not (s/valid? ::specs/model.call_finished-data
+                          (assoc base :dispatch-duration-ms "123")))
+          "non-numeric durations must be rejected"))))
+
+(deftest tool-call-id-permits-empty-string
+  (testing "pinned schema 1.0.83-1 allows an empty toolCallId"
+    (is (s/valid? ::specs/tool-call-id ""))
+    (is (s/valid? ::specs/tool-call-id "call-123"))
+    (is (not (s/valid? ::specs/tool-call-id 123)))
+    (is (not (s/valid? ::specs/tool-call-id nil)))))
+
+(deftest session-auto-tier-accepted-on-start-and-resume-data
+  (testing "session.start autoTier accepts the pinned enum and rejects other values"
+    (let [base {:session-id "session-1"}]
+      (doseq [tier ["balance" "intelligence" "efficiency"]]
+        (is (s/valid? ::specs/session.start-data (assoc base :auto-tier tier))))
+      (is (s/valid? ::specs/session.start-data base)
+          "auto-tier remains optional")
+      (is (not (s/valid? ::specs/session.start-data (assoc base :auto-tier "turbo"))))
+      (is (not (s/valid? ::specs/session.start-data (assoc base :auto-tier :balance))))))
+  (testing "session.resume autoTier accepts the pinned enum and rejects other values"
+    (let [base {:event-count 0}]
+      (doseq [tier ["balance" "intelligence" "efficiency"]]
+        (is (s/valid? ::specs/session.resume-data (assoc base :auto-tier tier))))
+      (is (s/valid? ::specs/session.resume-data base)
+          "auto-tier remains optional")
+      (is (not (s/valid? ::specs/session.resume-data (assoc base :auto-tier "turbo")))))))
+
+(deftest assistant-message-reasoning-blocks-additive-field
+  (testing "assistant.message reasoningBlocks is a structural, not opaque, shape"
+    (let [base {:message-id "msg-1" :content "hello"}]
+      (is (s/valid? ::specs/assistant.message-data base)
+          "reasoningBlocks remains optional")
+      (is (s/valid? ::specs/assistant.message-data
+                     (assoc base :reasoning-blocks {:provider "anthropic"
+                                                     :blocks [{:type "text" :text "..."}]})))
+      (is (s/valid? ::specs/assistant.message-data
+                     (assoc base :reasoning-blocks {:provider "anthropic"}))
+          "blocks is itself optional within reasoning-blocks")
+      (is (not (s/valid? ::specs/assistant.message-data
+                          (assoc base :reasoning-blocks {:blocks []})))
+          "provider is required within reasoning-blocks")
+      (is (not (s/valid? ::specs/assistant.message-data
+                          (assoc base :reasoning-blocks {:provider "anthropic" :blocks "nope"})))
+          "blocks must be a vector when present"))))
+
+(deftest assistant-usage-output-ttft-ms-non-negative
+  (testing "assistant.usage outputTtftMs accepts non-negative numbers only"
+    (let [base {:model "gpt-5"}]
+      (is (s/valid? ::specs/assistant.usage-data (assoc base :output-ttft-ms 0)))
+      (is (s/valid? ::specs/assistant.usage-data (assoc base :output-ttft-ms 42.5)))
+      (is (s/valid? ::specs/assistant.usage-data base)
+          "output-ttft-ms remains optional")
+      (is (not (s/valid? ::specs/assistant.usage-data (assoc base :output-ttft-ms -1))))
+      (is (not (s/valid? ::specs/assistant.usage-data (assoc base :output-ttft-ms "42")))))))
+
+(deftest compaction-complete-behavior-model-id-additive-field
+  (testing "session.compaction_complete behaviorModelId is a plain optional string"
+    (is (s/valid? ::specs/session.compaction_complete-data {:success true}))
+    (is (s/valid? ::specs/session.compaction_complete-data
+                   {:success true :behavior-model-id "gpt-5-compaction"}))
+    (is (not (s/valid? ::specs/session.compaction_complete-data
+                        {:success true :behavior-model-id 42})))))
+
+(deftest hook-start-and-end-data-required-fields
+  (testing "hook.start requires hookInvocationId and hookType, parentToolCallId optional"
+    (let [base {:hook-invocation-id "hook-1" :hook-type "pre-tool-use"}]
+      (is (s/valid? ::specs/hook.start-data base))
+      (is (s/valid? ::specs/hook.start-data (assoc base :parent-tool-call-id "call-1")))
+      (is (not (s/valid? ::specs/hook.start-data (dissoc base :hook-invocation-id))))
+      (is (not (s/valid? ::specs/hook.start-data (dissoc base :hook-type))))))
+  (testing "hook.end additionally requires success, parentToolCallId optional"
+    (let [base {:hook-invocation-id "hook-1" :hook-type "pre-tool-use" :success true}]
+      (is (s/valid? ::specs/hook.end-data base))
+      (is (s/valid? ::specs/hook.end-data (assoc base :parent-tool-call-id "call-1")))
+      (is (s/valid? ::specs/hook.end-data (assoc base :error "boom")))
+      (is (not (s/valid? ::specs/hook.end-data (dissoc base :success)))))))
+
+(deftest subagent-started-additive-fields-and-parent-id-collision-fix
+  (testing "subagent.started agentType/executionMode/resumable/parentId are additive"
+    (let [base {:tool-call-id "call-1"
+                :agent-name "reviewer"
+                :agent-display-name "Reviewer"
+                :agent-description "Reviews code"}]
+      (is (s/valid? ::specs/subagent.started-data base)
+          "all additive fields remain optional")
+      (is (s/valid? ::specs/subagent.started-data
+                     (assoc base
+                            :agent-type "review"
+                            :execution-mode "autopilot"
+                            :resumable true
+                            :parent-id "parent-call-1")))
+      (is (not (s/valid? ::specs/subagent.started-data (assoc base :resumable "yes"))))
+      (is (not (s/valid? ::specs/subagent.started-data (assoc base :agent-type 42))))
+      (is (not (s/valid? ::specs/subagent.started-data (assoc base :execution-mode 42))))
+      (is (not (s/valid? ::specs/subagent.started-data (assoc base :parent-id 42)))
+          "parent-id must be validated via ::subagent-parent-id despite the unqualified-key collision with the unrelated top-level ::parent-id spec"))))
+
+(deftest subagent-completed-and-failed-model-tracking-fields
+  (let [model-tracking {:first-dispatched-model "gpt-5"
+                         :configured-model-preference "gpt-5"
+                         :explicit-model-override "gpt-5-mini"
+                         :explicit-model-matches-preference false
+                         :configured-model-matches-actual true}]
+    (testing "subagent.completed accepts the five model-tracking fields"
+      (let [base {:tool-call-id "call-1" :agent-name "reviewer" :agent-display-name "Reviewer"}]
+        (is (s/valid? ::specs/subagent.completed-data base))
+        (is (s/valid? ::specs/subagent.completed-data (merge base model-tracking)))
+        (is (not (s/valid? ::specs/subagent.completed-data
+                            (assoc base :explicit-model-matches-preference "false"))))))
+    (testing "subagent.failed accepts the five model-tracking fields"
+      (let [base {:tool-call-id "call-1" :agent-name "reviewer" :agent-display-name "Reviewer"
+                  :error "boom"}]
+        (is (s/valid? ::specs/subagent.failed-data base))
+        (is (s/valid? ::specs/subagent.failed-data (merge base model-tracking)))
+        (is (not (s/valid? ::specs/subagent.failed-data
+                            (assoc base :configured-model-matches-actual "true"))))))))
+
+(deftest permission-request-can-offer-server-wide-approval
+  (testing "PermissionPromptRequestMcp canOfferServerWideApproval is a plain optional boolean"
+    (is (s/valid? ::specs/permission-request {:permission-kind :mcp}))
+    (is (s/valid? ::specs/permission-request
+                   {:permission-kind :mcp :can-offer-server-wide-approval true}))
+    (is (not (s/valid? ::specs/permission-request
+                        {:permission-kind :mcp :can-offer-server-wide-approval "true"})))))
+
+(deftest generated-assistant-message-tool-request-caller-is-closed
+  (testing "the generated wire spec for AssistantMessageToolRequestCaller stays closed"
+    (is (s/valid? ::generated-events/assistant-message-tool-request-caller-shape
+                   {:caller-id "abc" :type "program"}))
+    (is (not (s/valid? ::generated-events/assistant-message-tool-request-caller-shape
+                        {:type "program"}))
+        "callerId is required")
+    (is (not (s/valid? ::generated-events/assistant-message-tool-request-caller-shape
+                        {:caller-id "abc" :type "user"}))
+        "type must be the literal \"program\"")
+    (is (not (s/valid? ::generated-events/assistant-message-tool-request-caller-shape
+                        {:caller-id "abc" :type "program" :extra "nope"}))
+        "additionalProperties=false must reject unknown keys")))

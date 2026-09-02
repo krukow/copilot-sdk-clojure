@@ -18,6 +18,7 @@ jobs:
           ref: 2980c7828d35754bfc2b334831efec309ab8a2eb
           path: .upstream/copilot-sdk
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-java@v5
         with:
           distribution: 'temurin' # See 'Supported distributions' for available options

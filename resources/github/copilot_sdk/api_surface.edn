@@ -467,6 +467,7 @@
     :github.copilot-sdk.specs/agent-skills
     :github.copilot-sdk.specs/agent-tool-names
     :github.copilot-sdk.specs/agent-tools
+    :github.copilot-sdk.specs/agent-type
     :github.copilot-sdk.specs/agents
     :github.copilot-sdk.specs/allow
     :github.copilot-sdk.specs/allowed-tools
@@ -517,6 +518,7 @@
     :github.copilot-sdk.specs/batch-size
     :github.copilot-sdk.specs/bearer-token
     :github.copilot-sdk.specs/bearer-token-provider
+    :github.copilot-sdk.specs/behavior-model-id
     :github.copilot-sdk.specs/binary-results-for-llm
     :github.copilot-sdk.specs/blob-attachment
     :github.copilot-sdk.specs/branch
@@ -529,6 +531,7 @@
     :github.copilot-sdk.specs/cache-write-tokens
     :github.copilot-sdk.specs/caller
     :github.copilot-sdk.specs/caller-id
+    :github.copilot-sdk.specs/can-offer-server-wide-approval
     :github.copilot-sdk.specs/can-offer-session-approval
     :github.copilot-sdk.specs/can-persist-approval
     :github.copilot-sdk.specs/cancelled
@@ -558,6 +561,8 @@
     :github.copilot-sdk.specs/commands
     :github.copilot-sdk.specs/config-dir
     :github.copilot-sdk.specs/config-directory
+    :github.copilot-sdk.specs/configured-model-matches-actual
+    :github.copilot-sdk.specs/configured-model-preference
     :github.copilot-sdk.specs/connection-state
     :github.copilot-sdk.specs/content
     :github.copilot-sdk.specs/content-filter-triggered
@@ -649,6 +654,7 @@
     :github.copilot-sdk.specs/events-file-size-bytes
     :github.copilot-sdk.specs/excluded-builtin-agents
     :github.copilot-sdk.specs/excluded-tools
+    :github.copilot-sdk.specs/execution-mode
     :github.copilot-sdk.specs/exists
     :github.copilot-sdk.specs/exit-plan-mode-request
     :github.copilot-sdk.specs/exit-plan-mode-result
@@ -656,6 +662,8 @@
     :github.copilot-sdk.specs/exp-config-entry
     :github.copilot-sdk.specs/exp-flag-value
     :github.copilot-sdk.specs/exp-parameters
+    :github.copilot-sdk.specs/explicit-model-matches-preference
+    :github.copilot-sdk.specs/explicit-model-override
     :github.copilot-sdk.specs/exporter-type
     :github.copilot-sdk.specs/extension-id
     :github.copilot-sdk.specs/extension-identity
@@ -683,6 +691,7 @@
     :github.copilot-sdk.specs/file-or-directory-attachment
     :github.copilot-sdk.specs/file-path
     :github.copilot-sdk.specs/finish-reason
+    :github.copilot-sdk.specs/first-dispatched-model
     :github.copilot-sdk.specs/format
     :github.copilot-sdk.specs/git-root
     :github.copilot-sdk.specs/github-mcp-tool-config
@@ -699,7 +708,11 @@
     :github.copilot-sdk.specs/handled?
     :github.copilot-sdk.specs/head-commit
     :github.copilot-sdk.specs/headers
+    :github.copilot-sdk.specs/hook-invocation-id
+    :github.copilot-sdk.specs/hook-type
+    :github.copilot-sdk.specs/hook.end-data
     :github.copilot-sdk.specs/hook.progress-data
+    :github.copilot-sdk.specs/hook.start-data
     :github.copilot-sdk.specs/hooks
     :github.copilot-sdk.specs/host
     :github.copilot-sdk.specs/host-type
@@ -859,12 +872,14 @@
     :github.copilot-sdk.specs/output-directory
     :github.copilot-sdk.specs/output-price
     :github.copilot-sdk.specs/output-tokens
+    :github.copilot-sdk.specs/output-ttft-ms
     :github.copilot-sdk.specs/overage
     :github.copilot-sdk.specs/overage-allowed-with-exhausted-quota?
     :github.copilot-sdk.specs/overrides-built-in-tool
     :github.copilot-sdk.specs/owner
     :github.copilot-sdk.specs/parameters
     :github.copilot-sdk.specs/parent-id
+    :github.copilot-sdk.specs/parent-tool-call-id
     :github.copilot-sdk.specs/path
     :github.copilot-sdk.specs/payload
     :github.copilot-sdk.specs/permission-decision-context
@@ -909,6 +924,7 @@
     :github.copilot-sdk.specs/readdir
     :github.copilot-sdk.specs/readdir-with-types
     :github.copilot-sdk.specs/reason
+    :github.copilot-sdk.specs/reasoning-blocks
     :github.copilot-sdk.specs/reasoning-effort
     :github.copilot-sdk.specs/reasoning-id
     :github.copilot-sdk.specs/reasoning-opaque
@@ -943,6 +959,7 @@
     :github.copilot-sdk.specs/resolved-by-hook
     :github.copilot-sdk.specs/restricted
     :github.copilot-sdk.specs/result-type
+    :github.copilot-sdk.specs/resumable
     :github.copilot-sdk.specs/resume-session-config
     :github.copilot-sdk.specs/retry-after-seconds
     :github.copilot-sdk.specs/revision
@@ -965,6 +982,7 @@
     :github.copilot-sdk.specs/servers
     :github.copilot-sdk.specs/service-request-id
     :github.copilot-sdk.specs/session
+    :github.copilot-sdk.specs/session-auto-tier
     :github.copilot-sdk.specs/session-capabilities
     :github.copilot-sdk.specs/session-config
     :github.copilot-sdk.specs/session-context
@@ -1040,6 +1058,7 @@
     :github.copilot-sdk.specs/stop-processing-queue?
     :github.copilot-sdk.specs/storage-mode
     :github.copilot-sdk.specs/streaming?
+    :github.copilot-sdk.specs/subagent-parent-id
     :github.copilot-sdk.specs/subagent.completed-data
     :github.copilot-sdk.specs/subagent.configured-data
     :github.copilot-sdk.specs/subagent.failed-data

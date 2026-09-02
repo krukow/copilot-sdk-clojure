@@ -42,13 +42,13 @@
       ;; use resumed session
       )))
 </code></pre>
-</div></div></div><div class="public anchor" id="var-.3Crun-factory.21"><h3>&lt;run-factory!</h3><div class="usage"><code>(&lt;run-factory! session name-or-handle)</code><code>(&lt;run-factory! session name-or-handle options)</code></div><div class="doc"><div class="markdown"></div></div></div><div class="public anchor" id="var-.3Csend.21"><h3>&lt;send!</h3><div class="usage"><code>(&lt;send! session opts)</code></div><div class="doc"><div class="markdown"><p>Send a message and return a channel that delivers the final content string. This is the async equivalent of send-and-wait! - use inside go blocks.</p>
+</div></div></div><div class="public anchor" id="var-.3Crun-factory.21"><h3>&lt;run-factory!</h3><div class="usage"><code>(&lt;run-factory! session name-or-handle)</code><code>(&lt;run-factory! session name-or-handle options)</code></div><div class="doc"><div class="markdown"></div></div></div><div class="public anchor" id="var-.3Csend.21"><h3>&lt;send!</h3><div class="usage"><code>(&lt;send! session opts)</code></div><div class="doc"><div class="markdown"><p>Send a message and return a channel that delivers the final content string. This is the async equivalent of send-and-wait! - use inside go blocks. As with send-and-wait!, a nonterminal autopilot session.idle (<code>:data :mode</code> = “autopilot”) does not end the wait.</p>
 <p>Example:</p>
 <pre><code class="language-clojure">(go
   (let [answer (&lt;! (copilot/&lt;send! session {:prompt "What is 2+2?"}))]
     (println answer)))
 </code></pre>
-</div></div></div><div class="public anchor" id="var-.3Csend-and-wait.21"><h3>&lt;send-and-wait!</h3><div class="usage"><code>(&lt;send-and-wait! session opts)</code></div><div class="doc"><div class="markdown"><p>Send a message and return a channel that delivers the final assistant message event - the channel-based equivalent of <code>send-and-wait!</code>. Use it inside go blocks instead of blocking a dispatch thread. Unlike <code>&lt;send!</code> (which delivers the final content string), this delivers the full assistant message event.</p>
+</div></div></div><div class="public anchor" id="var-.3Csend-and-wait.21"><h3>&lt;send-and-wait!</h3><div class="usage"><code>(&lt;send-and-wait! session opts)</code></div><div class="doc"><div class="markdown"><p>Send a message and return a channel that delivers the final assistant message event - the channel-based equivalent of <code>send-and-wait!</code>. Use it inside go blocks instead of blocking a dispatch thread. Unlike <code>&lt;send!</code> (which delivers the final content string), this delivers the full assistant message event. As with send-and-wait!, an idle event whose <code>:data :mode</code> is the string “autopilot” is a nonterminal turn boundary, so the wait continues past it.</p>
 <p>Options: same as send!, plus: - :timeout-ms   - Timeout in milliseconds (default: 60000, set to nil to disable)</p>
 <p>The returned channel delivers a single value (the final assistant message event, or nothing if none was received) then closes.</p>
 <p>Example:</p>
@@ -316,13 +316,13 @@
 <p>Example:</p>
 <pre><code class="language-clojure">(copilot/send! session {:prompt "Hello!"})
 </code></pre>
-</div></div></div><div class="public anchor" id="var-send-and-wait.21"><h3>send-and-wait!</h3><div class="usage"><code>(send-and-wait! session opts)</code><code>(send-and-wait! session opts timeout-ms)</code></div><div class="doc"><div class="markdown"><p>Send a message and wait until the session becomes idle. Returns the final assistant message event, or nil if none received. Serialized per session to avoid mixing concurrent sends.</p>
+</div></div></div><div class="public anchor" id="var-send-and-wait.21"><h3>send-and-wait!</h3><div class="usage"><code>(send-and-wait! session opts)</code><code>(send-and-wait! session opts timeout-ms)</code></div><div class="doc"><div class="markdown"><p>Send a message and wait until the session becomes idle. Returns the final assistant message event, or nil if none received. Serialized per session to avoid mixing concurrent sends. An idle event whose <code>:data :mode</code> is the string “autopilot” is a nonterminal turn boundary (the agent keeps working), so the wait continues past it to the next session.idle/session.error.</p>
 <p>Options: same as send!, plus: - :timeout-ms   - Timeout in milliseconds (default: 60000). Read from <code>opts</code> in the 2-arity form; <code>nil</code> (in <code>opts</code> or as the positional argument) disables the deadline and waits indefinitely. Never forwarded on the underlying <code>session.send</code>.</p>
 <p>Example:</p>
 <pre><code class="language-clojure">(let [response (copilot/send-and-wait! session {:prompt "What is 2+2?"})]
   (println (get-in response [:data :content])))
 </code></pre>
-</div></div></div><div class="public anchor" id="var-send-async"><h3>send-async</h3><div class="usage"><code>(send-async session opts)</code></div><div class="doc"><div class="markdown"><p>Send a message and return a core.async channel that receives events. The channel closes after session.idle or session.error. Serialized per session to avoid mixing concurrent sends.</p>
+</div></div></div><div class="public anchor" id="var-send-async"><h3>send-async</h3><div class="usage"><code>(send-async session opts)</code></div><div class="doc"><div class="markdown"><p>Send a message and return a core.async channel that receives events. The channel closes after an ordinary session.idle or session.error. An idle event whose <code>:data :mode</code> is the string “autopilot” is a nonterminal turn boundary (the agent keeps working) and is delivered on the channel without closing it. Serialized per session to avoid mixing concurrent sends.</p>
 <p>Example:</p>
 <pre><code class="language-clojure">(let [ch (copilot/send-async session {:prompt "Tell me a story"})]
   (go-loop []

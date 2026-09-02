@@ -593,3 +593,22 @@
                                  :include-sub-agent-streaming-events? false})
           resume-params (get @seen "session.resume")]
       (is (false? (:includeSubAgentStreamingEvents resume-params))))))
+
+(deftest test-github-token-provider-result-closed-contract
+  (testing ":cancelled result permits only :kind"
+    (is (s/valid? :github.copilot-sdk.specs/github-token-provider-result
+                  {:kind :cancelled}))
+    (is (not (s/valid? :github.copilot-sdk.specs/github-token-provider-result
+                        {:kind :cancelled :reason :expired}))
+        ":cancelled must reject unknown keys"))
+
+  (testing ":token result permits only :kind, :access-token, :expires-in, and optional :token-type"
+    (is (s/valid? :github.copilot-sdk.specs/github-token-provider-result
+                  {:kind :token :access-token "token" :expires-in 3601}))
+    (is (s/valid? :github.copilot-sdk.specs/github-token-provider-result
+                  {:kind :token :access-token "token" :expires-in 3601
+                   :token-type "Bearer"}))
+    (is (not (s/valid? :github.copilot-sdk.specs/github-token-provider-result
+                        {:kind :token :access-token "token" :expires-in 3601
+                         :account-label "enterprise"}))
+        ":token must reject unknown keys")))

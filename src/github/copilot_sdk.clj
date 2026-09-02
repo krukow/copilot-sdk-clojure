@@ -877,6 +877,9 @@
   "Send a message and wait until the session becomes idle.
    Returns the final assistant message event, or nil if none received.
    Serialized per session to avoid mixing concurrent sends.
+   An idle event whose `:data :mode` is the string \"autopilot\" is a
+   nonterminal turn boundary (the agent keeps working), so the wait
+   continues past it to the next session.idle/session.error.
 
    Options: same as send!, plus:
    - :timeout-ms   - Timeout in milliseconds (default: 60000). Read from `opts`
@@ -896,7 +899,10 @@
 
 (defn send-async
   "Send a message and return a core.async channel that receives events.
-   The channel closes after session.idle or session.error.
+   The channel closes after an ordinary session.idle or session.error. An
+   idle event whose `:data :mode` is the string \"autopilot\" is a
+   nonterminal turn boundary (the agent keeps working) and is delivered on
+   the channel without closing it.
    Serialized per session to avoid mixing concurrent sends.
 
    Example:
@@ -913,6 +919,8 @@
 (defn <send!
   "Send a message and return a channel that delivers the final content string.
    This is the async equivalent of send-and-wait! - use inside go blocks.
+   As with send-and-wait!, a nonterminal autopilot session.idle (`:data
+   :mode` = \"autopilot\") does not end the wait.
 
    Example:
    ```clojure
@@ -928,6 +936,8 @@
    event - the channel-based equivalent of `send-and-wait!`. Use it inside go
    blocks instead of blocking a dispatch thread. Unlike `<send!` (which delivers
    the final content string), this delivers the full assistant message event.
+   As with send-and-wait!, an idle event whose `:data :mode` is the string
+   \"autopilot\" is a nonterminal turn boundary, so the wait continues past it.
 
    Options: same as send!, plus:
    - :timeout-ms   - Timeout in milliseconds (default: 60000, set to nil to disable)

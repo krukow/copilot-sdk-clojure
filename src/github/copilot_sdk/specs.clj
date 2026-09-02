@@ -995,8 +995,14 @@
               (s/valid? ::non-blank-string (:session-id %)))
          #(s/valid? ::github-token-acquire-reason (:reason %))))
 
+(def ^:private github-token-provider-cancelled-keys #{:kind})
+(def ^:private github-token-provider-token-keys
+  #{:kind :access-token :expires-in :token-type})
+
 (defn ^:no-doc github-token-provider-result-constraint
-  "Return the first violated provider-result constraint, or nil when valid."
+  "Return the first violated provider-result constraint, or nil when valid.
+   Closed result contract: `:cancelled` permits only `:kind`; `:token` permits
+   only `:kind`, `:access-token`, `:expires-in`, and optional `:token-type`."
   [result]
   (cond
     (not (map? result))
@@ -1006,7 +1012,11 @@
     :kind-must-be-token-or-cancelled
 
     (= :cancelled (:kind result))
-    nil
+    (when (seq (unknown-keys result github-token-provider-cancelled-keys))
+      :cancelled-result-must-only-contain-kind)
+
+    (seq (unknown-keys result github-token-provider-token-keys))
+    :token-result-has-unknown-keys
 
     (not (s/valid? ::non-blank-string (:access-token result)))
     :access-token-must-be-non-blank-string
@@ -1688,8 +1698,8 @@
     :copilot/tool_search.activated
     ;; v1.0.9 + post-v1.0.9 sync (pinned schema 1.0.79-6).
     :copilot/factory.run_updated
-    ;; v1.0.11 sync (pinned schema 1.0.83-1). Stable HydraFusion events remain
-    ;; internal; routing and phase events remain experimental.
+    ;; Stable 2980c78 sync (pinned schema 1.0.83-1). Stable HydraFusion events
+    ;; remain internal; routing and phase events remain experimental.
     :copilot/session.mode_notice_delivered
     :copilot/model.call_finished
     :copilot/subagent.configured})
@@ -1702,28 +1712,46 @@
 (s/def ::base-commit string?)
 
 (s/def ::detached-from-spawning-parent-session-id string?)
+;; upstream schema 1.0.83-1: `autoTier` echoes the auto-routing preference
+;; active at session start/resume. This is a wire enum string round-tripped
+;; verbatim by wire->clj (matches the ::session-idle-mode precedent below),
+;; distinct in domain and value-shape from the client-facing ::auto-tier
+;; keyword-set spec used by ::capi options, so it needs its own name and a
+;; custom predicate (s/keys :opt-un always maps to the unqualified `:auto-tier`
+;; key regardless of which spec validates it).
+(s/def ::session-auto-tier #{"balance" "intelligence" "efficiency"})
 (s/def ::session.start-data
   ;; Note: ::version is intentionally omitted from this hand-written spec.
   ;; The upstream schema types it as `number` while the global `::version`
   ;; spec (used by ::model-info) is `string?`. The generated wire spec
   ;; (github.copilot-sdk.generated.event-specs/session.start-data) is the
   ;; canonical contract for this field.
-  (s/keys :req-un [::session-id]
-          :opt-un [::producer ::copilot-version ::start-time ::selected-model
-                   ::reasoning-effort ::already-in-use? ::remote-steerable? ::host-type ::head-commit ::base-commit
-                   ::detached-from-spawning-parent-session-id]))
+  (s/and
+   (s/keys :req-un [::session-id]
+           :opt-un [::producer ::copilot-version ::start-time ::selected-model
+                    ::reasoning-effort ::already-in-use? ::remote-steerable? ::host-type ::head-commit ::base-commit
+                    ::detached-from-spawning-parent-session-id])
+   #(or (not (contains? % :auto-tier))
+        (s/valid? ::session-auto-tier (:auto-tier %)))))
 
 (s/def ::event-count nat-int?)
 (s/def ::events-file-size-bytes nat-int?)
 (s/def ::session.resume-data
-  (s/keys :req-un [::event-count]
-          :opt-un [::selected-model ::reasoning-effort ::already-in-use? ::remote-steerable?
-                   ::host-type ::head-commit ::base-commit ::events-file-size-bytes]))
+  (s/and
+   (s/keys :req-un [::event-count]
+           :opt-un [::selected-model ::reasoning-effort ::already-in-use? ::remote-steerable?
+                    ::host-type ::head-commit ::base-commit ::events-file-size-bytes])
+   #(or (not (contains? % :auto-tier))
+        (s/valid? ::session-auto-tier (:auto-tier %)))))
 
 (s/def ::status-code integer?)
 (s/def ::provider-call-id string?)
 (s/def ::error-type string?)
 (s/def ::stack string?)
+;; Upstream schema 1.0.83-1: `parentToolCallId` links a nested tool-call chain
+;; (assistant messages, tool execution, hooks) back to the invoking tool call.
+;; It is a plain wire string round-tripped verbatim by wire->clj.
+(s/def ::parent-tool-call-id string?)
 
 (s/def ::session.error-data
   (s/keys :req-un [::error-type ::message]
@@ -1851,11 +1879,21 @@
         (s/valid? ::assistant-message-tool-request-type (:type %)))))
 (s/def ::tool-requests
   (s/coll-of ::assistant-message-tool-request :kind vector?))
+;; :reasoning-blocks — upstream schema 1.0.83-1 (AssistantMessageReasoningBlocks).
+;; Its `provider` field is a plain reasoning-provider label string, distinct
+;; from the ::provider BYOK client-config spec reused elsewhere in this file
+;; (a map of ::base-url etc.), so it's validated via a dedicated predicate
+;; instead of s/keys :req-un [::provider]. `blocks` items are x-opaque-json in
+;; the pinned schema, so only the containing vector shape is checked.
+(s/def ::reasoning-blocks
+  (s/and map?
+         #(string? (:provider %))
+         #(or (not (contains? % :blocks)) (vector? (:blocks %)))))
 (s/def ::assistant.message-data
   (s/keys :req-un [::message-id ::content]
           :opt-un [::tool-requests ::parent-tool-call-id ::encrypted-content
                    ::interaction-id ::output-tokens ::phase ::reasoning-opaque
-                   ::reasoning-text ::request-id ::api-call-id
+                   ::reasoning-blocks ::reasoning-text ::request-id ::api-call-id
                    ::server-tools ::service-request-id ::turn-id ::model
                    ::chunk-index ::chunk-count ::rte]))
 
@@ -1901,6 +1939,9 @@
 ;; duration.
 (s/def ::time-to-first-token-ms (s/and number? #(<= 0 %)))
 (s/def ::ttft-ms (s/and number? #(<= 0 %)))
+;; :output-ttft-ms — upstream schema 1.0.83-1. Time-to-first-output-token,
+;; distinct from ::time-to-first-token-ms; same non-negative-number semantics.
+(s/def ::output-ttft-ms (s/and number? #(<= 0 %)))
 (s/def ::copilot-usage map?)
 
 ;; :api-endpoint — open string enum, added upstream CLI 1.0.47 (PR #1286).
@@ -1933,7 +1974,7 @@
                     ::output-tokens ::parent-tool-call-id ::provider-call-id
                     ::quota-snapshots ::reasoning-effort ::reasoning-tokens
                     ::rejected-prediction-tokens ::service-request-id
-                    ::time-to-first-token-ms ::ttft-ms
+                    ::time-to-first-token-ms ::ttft-ms ::output-ttft-ms
                     ::content-filter-triggered ::finish-reason ::rte])
    #(or (not (contains? % :reasoning-summary))
         (contains? #{"none" "concise" "detailed"}
@@ -2042,6 +2083,20 @@
   (s/keys :req-un [::message]
           :opt-un [::temporary]))
 
+;; Hook start/end events (upstream schema 1.0.83-1, stable 2980c78 sync).
+;; `:parent-tool-call-id` (both) added on top of already-stable hook events;
+;; `hook.end-data`'s `:error` reuses the shared (unvalidated) ::error keyword,
+;; matching the existing codebase-wide convention for HookEndError's shape
+;; (message/stack/source) rather than modeling it as a dedicated spec.
+(s/def ::hook-invocation-id ::non-blank-string)
+(s/def ::hook-type ::non-blank-string)
+(s/def ::hook.start-data
+  (s/keys :req-un [::hook-invocation-id ::hook-type]
+          :opt-un [::parent-tool-call-id]))
+(s/def ::hook.end-data
+  (s/keys :req-un [::hook-invocation-id ::hook-type ::success]
+          :opt-un [::error ::parent-tool-call-id]))
+
 ;; Session plan changed event
 (s/def ::operation #{"create" "update" "delete"})
 (s/def ::session.plan_changed-data
@@ -2069,9 +2124,12 @@
 (s/def ::token-limit nat-int?)
 (s/def ::session.compaction_start-data
   (s/keys :opt-un [::model ::current-tokens ::token-limit ::trigger]))
+;; :behavior-model-id — upstream schema 1.0.83-1. Identifies the behavior
+;; model used to drive compaction, when applicable.
+(s/def ::behavior-model-id string?)
 (s/def ::session.compaction_complete-data
   (s/keys :req-un [::success]
-          :opt-un [::error ::status-code ::token-limit ::trigger]))
+          :opt-un [::error ::status-code ::token-limit ::trigger ::behavior-model-id]))
 
 ;; Context-cleared event (upstream PR #2129).
 (s/def ::messages-cleared nat-int?)
@@ -2149,18 +2207,47 @@
 (s/def ::cancelled boolean?)
 (s/def ::factory-run-id ::non-blank-string)
 
+;; Additive subagent fields (upstream schema 1.0.83-1, stable 2980c78 sync).
+;; `::subagent-parent-id` is deliberately distinct from the pre-existing
+;; `::parent-id` (a nilable non-blank-string used on the session-event
+;; envelope itself) -- SubagentStartedData's `parentId` is an unrelated,
+;; plain optional string (task-registry id of the spawning sub-agent, no
+;; nilable/non-blank constraint), so it cannot be validated via `:opt-un`
+;; (which would key on the already-registered, differently-typed
+;; `::parent-id`). We validate the `:parent-id` map key with an explicit
+;; predicate instead, following the same pattern used for `:mode`/auto-tier.
+(s/def ::subagent-parent-id string?)
+(s/def ::resumable boolean?)
+(s/def ::agent-type string?)
+(s/def ::execution-mode string?)
+(s/def ::first-dispatched-model string?)
+(s/def ::configured-model-preference string?)
+(s/def ::explicit-model-override string?)
+(s/def ::explicit-model-matches-preference boolean?)
+(s/def ::configured-model-matches-actual boolean?)
+
 (s/def ::subagent.started-data
-  (s/keys :req-un [::tool-call-id ::agent-name ::agent-display-name
-                   ::agent-description]
-          :opt-un [::factory-run-id ::model]))
+  (s/and
+   (s/keys :req-un [::tool-call-id ::agent-name ::agent-display-name
+                    ::agent-description]
+           :opt-un [::factory-run-id ::model ::resumable
+                    ::agent-type ::execution-mode])
+   #(or (not (contains? % :parent-id))
+        (s/valid? ::subagent-parent-id (:parent-id %)))))
 
 (s/def ::subagent.completed-data
   (s/keys :req-un [::tool-call-id ::agent-name ::agent-display-name]
-          :opt-un [::cancelled ::model ::total-tool-calls ::total-tokens ::duration-ms]))
+          :opt-un [::cancelled ::model ::total-tool-calls ::total-tokens ::duration-ms
+                   ::first-dispatched-model ::configured-model-preference
+                   ::explicit-model-override ::explicit-model-matches-preference
+                   ::configured-model-matches-actual]))
 
 (s/def ::subagent.failed-data
   (s/keys :req-un [::tool-call-id ::agent-name ::agent-display-name ::error]
-          :opt-un [::model ::total-tool-calls ::total-tokens ::duration-ms]))
+          :opt-un [::model ::total-tool-calls ::total-tokens ::duration-ms
+                   ::first-dispatched-model ::configured-model-preference
+                   ::explicit-model-override ::explicit-model-matches-preference
+                   ::configured-model-matches-actual]))
 
 ;; session.custom_agents_updated event data (upstream PR #916)
 (s/def ::user-invocable? boolean?)
@@ -2263,7 +2350,9 @@
          #(optional-value? % :interaction-id string?)
          #(required-value? % :dispatch-duration-ms
                            (fn [duration]
-                             (and (number? duration)
+                             ;; json-number? rejects NaN/Infinity (non-finite doubles);
+                             ;; neg? guards against negative durations.
+                             (and (json-number? duration)
                                   (not (neg? duration)))))
          #(required-value? % :outcome #{"success" "error" "cancelled" "rejected"})
          #(optional-value? % :contains-built-in-file-edit-request boolean?)
@@ -2387,7 +2476,9 @@
 ;; Tool call/result types
 ;; -----------------------------------------------------------------------------
 
-(s/def ::tool-call-id ::non-blank-string)
+;; Pinned schema (1.0.83-1) declares toolCallId as a plain string with no
+;; minLength across every event that carries it; empty string is a valid value.
+(s/def ::tool-call-id string?)
 (s/def ::result-type
   (s/or :keyword #{:success :failure :rejected :denied :timeout}
         :string #{"success" "failure" "rejected" "denied" "timeout"}))
@@ -2481,6 +2572,11 @@
 (s/def ::environment-variables
   (s/coll-of ::non-blank-string :kind vector? :min-count 1))
 
+;; PermissionPromptRequestMcp additive field (upstream schema 1.0.83-1, stable
+;; 2980c78 sync). ::server-name/::tool-name/::tool-title already exist and
+;; match the MCP variant's field types exactly.
+(s/def ::can-offer-server-wide-approval boolean?)
+
 (s/def ::permission-request
   (s/and
    (s/keys :req-un [::permission-kind]
@@ -2492,7 +2588,9 @@
                     ::name ::description ::phases ::approval-key ::can-persist-approval
                     ::declared-max-concurrent-subagents
                     ::declared-max-total-subagents
-                    ::declared-timeout-seconds ::declared-max-ai-credits])
+                    ::declared-timeout-seconds ::declared-max-ai-credits
+                    ::server-name ::tool-name ::tool-title
+                    ::can-offer-server-wide-approval])
    #(or (not= :factory (:permission-kind %))
         (and (s/valid? ::factory-operation (:operation %))
              (s/valid? ::non-blank-string (:name %))

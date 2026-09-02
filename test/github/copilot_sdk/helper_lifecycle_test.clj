@@ -34,6 +34,21 @@
         (nil? value) true
         :else (recur)))))
 
+(def ^:private read-timeout-ms
+  "Bound for any single blocking channel read in these tests, so a stalled
+  producer or a broken close/terminal invariant surfaces as a normal test
+  failure instead of hanging the test process."
+  1000)
+
+(defn- read-within
+  "Reads one value from `ch`, bounded by `read-timeout-ms`. Returns `::timeout`
+  instead of blocking forever when nothing (not even a close) arrives in time."
+  [ch]
+  (let [[value port] (async/alts!! [ch (async/timeout read-timeout-ms)])]
+    (if (identical? port ch)
+      value
+      ::timeout)))
+
 (defn- cleaned-up?
   [copilot-client]
   (let [{:keys [sessions session-io]} @(:state copilot-client)]
@@ -199,9 +214,9 @@
            (let [query-ch (h/query-chan "autopilot channel" :buffer 2)]
              (is (true? (async/>!! events-ch autopilot-idle)))
              (is (true? (async/>!! events-ch terminal-idle)))
-             (is (= autopilot-idle (async/<!! query-ch)))
-             (is (= terminal-idle (async/<!! query-ch)))
-             (is (nil? (async/<!! query-ch)))
+             (is (= autopilot-idle (read-within query-ch)))
+             (is (= terminal-idle (read-within query-ch)))
+             (is (nil? (read-within query-ch)))
              (is (= 1 @disconnects)))))))
 
     (testing "query-seq! includes autopilot idle and realizes through terminal idle"
@@ -213,9 +228,11 @@
          {:events-ch events-ch
           :disconnect-fn (fn [_session] (swap! disconnects inc))}
          (fn []
-           (is (= [autopilot-idle terminal-idle]
-                  (doall (h/query-seq! "autopilot sequence"))))
-           (is (= 1 @disconnects))))))))
+           (let [realized (deref (future (doall (h/query-seq! "autopilot sequence")))
+                                  read-timeout-ms
+                                  ::timeout)]
+             (is (= [autopilot-idle terminal-idle] realized))
+             (is (= 1 @disconnects)))))))))
 
 (deftest query-chan-source-close-disconnects-once
   (let [events-ch (async/chan)

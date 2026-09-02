@@ -150,7 +150,8 @@
     :total-premium-requests 0
     :total-api-duration-ms 0
     :session-start-time 1700000000
-    :code-changes {}
+    ;; ShutdownCodeChanges requires all three fields (additionalProperties false).
+    :code-changes {:lines-added 0 :lines-removed 0 :files-modified []}
     :model-metrics {}}
 
    "session.model_change"
@@ -378,6 +379,16 @@
    "hook.progress"
    {:message "extracting..."}
 
+   ;; Stable 2980c78 sync (pinned schema 1.0.83-1): net-new hook.start/hook.end.
+   "hook.start"
+   {:hook-invocation-id "h-1"
+    :hook-type "pre-tool-use"}
+
+   "hook.end"
+   {:hook-invocation-id "h-1"
+    :hook-type "pre-tool-use"
+    :success true}
+
    ;; v1.0.1 sync: session.canvas.closed (upstream PR #1604).
    "session.canvas.closed"
    {:instance-id "i1" :extension-id "ext.x" :canvas-id "diff"}})
@@ -488,6 +499,31 @@
       (is (s/valid? retry-spec {:turn-id "turn-1"
                                 :reason "arbitrary_reason"})
           "assistant.turn_retry reason must remain an open string"))))
+
+;; ---------------------------------------------------------------------------
+;; Recursive nested-object emission — generated specs for `$ref`'d object
+;; properties (e.g. AssistantMessageToolRequestCaller nested inside
+;; AssistantMessageToolRequest) must enforce required keys, per-property
+;; recursive validity, and `additionalProperties: false`, not degrade to a
+;; bare `map?`. See `script/codegen/emit_specs.clj`'s `emit-object`.
+;; ---------------------------------------------------------------------------
+
+(deftest generated-nested-object-specs-enforce-structure
+  (let [spec-kw       :github.copilot-sdk.generated.event-specs/tool-requests
+        valid-request (-> fixtures (get "assistant.message") :tool-requests first)]
+    (testing "accepts the canonical, fully-valid fixture"
+      (is (s/valid? spec-kw [valid-request])
+          (s/explain-str spec-kw [valid-request])))
+    (testing "rejects a caller missing required :caller-id"
+      (is (not (s/valid? spec-kw [(update valid-request :caller dissoc :caller-id)]))))
+    (testing "rejects a caller whose :type is not the single enum value \"program\""
+      (is (not (s/valid? spec-kw [(assoc-in valid-request [:caller :type] "assistant")]))))
+    (testing "rejects a caller with an unknown key (additionalProperties: false)"
+      (is (not (s/valid? spec-kw [(assoc-in valid-request [:caller :bogus-field] "x")]))))
+    (testing "rejects a tool-request itself missing a required key (:name)"
+      (is (not (s/valid? spec-kw [(dissoc valid-request :name)]))))
+    (testing "rejects a tool-request with an unknown top-level key (additionalProperties: false)"
+      (is (not (s/valid? spec-kw [(assoc valid-request :bogus-top-level "x")]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Envelope discrimination — type and data binding must be tight.
@@ -684,3 +720,72 @@
              "would silently skip them): " (sort missing) ". Either add a "
              "minimal valid fixture in `fixtures`, or remove the hand spec "
              "from `github.copilot-sdk.specs`."))))
+
+;; ---------------------------------------------------------------------------
+;; Generated top-level form size — JVM `Method code too large!` regression
+;; guard
+;;
+;; `emit-envelope-spec` previously re-emitted the ENTIRE global non-conforming
+;; union for the "type"/"data" kebabs (each a cross-schema union spanning
+;; ~135/~133 distinct schemas) as a `strict-pred` INSIDE every one of the
+;; ~135 event variants' envelope `s/and` forms — even though each variant
+;; already has a strictly stronger dedicated check elsewhere (`const-preds`
+;; for `:type`, the trailing `data-kw` predicate for `:data`). That produced
+;; many top-level forms in the ~26KB-source-char class, and `event_specs.clj`
+;; as a whole ballooned to ~3.85MB. At least one such form was large enough to
+;; overflow the JVM's 64KB-per-method bytecode limit at compile time
+;; (`Method code too large!`).
+;;
+;; The fix (see `emit-envelope-spec` in `script/codegen/emit_specs.clj`)
+;; excludes const-covered properties and the `"data"` kebab from the
+;; redundant per-variant envelope re-check, so each such global union is now
+;; emitted exactly ONCE as a load-bearing leaf spec (`::type`, `::data`),
+;; consumed by every `s/keys` site via clojure.spec's implicit unqualified-key
+;; -> fully-qualified-keyword spec lookup — not duplicated per variant.
+;;
+;; This test reads the actual generated SOURCE TEXT (not the loaded/expanded
+;; namespace) via the plain data reader, so it exercises exactly what
+;; `write-clj!` wrote and what the JVM must compile. The 32000-char and
+;; 8000-char thresholds are reasoned estimates (not a precisely derived exact
+;; safety margin): the current known-good maximum is the single ::data leaf
+;; spec at ~19,185 chars, comfortably under both; a recurrence of the fixed
+;; bug would produce MANY forms at or above the ~26,058-char class this test
+;; guards against.
+;; ---------------------------------------------------------------------------
+
+(def ^:private generated-event-specs-forms
+  "All top-level forms in the generated event-specs source file, excluding
+   the leading `ns` form. Read with the plain data reader (`*read-eval*`
+   disabled) rather than `require`d/macroexpanded, so measurements reflect
+   the literal written source text — what the JVM actually has to compile."
+  (let [path (io/file "src/github/copilot_sdk/generated/event_specs.clj")]
+    (binding [*read-eval* false]
+      (with-open [r (java.io.PushbackReader. (io/reader path))]
+        (->> (repeatedly #(read {:eof ::eof} r))
+             (take-while #(not= % ::eof))
+             (remove #(and (seq? %) (= 'ns (first %))))
+             doall)))))
+
+(deftest generated-top-level-forms-stay-well-under-jvm-method-size-limit
+  (let [sized (map (fn [form] {:form form :len (count (pr-str form))})
+                    generated-event-specs-forms)
+        max-entry (apply max-key :len sized)]
+    (testing "no single generated top-level form approaches the 64KB JVM per-method bytecode limit"
+      (is (<= (:len max-entry) 32000)
+          (str "Largest generated top-level form is " (:len max-entry)
+               " chars (def name: " (pr-str (second (:form max-entry))) "). "
+               "This class of bloat previously caused `Method code too "
+               "large!` at JVM compile time — see `emit-envelope-spec` in "
+               "`script/codegen/emit_specs.clj`.")))
+    (testing "only the known load-bearing global-union leaf spec (`::data`) is large"
+      (let [large (->> sized (filter #(> (:len %) 8000)))]
+        (is (<= (count large) 1)
+            (str "Expected at most one generated top-level form over 8000 "
+                 "chars (the load-bearing `::data` global-union leaf spec, "
+                 "consumed via `s/keys`'s implicit key-spec lookup in "
+                 "`emit-envelope-spec`/`emit-data-spec`). Found "
+                 (count large) ": "
+                 (pr-str (map (comp second :form) large))
+                 ". A jump here likely means the redundant per-variant "
+                 "envelope strict-pred bug has recurred — see "
+                 "`emit-envelope-spec` in `script/codegen/emit_specs.clj`."))))))
