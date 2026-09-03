@@ -480,7 +480,7 @@
   (testing "consumer cancellation"
     (let [events-ch (async/chan)
           disconnect-entered (promise)
-          cleanup-observed (promise)
+          disconnect-finished (promise)
           cleanup-error (ex-info "disconnect failed" {})
           disconnects (atom 0)]
       (call-with-controlled-query
@@ -488,26 +488,21 @@
         :disconnect-fn (fn [_session]
                          (swap! disconnects inc)
                          (deliver disconnect-entered true)
-                         (throw cleanup-error))}
+                         (try
+                           (throw cleanup-error)
+                           (finally
+                             (deliver disconnect-finished true))))}
        (fn []
-         (with-redefs-fn
-           {(requiring-resolve
-             'github.copilot-sdk.helpers/report-query-chan-cleanup-failure!)
-            (fn [failure]
-              (deliver cleanup-observed failure))}
-           (fn []
-             (let [query-ch (h/query-chan "cancel and disconnect failure")
-                   close-result (future (async/close! query-ch))]
-               (try
-                 (is (nil? (deref close-result 1000 ::timeout)))
-                 (is (true? (deref disconnect-entered 1000 false)))
-                 (is (identical?
-                      cleanup-error
-                      (deref cleanup-observed 1000 ::timeout)))
-                 (is (= 1 @disconnects))
-                 (is (nil? (async/<!! query-ch)))
-                 (finally
-                   (async/close! events-ch)))))))))))
+         (let [query-ch (h/query-chan "cancel and disconnect failure")
+               close-result (future (async/close! query-ch))]
+           (try
+             (is (nil? (deref close-result 1000 ::timeout)))
+             (is (true? (deref disconnect-entered 1000 false)))
+             (is (true? (deref disconnect-finished 1000 false)))
+             (is (= 1 @disconnects))
+             (is (nil? (async/<!! query-ch)))
+             (finally
+               (async/close! events-ch)))))))))
 
 (deftest query-chan-surfaces-natural-cleanup-failure-before-closing
   (let [events-ch (async/chan 1)

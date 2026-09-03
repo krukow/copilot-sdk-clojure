@@ -182,7 +182,7 @@ The callback receives:
 |-----|-------|
 | `:host` | GitHub host requesting the credential |
 | `:session-id` | Session ID when known; omitted during an initial cloud-session registration if the server assigns the ID |
-| `:reason` | `:initial` for the first credential, `:refresh` when the runtime requests renewal, or a future nonblank keyword passed through for forward compatibility |
+| `:reason` | `:initial` for the first credential or `:refresh` when the runtime requests renewal |
 
 Return `{:kind :token :access-token ... :expires-in ...}` with an integer expiry
 of at least 3,601 seconds and optional `:token-type`, or return

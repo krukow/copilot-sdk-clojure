@@ -97,7 +97,7 @@
       (sdk/force-stop! client))
     (is (= {} @handlers-at-disconnect))))
 
-(deftest disconnect-untracked-session-still-notifies-the-runtime
+(deftest disconnect-untracked-session-is-a-no-op
   (let [client (sdk/client {:auto-start? false})
         rpc-calls (atom [])]
     (swap! (:state client) assoc :connection-io :connection)
@@ -105,8 +105,7 @@
                   (fn [_ method params & _]
                     (swap! rpc-calls conj [method params]))]
       (is (nil? (session/disconnect! client "runtime-only-session"))))
-    (is (= [["session.destroy" {:session-id "runtime-only-session"}]]
-           @rpc-calls))
+    (is (empty? @rpc-calls))
     (is (empty? (:sessions @(:state client))))))
 
 (deftest disconnect-notifies-runtime-before-releasing-local-resources
@@ -253,6 +252,57 @@
                         session-id)))
     (is (not (contains? (:session-disconnects @(:state client))
                         session-id)))))
+
+(deftest failed-disconnect-releases-retry-before-delivering-the-error
+  (let [client (sdk/client {:auto-start? false})
+        copilot-session (session/create-session client "retry-order" {})
+        session-id (sdk/session-id copilot-session)
+        destroy-error (ex-info "runtime destroy failed" {})
+        original-deliver deliver
+        state-at-delivery (atom nil)]
+    (swap! (:state client) assoc :connection-io :connection)
+    (with-redefs [protocol/send-request! (fn [& _] (throw destroy-error))
+                  clojure.core/deliver
+                  (fn [completion value]
+                    (reset! state-at-delivery @(:state client))
+                    (original-deliver completion value))]
+      (is (identical?
+           destroy-error
+           (try
+             (session/disconnect! client session-id)
+             nil
+             (catch Throwable failure
+               failure)))))
+    (is (not (contains? (:disconnecting-session-ids @state-at-delivery)
+                        session-id)))
+    (is (not (contains? (:session-disconnects @state-at-delivery)
+                        session-id)))))
+
+(deftest failed-disconnect-can-be-retried-successfully
+  (let [client (sdk/client {:auto-start? false})
+        copilot-session (session/create-session client "retry-disconnect" {})
+        session-id (sdk/session-id copilot-session)
+        events-ch (session/subscribe-events copilot-session)
+        destroy-error (ex-info "first destroy failed" {})
+        rpc-calls (atom 0)]
+    (swap! (:state client) assoc :connection-io :connection)
+    (with-redefs [protocol/send-request!
+                  (fn [& _]
+                    (when (= 1 (swap! rpc-calls inc))
+                      (throw destroy-error))
+                    {:success true})]
+      (is (identical?
+           destroy-error
+           (try
+             (session/disconnect! client session-id)
+             nil
+             (catch Throwable failure
+               failure))))
+      (is (nil? (session/disconnect! client session-id))))
+    (is (= 2 @rpc-calls))
+    (is (true? (get-in @(:state client)
+                       [:sessions session-id :destroyed?])))
+    (is (:closed? (await-port events-ch)))))
 
 (deftest disconnect-without-transport-returns-a-domain-error
   (let [client (sdk/client {:auto-start? false})

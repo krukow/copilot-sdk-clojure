@@ -120,21 +120,33 @@
         :else true)))))
 
 (def ^:private opaque-json-predicate
-  '(fn json-value? [value]
-     (cond
-       (nil? value) true
-       (string? value) true
-       (and (number? value)
-           (not (ratio? value))
+  '(fn [root]
+     (loop [pending [root]]
+       (if (empty? pending)
+         true
+         (let [value (peek pending)
+              remaining (pop pending)]
            (cond
-             (instance? Double value) (Double/isFinite value)
-             (instance? Float value) (Float/isFinite value)
-             :else true)) true
-       (boolean? value) true
-       (vector? value) (every? json-value? value)
-       (map? value) (and (every? #(or (keyword? %) (string? %)) (keys value))
-                        (every? json-value? (vals value)))
-       :else false)))
+            (or (nil? value)
+                (string? value)
+                (and (number? value)
+                     (not (ratio? value))
+                     (cond
+                       (instance? Double value) (Double/isFinite value)
+                       (instance? Float value) (Float/isFinite value)
+                       :else true))
+                (boolean? value))
+            (recur remaining)
+
+            (vector? value)
+            (recur (into remaining value))
+
+            (map? value)
+            (and (every? #(or (keyword? %) (string? %)) (keys value))
+                 (recur (into remaining (vals value))))
+
+            :else
+            false))))))
 
 (defn- emit-array [root node]
   (let [items (:items node)]
@@ -297,20 +309,9 @@
                          set, so e.g. envelope `id` (UUID string) is not
                          weakened by a data-payload `id` (positive integer).
                          `:type` and `:data` are always members of this set
-                         too (both collide with same-named data-payload
-                         properties on the schemas we generate from), but
-                         `emit-envelope-spec` skips emitting a strict-pred
-                         for either: any envelope property this specific
-                         variant declares with a `const` (chiefly `:type`)
-                         is already pinned to its exact literal by
-                         `const-preds`, and `:data` is always covered by the
-                         trailing per-variant `data-kw` predicate. Both
-                         existing checks are strictly more precise than a
-                         redundant union-of-every-variant strict-pred, which
-                         would otherwise bloat every envelope `s/def` form
-                         with a huge, information-free union (one branch per
-                         event type) — large enough, in practice, to trip
-                         the JVM's 64KB-per-method bytecode limit.
+                         too; `emit-envelope-spec` excludes them from strict
+                         predicates for the reasons documented beside its
+                         `strict-preds` binding.
 
    `:data-conflicted`  — set of kebab-names whose global `:leaf-map` form is
                          a non-conforming union and which occur in at least
@@ -464,25 +465,10 @@
    `:data` validation to the variant's `::<event>-data` spec, so envelopes
    from one event variant cannot validate against another.
 
-   When an envelope property's name conflicts with a data-payload property
-   that has a different schema, the global leaf spec is a non-conforming
-   union (e.g. envelope `id` is a UUID string, but `session.schedule_*`
-   data payloads use a positive-integer `id`). Without intervention the
-   envelope `s/keys` would accept the weakened union. We therefore emit an
-   extra predicate per conflicted envelope key validating it against the
-   strict envelope-only form (`env-form-by-kebab`) — except for two kebabs
-   that are always in `conflicted` but already have a strictly more precise
-   check elsewhere in this same `s/and`, so re-checking them here would be
-   pure bloat (previously producing envelope `s/def` forms large enough to
-   trip the JVM's 64KB-per-method bytecode limit):
-     - any property this variant declares with a JSON Schema `const`
-       (chiefly `:type`) — already pinned exactly by `const-preds`, which is
-       strictly stronger than a union over every variant's literal;
-     - `:data` — already validated against this variant's own
-       `::<event>-data` spec by the trailing `data-kw` predicate, which is
-       strictly stronger than a union over every variant's data shape (that
-       union would spuriously accept `:data` shaped like *any* other event
-       type)."
+   When an envelope property conflicts with a differently shaped data
+   property, emit a predicate against its strict envelope-only form. The
+   exclusions and bytecode-size rationale are documented beside the
+   `strict-preds` binding."
   [variant env-form-by-kebab conflicted]
   (let [event-type (get-in variant [:properties :type :const])
         envelope   (:properties variant)

@@ -33,22 +33,55 @@
          (instance? Float value) (Float/isFinite ^Float value)
          :else true)))
 
+(defn- json-tree-value?
+  [root extra-leaf?]
+  (loop [pending [root]]
+    (if (empty? pending)
+      true
+      (let [value (peek pending)
+            remaining (pop pending)]
+        (cond
+          (or (nil? value)
+              (string? value)
+              (json-number? value)
+              (boolean? value)
+              (extra-leaf? value))
+          (recur remaining)
+
+          (vector? value)
+          (recur (into remaining value))
+
+          (map? value)
+          (and (every? #(or (keyword? %) (string? %)) (keys value))
+               (recur (into remaining (vals value))))
+
+          :else
+          false)))))
+
 (defn- opaque-json-value?
   [value]
-  (cond
-    (nil? value) true
-    (string? value) true
-    (json-number? value) true
-    (boolean? value) true
-    (vector? value) (every? opaque-json-value? value)
-    (map? value) (and (every? #(or (keyword? %) (string? %)) (keys value))
-                      (every? opaque-json-value? (vals value)))
-    :else false))
+  (json-tree-value? value (constantly false)))
 
 (defn- optional-field?
   [m key pred]
   (or (not (contains? m key))
       (pred (get m key))))
+
+(defn- required-value?
+  [m key pred]
+  (and (contains? m key)
+       (pred (get m key))))
+
+(defn- vector-of?
+  [pred value]
+  (and (vector? value)
+       (every? pred value)))
+
+(defn- json-object-value?
+  [value]
+  (and (map? value)
+       (every? #(or (keyword? %) (string? %)) (keys value))
+       (every? opaque-json-value? (vals value))))
 
 (s/def ::non-blank-string (s/and string? (complement clojure.string/blank?)))
 ;; ::timestamp accepts both ISO 8601 strings (CLI ≥ 1.0.51, upstream PR #1340)
@@ -963,7 +996,7 @@
 (s/def ::coauthor-enabled boolean?)
 (s/def ::manage-schedule-enabled boolean?)
 (s/def ::included-builtin-skills
-  (s/coll-of ::non-blank-string))
+  (s/coll-of string?))
 
 ;; Reasoning summary mode (upstream PR #813 - pre-existing parity gap).
 ;; Wire enum: "none" | "concise" | "detailed". Mirrors upstream's ReasoningSummary type.
@@ -992,67 +1025,100 @@
 ;; Session-scoped GitHub credential callback (upstream PR #2412).
 (s/def ::github-token-provider fn?)
 (s/def ::github-token-acquire-reason
-  (s/and keyword? #(not (str/blank? (name %)))))
+  #{:initial :refresh})
 (s/def ::github-token-provider-args
   (s/and map?
          #(every? #{:host :session-id :reason} (keys %))
          #(contains? % :host)
          #(contains? % :reason)
          #(s/valid? ::non-blank-string (:host %))
-         #(or (not (contains? % :session-id))
-              (s/valid? ::non-blank-string (:session-id %)))
+         #(optional-field? % :session-id
+                           (partial s/valid? ::non-blank-string))
          #(s/valid? ::github-token-acquire-reason (:reason %))))
 
 (defn- github-token-provider-field-value?
   [value]
-  (cond
-    (keyword? value) true
-    (vector? value) (every? github-token-provider-field-value? value)
-    (map? value)
-    (and (every? #(or (keyword? %) (string? %)) (keys value))
-         (every? github-token-provider-field-value? (vals value)))
-    :else (opaque-json-value? value)))
+  (json-tree-value? value keyword?))
+
+(defn- github-token-provider-result-map?
+  [result]
+  (map? result))
+
+(defn- github-token-provider-result-kind?
+  [result]
+  (#{:token :cancelled} (:kind result)))
+
+(defn- github-token-provider-result-keys?
+  [result]
+  (every? #(or (keyword? %) (string? %)) (keys result)))
+
+(defn- github-token-provider-result-field-values?
+  [result]
+  (every? github-token-provider-field-value?
+          (vals (dissoc result :kind))))
+
+(defn- github-token-provider-result-access-token?
+  [result]
+  (or (= :cancelled (:kind result))
+      (s/valid? ::non-blank-string (:access-token result))))
+
+(defn- github-token-provider-result-expires-in-integer?
+  [result]
+  (or (= :cancelled (:kind result))
+      (integer? (:expires-in result))))
+
+(defn- github-token-provider-result-expires-in-minimum?
+  [result]
+  (or (= :cancelled (:kind result))
+      (> (:expires-in result) 3600)))
+
+(defn- github-token-provider-result-token-type?
+  [result]
+  (or (= :cancelled (:kind result))
+      (not (contains? result :token-type))
+      (s/valid? ::non-blank-string (:token-type result))))
 
 (defn ^:no-doc github-token-provider-result-constraint
   "Return the first violated provider-result constraint, or nil when valid.
    Both result variants are open to additional upstream-compatible fields."
   [result]
   (cond
-    (not (map? result))
+    (not (github-token-provider-result-map? result))
     :result-must-be-map
 
-    (not (#{:token :cancelled} (:kind result)))
+    (not (github-token-provider-result-kind? result))
     :kind-must-be-token-or-cancelled
 
-    (not (every? #(or (keyword? %) (string? %)) (keys result)))
+    (not (github-token-provider-result-keys? result))
     :keys-must-be-keywords-or-strings
 
-    (not (every? github-token-provider-field-value?
-                 (vals (dissoc result :kind))))
+    (not (github-token-provider-result-field-values? result))
     :fields-must-be-json-values
 
-    (= :cancelled (:kind result))
-    nil
-
-    (not (s/valid? ::non-blank-string (:access-token result)))
+    (not (github-token-provider-result-access-token? result))
     :access-token-must-be-non-blank-string
 
-    (not (integer? (:expires-in result)))
+    (not (github-token-provider-result-expires-in-integer? result))
     :expires-in-must-be-integer
 
-    (< (:expires-in result) 3601)
+    (not (github-token-provider-result-expires-in-minimum? result))
     :expires-in-must-exceed-3600
 
-    (and (contains? result :token-type)
-         (not (s/valid? ::non-blank-string (:token-type result))))
+    (not (github-token-provider-result-token-type? result))
     :token-type-must-be-non-blank-string
 
     :else
     nil))
 
 (s/def ::github-token-provider-result
-  (s/and map?
-         (comp nil? github-token-provider-result-constraint)))
+  (s/and github-token-provider-result-map?
+         github-token-provider-result-kind?
+         github-token-provider-result-keys?
+         github-token-provider-result-field-values?
+         github-token-provider-result-access-token?
+         github-token-provider-result-expires-in-integer?
+         github-token-provider-result-expires-in-minimum?
+         github-token-provider-result-token-type?))
 
 ;; Session options (upstream PR #1865) — shared by create + resume/join.
 ;; excludedBuiltinAgents: names of built-in agents to hide from the session.
@@ -2004,13 +2070,63 @@
 (s/def ::tool.execution_progress-data
   (s/keys :req-un [::tool-call-id ::progress-message]))
 
+(defn- tool-execution-complete-error?
+  [error]
+  (and (map? error)
+       (required-value? error :message string?)
+       (optional-field? error :code string?)))
+
+(defn- tool-execution-complete-result?
+  [result]
+  (and (map? result)
+       (required-value? result :content string?)
+       (optional-field? result :detailed-content string?)
+       (optional-field? result :contents (partial vector-of? map?))
+       (optional-field? result :binary-results-for-llm (partial vector-of? map?))
+       (optional-field? result :ui-resource map?)
+       (optional-field? result :structured-content opaque-json-value?)
+       (optional-field? result :citable-sources (partial vector-of? map?))
+       (optional-field? result :mcp-meta opaque-json-value?)))
+
+(defn- tool-execution-complete-telemetry?
+  [telemetry]
+  (and (map? telemetry)
+       (every? string? (keys telemetry))
+       (every? opaque-json-value? (vals telemetry))))
+
+(defn- tool-execution-complete-description?
+  [description]
+  (and (map? description)
+       (required-value? description :name string?)
+       (optional-field? description :description string?)
+       (optional-field? description :meta json-object-value?)))
+
+(defn- fusion-attribution?
+  [fusion]
+  (and
+   (map? fusion)
+   (every? #(optional-field? fusion % string?)
+           [:commit-id :conversation-scope :phase-id :phase-kind :role
+            :source-model :source-phase-id])
+   (every? #(required-value? fusion % string?)
+           [:fusion-id :synthetic-model :policy :pattern])))
+
 (s/def ::tool.execution_complete-data
   (s/and
-   (s/keys :req-un [::tool-call-id ::success]
-           :opt-un [::is-user-requested? ::tool-telemetry ::parent-tool-call-id
-                    ::model ::interaction-id])
-   #(optional-field? % :result opaque-json-value?)
-   #(optional-field? % :error opaque-json-value?)))
+   (s/keys :req-un [::tool-call-id ::success])
+   #(optional-field? % :result tool-execution-complete-result?)
+   #(optional-field? % :error tool-execution-complete-error?)
+   #(optional-field? % :fusion fusion-attribution?)
+   #(optional-field? % :interaction-id string?)
+   #(optional-field? % :is-user-requested boolean?)
+   #(optional-field? % :mcp-meta opaque-json-value?)
+   #(optional-field? % :model string?)
+   #(optional-field? % :parent-tool-call-id string?)
+   #(optional-field? % :rte boolean?)
+   #(optional-field? % :sandboxed boolean?)
+   #(optional-field? % :tool-description tool-execution-complete-description?)
+   #(optional-field? % :tool-telemetry tool-execution-complete-telemetry?)
+   #(optional-field? % :turn-id string?)))
 
 ;; Permission event data — resolved-by-hook indicates the runtime already handled
 ;; this permission request via a permissionRequest hook (upstream PR #999).
@@ -2108,12 +2224,15 @@
     #(or (not (contains? % :source)) (string? (:source %))))
    #{:message :stack :source}))
 (s/def ::hook.start-data
-  (s/keys :req-un [::hook-invocation-id ::hook-type]
-          :opt-un [::parent-tool-call-id]))
+  (s/and
+   (s/keys :req-un [::hook-invocation-id ::hook-type]
+           :opt-un [::parent-tool-call-id])
+   #(optional-field? % :input opaque-json-value?)))
 (s/def ::hook.end-data
   (s/and
    (s/keys :req-un [::hook-invocation-id ::hook-type ::success]
            :opt-un [::parent-tool-call-id])
+   #(optional-field? % :output opaque-json-value?)
    #(or (not (contains? % :error))
         (s/valid? ::hook-end-error (:error %)))))
 
@@ -2348,20 +2467,11 @@
 ;; Stable host-facing event payloads. These maps remain open so additive wire
 ;; fields continue to pass through, while the exported fields below retain their
 ;; caller-facing types.
-(defn- required-value?
-  [m key pred]
-  (and (contains? m key)
-       (pred (get m key))))
-
-(defn- optional-value?
-  [m key pred]
-  (or (not (contains? m key))
-      (pred (get m key))))
 
 (s/def ::session.mode_notice_delivered-data
   (s/and map?
          #(required-value? % :mode session-modes)
-         #(optional-value? % :content string?)))
+         #(optional-field? % :content string?)))
 
 (s/def ::model-call-failure-source #{"top_level" "subagent" "mcp_sampling"})
 (s/def ::model.call_failure-data
@@ -2372,7 +2482,7 @@
 (s/def ::model.call_finished-data
   (s/and map?
          #(required-value? % :turn-id string?)
-         #(optional-value? % :interaction-id string?)
+         #(optional-field? % :interaction-id string?)
          #(required-value? % :dispatch-duration-ms
                            (fn [duration]
                              ;; json-number? rejects NaN/Infinity (non-finite doubles);
@@ -2380,14 +2490,14 @@
                              (and (json-number? duration)
                                   (not (neg? duration)))))
          #(required-value? % :outcome #{"success" "error" "cancelled" "rejected"})
-         #(optional-value? % :contains-built-in-file-edit-request boolean?)
+         #(optional-field? % :contains-built-in-file-edit-request boolean?)
          #(required-value? % :edit-classifier-version pos-int?)))
 
 (s/def ::subagent.configured-data
   (s/and map?
          #(required-value? % :model string?)
-         #(optional-value? % :reasoning-effort string?)
-         #(optional-value? % :context-tier string?)
+         #(optional-field? % :reasoning-effort string?)
+         #(optional-field? % :context-tier string?)
          #(required-value? % :multi-turn boolean?)))
 
 (defn- notification-map?
@@ -2407,9 +2517,9 @@
          (s/valid? ::non-blank-string (:agent-id kind))
          (string? (:agent-type kind))
          (contains? #{"completed" "failed"} (:status kind))
-         (optional-value? kind :display-name string?)
-         (optional-value? kind :description string?)
-         (optional-value? kind :prompt string?))
+         (optional-field? kind :display-name string?)
+         (optional-field? kind :description string?)
+         (optional-field? kind :prompt string?))
 
     "agent_idle"
     (and (notification-map?
@@ -2418,8 +2528,8 @@
           #{:type :agent-id :display-name :agent-type :description})
          (s/valid? ::non-blank-string (:agent-id kind))
          (string? (:agent-type kind))
-         (optional-value? kind :display-name string?)
-         (optional-value? kind :description string?))
+         (optional-field? kind :display-name string?)
+         (optional-field? kind :description string?))
 
     "new_inbox_message"
     (and (notification-map?
@@ -2435,8 +2545,8 @@
           #{:type :shell-id}
           #{:type :shell-id :exit-code :description})
          (string? (:shell-id kind))
-         (optional-value? kind :exit-code int?)
-         (optional-value? kind :description string?))
+         (optional-field? kind :exit-code int?)
+         (optional-field? kind :description string?))
 
     "shell_detached_completed"
     (and (notification-map?
@@ -2444,7 +2554,7 @@
           #{:type :shell-id}
           #{:type :shell-id :description})
          (string? (:shell-id kind))
-         (optional-value? kind :description string?))
+         (optional-field? kind :description string?))
 
     "instruction_discovered"
     (and (notification-map?
@@ -2453,7 +2563,7 @@
           #{:type :source-path :trigger-file :trigger-tool :description})
          (every? string?
                  ((juxt :source-path :trigger-file :trigger-tool) kind))
-         (optional-value? kind :description string?))
+         (optional-field? kind :description string?))
 
     "factory_completed"
     (and (notification-map?
@@ -2470,14 +2580,14 @@
          (nat-int? (:elapsed-ms kind))
          (nat-int? (:consumed-nano-aiu kind))
          (pos-int? (:attempt kind))
-         (optional-value? kind :result-preview
+         (optional-field? kind :result-preview
                           #(and (string? %) (<= (count %) 256)))
-         (optional-value? kind :failure opaque-json-value?)
-         (optional-value? kind :retry-guidance string?))
+         (optional-field? kind :failure opaque-json-value?)
+         (optional-field? kind :retry-guidance string?))
 
     "unclassified"
     (and (notification-map? kind #{:type} #{:type :metadata})
-         (optional-value? kind :metadata opaque-json-value?))
+         (optional-field? kind :metadata opaque-json-value?))
 
     false))
 
@@ -2563,7 +2673,7 @@
    (s/keys :req-un [::text-result-for-llm ::result-type]
            :opt-un [::binary-results-for-llm ::session-log ::tool-telemetry
                     ::tool-references])
-   #(optional-field? % :error opaque-json-value?)))
+   #(optional-field? % :error string?)))
 
 (s/def ::tool-result
   (s/or :string string?

@@ -610,6 +610,21 @@
                           :blocks [invalid]}))
           (pr-str invalid)))))
 
+(deftest opaque-json-specs-are-stack-safe
+  (let [depth 20000
+        nested-json (reduce (fn [value _] [value]) nil (range depth))
+        nested-invalid (reduce (fn [value _] [value]) (Object.) (range depth))
+        hook-start {:hook-invocation-id "hook-1"
+                    :hook-type "pre-tool-use"}]
+    (is (s/valid? ::gen/hook.start-data
+                  (assoc hook-start :input nested-json)))
+    (is (s/valid? ::specs/hook.start-data
+                  (assoc hook-start :input nested-json)))
+    (is (not (s/valid? ::gen/hook.start-data
+                       (assoc hook-start :input nested-invalid))))
+    (is (not (s/valid? ::specs/hook.start-data
+                       (assoc hook-start :input nested-invalid))))))
+
 (deftest generated-event-data-remains-open-at-the-top-level
   (testing "future event fields pass standalone and through envelope specs"
     (let [data {:hook-invocation-id "hook-1"

@@ -82,7 +82,7 @@
         client (sdk/client {:auto-start? false})
         [in out] (mock/client-streams server)]
     ;; Connect client to mock server
-    (client/connect-with-streams! client in out)
+    (@#'client/connect-with-streams* client in out false)
     (binding [*mock-server* server
               *test-client* client]
       (try

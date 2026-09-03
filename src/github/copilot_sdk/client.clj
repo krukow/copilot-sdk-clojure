@@ -76,14 +76,26 @@
 
 (defn- ensure-github-token-provider-transport!
   [client config]
-  (when (and (:github-token-provider config)
-             (get-in client [:options :cli-url]))
-    (throw
-     (ex-info
-      (str ":github-token-provider requires an SDK-owned transport or "
-           "child-process stdio; external cli-url servers cannot be authenticated")
-      {:type :github-token-provider-unsafe-transport
-       :cli-url (get-in client [:options :cli-url])}))))
+  (when (:github-token-provider config)
+    (let [unsafe-transport
+          (cond
+            (get-in client [:options :cli-url]) :external-cli-url
+            (:caller-supplied-streams? @(:state client)) :caller-supplied-streams)]
+      (when unsafe-transport
+        (throw
+         (ex-info
+          (case unsafe-transport
+            :external-cli-url
+            (str ":github-token-provider requires an SDK-owned transport or "
+                 "child-process stdio; external cli-url servers cannot be authenticated")
+
+            :caller-supplied-streams
+            (str ":github-token-provider requires an SDK-owned transport or "
+                 "child-process stdio; caller-supplied streams cannot be authenticated"))
+          (cond-> {:type :github-token-provider-unsafe-transport
+                   :transport unsafe-transport}
+            (= :external-cli-url unsafe-transport)
+            (assoc :cli-url (get-in client [:options :cli-url])))))))))
 
 (defn- mask-secret
   "Replace `v` with \"***\" only when it is a non-blank string (i.e. an actual
@@ -235,6 +247,7 @@
    :router-queue nil
    :router-thread nil
    :router-running? false
+   :caller-supplied-streams? false
    :stopping? false
    :models-cache nil         ; nil, promise, or vector of models (cleared on stop)
    :lifecycle-handlers {}
@@ -949,6 +962,32 @@
          ": :github-token and :github-token-provider are mutually exclusive")
     base-message))
 
+(def ^:private github-token-provider-runtime-path
+  [:github-token-provider-runtime])
+
+(def ^:private github-token-provider-registrations-path
+  (conj github-token-provider-runtime-path :registrations))
+
+(def ^:private github-token-provider-invocations-path
+  (conj github-token-provider-runtime-path :invocations))
+
+(def ^:private github-token-provider-executor-path
+  (conj github-token-provider-runtime-path :executor))
+
+(def ^:private github-token-provider-generation-path
+  (conj github-token-provider-runtime-path :generation))
+
+(def ^:private github-token-provider-saturation-count-path
+  (conj github-token-provider-runtime-path :saturation-count))
+
+(defn- github-token-provider-registration-path
+  [registration-id]
+  (conj github-token-provider-registrations-path registration-id))
+
+(defn- github-token-provider-invocation-path
+  [invocation-id]
+  (conj github-token-provider-invocations-path invocation-id))
+
 (defn- register-github-token-provider!
   [client provider session-id]
   (when provider
@@ -969,9 +1008,7 @@
                state
                (assoc-in
                 state
-                [:github-token-provider-runtime
-                 :registrations
-                 registration-id]
+                (github-token-provider-registration-path registration-id)
                 registration))
             registration-id
             (recur)))))))
@@ -991,15 +1028,14 @@
   (when registration-id
     (swap! (:state client)
            (fn [state]
-             (if (get-in state
-                         [:github-token-provider-runtime
-                          :registrations
-                          registration-id])
+             (if (get-in
+                  state
+                  (github-token-provider-registration-path registration-id))
                (assoc-in state
-                         [:github-token-provider-runtime
-                          :registrations
-                          registration-id
-                          :session-id]
+                         (conj
+                          (github-token-provider-registration-path
+                           registration-id)
+                          :session-id)
                          session-id)
                state)))))
 
@@ -1019,16 +1055,14 @@
          (fn [state]
            (if registration-id
              (if-let [registration
-                      (get-in state
-                              [:github-token-provider-runtime
-                               :registrations
-                               registration-id])]
+                      (get-in
+                       state
+                       (github-token-provider-registration-path
+                        registration-id))]
                (-> (session/purge-github-token-provider-resources
                     state session-id :committed-only)
                    (assoc-in
-                    [:github-token-provider-runtime
-                     :registrations
-                     registration-id]
+                    (github-token-provider-registration-path registration-id)
                     (assoc registration
                            :session-id session-id
                            :committed? true)))
@@ -1075,19 +1109,18 @@
     (loop []
       (let [state @state-atom]
         (cond
-          (not= generation
-                (get-in state [:github-token-provider-runtime :generation]))
+          (not= generation (get-in state github-token-provider-generation-path))
           (do
             (log/debug
              "GitHub token provider runtime generation retired before execution"
              {:invocation-generation generation
               :runtime-generation
-              (get-in state [:github-token-provider-runtime :generation])})
-            nil)
+              (get-in state github-token-provider-generation-path)})
+            {:status :stale})
 
-          (get-in state [:github-token-provider-runtime :executor])
+          (get-in state github-token-provider-executor-path)
           (let [^ThreadPoolExecutor executor
-                (get-in state [:github-token-provider-runtime :executor])]
+                (get-in state github-token-provider-executor-path)]
             (cond
               (.isTerminated executor)
               (do
@@ -1095,7 +1128,7 @@
                  state-atom
                  state
                  (assoc-in state
-                           [:github-token-provider-runtime :executor]
+                           github-token-provider-executor-path
                            nil))
                 (recur))
 
@@ -1104,19 +1137,19 @@
                 (log/warn
                  "GitHub token provider executor is still terminating"
                  {:invocation-generation generation})
-                nil)
+                {:status :unavailable})
 
               :else
-              executor))
+              {:status :ready :executor executor}))
 
           :else
           (let [executor (create-github-token-provider-executor)
                 next-state
                 (assoc-in state
-                          [:github-token-provider-runtime :executor]
+                          github-token-provider-executor-path
                           executor)]
             (if (compare-and-set! state-atom state next-state)
-              executor
+              {:status :ready :executor executor}
               (do
                 (.shutdownNow ^ThreadPoolExecutor executor)
                 (recur)))))))))
@@ -1129,13 +1162,13 @@
          (fn [state]
            (-> (session/purge-all-github-token-provider-resources state)
                (assoc-in
-                [:github-token-provider-runtime :saturation-count]
+                github-token-provider-saturation-count-path
                 0)
                (update-in
-                [:github-token-provider-runtime :generation]
+                github-token-provider-generation-path
                 inc))))
         executor
-        (get-in old-state [:github-token-provider-runtime :executor])]
+        (get-in old-state github-token-provider-executor-path)]
     (session/close-removed-github-token-provider-invocations!
      old-state new-state)
     (if-not executor
@@ -1151,10 +1184,9 @@
                    (fn [state]
                      (if (identical?
                           executor
-                          (get-in state
-                                  [:github-token-provider-runtime :executor]))
+                          (get-in state github-token-provider-executor-path))
                        (assoc-in state
-                                 [:github-token-provider-runtime :executor]
+                                 github-token-provider-executor-path
                                  nil)
                        state)))
             [])
@@ -1186,10 +1218,9 @@
       (let [state-atom (:state client)
             state @state-atom
             {:keys [provider] :as registration}
-            (get-in state
-                    [:github-token-provider-runtime
-                     :registrations
-                     registration-id])]
+            (get-in
+             state
+             (github-token-provider-registration-path registration-id))]
         (when-not registration
           (throw
            (ex-info
@@ -1202,9 +1233,12 @@
                                      session-id
                                      registered-session-id)
               args (cond-> {:host host
-                            :reason (when (or (string? reason)
-                                              (keyword? reason))
-                                      (keyword reason))}
+                            :reason (case reason
+                                      "initial" :initial
+                                      :initial :initial
+                                      "refresh" :refresh
+                                      :refresh :refresh
+                                      ::invalid-reason)}
                      (or supplied-session-id? registered-session-id)
                      (assoc :session-id effective-session-id))]
           (when-not (s/valid? ::specs/github-token-provider-args args)
@@ -1230,16 +1264,13 @@
                  :host host
                  :reason (:reason args)
                  :generation
-                 (get-in state
-                         [:github-token-provider-runtime :generation])
+                 (get-in state github-token-provider-generation-path)
                  :cancel-chan cancel-chan
                  :cancelled? cancelled?
                  :task task}
                 next-state
                 (assoc-in state
-                          [:github-token-provider-runtime
-                           :invocations
-                           invocation-id]
+                          (github-token-provider-invocation-path invocation-id)
                           invocation)]
             (if (compare-and-set! state-atom state next-state)
               {:args args
@@ -1255,25 +1286,21 @@
          (:state client)
          (fn [state]
            (if (= generation
-                  (get-in state
-                          [:github-token-provider-runtime :generation]))
+                  (get-in state github-token-provider-generation-path))
              (update-in state
-                        [:github-token-provider-runtime :saturation-count]
+                        github-token-provider-saturation-count-path
                         #(min github-token-provider-saturation-count-max
                               (inc %)))
              state)))]
     (if (= generation
-           (get-in old-state
-                   [:github-token-provider-runtime :generation]))
-      (get-in new-state
-              [:github-token-provider-runtime :saturation-count])
+           (get-in old-state github-token-provider-generation-path))
+      (get-in new-state github-token-provider-saturation-count-path)
       (do
         (log/debug
          "GitHub token provider saturation raced with runtime retirement"
          {:invocation-generation generation
           :runtime-generation
-          (get-in old-state
-                  [:github-token-provider-runtime :generation])})
+          (get-in old-state github-token-provider-generation-path)})
         nil))))
 
 (defn- github-token-provider-log-metadata
@@ -1303,11 +1330,10 @@
   (let [[old-state _]
         (swap-vals! (:state client)
                     update-in
-                    [:github-token-provider-runtime :invocations]
+                    github-token-provider-invocations-path
                     dissoc
                     invocation-id)]
-    (get-in old-state
-            [:github-token-provider-runtime :invocations invocation-id])))
+    (get-in old-state (github-token-provider-invocation-path invocation-id))))
 
 (defn- cancel-github-token-provider-invocation!
   [client invocation-id]
@@ -1386,7 +1412,8 @@
             (github-token-provider-log-metadata invocation)
             :constraint constraint))
           (provider-failure-response
-           "GitHub token provider returned an invalid result"))
+           (str "GitHub token provider returned an invalid result: "
+                (name constraint))))
         {:result result}))))
 
 (defn- github-token-provider-response
@@ -1396,10 +1423,12 @@
         result-chan (chan 1)
         response-chan (chan 1)
         timeout-chan (async/timeout github-token-provider-timeout-ms)
+        {:keys [status executor]}
+        (github-token-provider-executor!
+         client (:generation invocation))
         await-result?
-        (if-let [executor
-                 (github-token-provider-executor!
-                  client (:generation invocation))]
+        (case status
+          :ready
           (try
             (let [future
                   (.submit
@@ -1440,44 +1469,74 @@
                      "GitHub token provider executor saturated"}}))
                 (close! response-chan)
                 false)))
+
+          :unavailable
           (do
-            (claim-github-token-provider-invocation!
-             client invocation-id)
+            (claim-github-token-provider-invocation! client invocation-id)
+            (log/warn
+             "GitHub token provider executor unavailable"
+             (github-token-provider-log-metadata invocation))
+            (async/put!
+             response-chan
+             (provider-failure-response
+              "GitHub token provider executor unavailable"))
+            (close! response-chan)
+            false)
+
+          :stale
+          (do
+            (claim-github-token-provider-invocation! client invocation-id)
             (async/put! response-chan (provider-cancelled-response))
             (close! response-chan)
             false))]
     (when await-result?
       (go
-        (let [[outcome port]
-              (async/alts!
-               [result-chan
-                (:cancel-chan invocation)
-                timeout-chan]
-               :priority true)
-              response
-              (cond
-                (identical? port (:cancel-chan invocation))
-                (do
-                  (claim-github-token-provider-invocation!
-                   client invocation-id)
-                  (provider-cancelled-response))
-
-                (identical? port timeout-chan)
-                (if (cancel-github-token-provider-invocation!
-                     client invocation-id)
+        (try
+          (let [[outcome port]
+                (async/alts!
+                 [result-chan
+                  (:cancel-chan invocation)
+                  timeout-chan]
+                 :priority true)
+                response
+                (cond
+                  (identical? port (:cancel-chan invocation))
                   (do
-                    (log/warn
-                     "GitHub token provider callback timed out"
-                     (github-token-provider-log-metadata invocation))
-                    (provider-failure-response
-                     "GitHub token provider callback timed out."))
-                  (provider-cancelled-response))
+                    (claim-github-token-provider-invocation!
+                     client invocation-id)
+                    (provider-cancelled-response))
 
-                :else
-                (github-token-provider-outcome-response
-                 client invocation-id invocation outcome))]
-          (>! response-chan response)
-          (close! response-chan))))
+                  (identical? port timeout-chan)
+                  (if (cancel-github-token-provider-invocation!
+                       client invocation-id)
+                    (do
+                      (log/warn
+                       "GitHub token provider callback timed out"
+                       (github-token-provider-log-metadata invocation))
+                      (provider-failure-response
+                       "GitHub token provider callback timed out."))
+                    (provider-cancelled-response))
+
+                  :else
+                  (github-token-provider-outcome-response
+                   client invocation-id invocation outcome))]
+            (>! response-chan response))
+          (catch Throwable failure
+            (claim-github-token-provider-invocation! client invocation-id)
+            (log/warn
+             (sanitized-github-token-provider-failure failure)
+             "GitHub token provider response construction failed"
+             (assoc
+              (github-token-provider-log-metadata invocation)
+              :exception-class (throwable-class-name failure)))
+            (>! response-chan
+                {:error
+                 {:code -32603
+                  :message
+                  (str "Internal error: GitHub token provider response "
+                       "construction failed")}}))
+          (finally
+            (close! response-chan)))))
     response-chan))
 
 (defn- setup-request-handler!
@@ -1941,7 +2000,10 @@
                             (fn [s]
                               (if (#{:connecting :connected} (:status s))
                                 s
-                                (assoc s :stopping? false :status :connecting))))]
+                                (assoc s
+                                       :caller-supplied-streams? false
+                                       :stopping? false
+                                       :status :connecting))))]
     (when-not (#{:connecting :connected} (:status old))
       (log/info "Starting Copilot client...")
 
@@ -2843,8 +2905,15 @@
 
 (defn- preserve-setup-failure!
   [^Throwable failure cleanup-failures]
-  (doseq [cleanup-failure cleanup-failures]
-    (.addSuppressed failure cleanup-failure))
+  (let [interrupted? (or (.isInterrupted (Thread/currentThread))
+                         (instance? InterruptedException failure))]
+    (doseq [cleanup-failure cleanup-failures]
+      (when (instance? InterruptedException cleanup-failure)
+        (.interrupt (Thread/currentThread)))
+      (when-not (identical? failure cleanup-failure)
+        (.addSuppressed failure cleanup-failure)))
+    (when interrupted?
+      (.interrupt (Thread/currentThread))))
   (log-teardown-failures! cleanup-failures)
   failure)
 
@@ -2863,8 +2932,7 @@
            (when (and (= session-id (:session-id registration))
                       (:committed? registration))
              registration-id)))
-        (get-in state
-                [:github-token-provider-runtime :registrations]))})))
+        (get-in state github-token-provider-registrations-path))})))
 
 (defn- restore-session-registration!
   [client session-id snapshot]
@@ -3580,12 +3648,12 @@
    - :github-token       - Static GitHub token for this session (sent as gitHubToken).
                            Mutually exclusive with :github-token-provider.
    - :github-token-provider - Refreshable session credential callback. Receives
-                              {:host :session-id? :reason keyword}; known reasons
-                              are :initial and :refresh, while future nonblank
-                              reasons pass through for forward compatibility.
+                              {:host :session-id? :reason keyword}; :reason is
+                              exactly :initial or :refresh.
                               Returns
                               {:kind :token :access-token :expires-in :token-type?} or
                               {:kind :cancelled}, directly or on a core.async channel.
+                              Token results require integer :expires-in >= 3601.
                               Both result variants may contain extension fields.
                               Only an opaque registration id is sent in session
                               configuration, but acquired credentials cross the
@@ -3874,7 +3942,8 @@
    - :github-token-provider - Refreshable session credential callback. Same shape,
                               lifecycle, and transport-security requirements as
                               create-session; a successful resume replaces the
-                              session's previous provider.
+                              session's previous provider. Token results require
+                              integer :expires-in >= 3601.
    - :on-user-input-request - Handler for ask_user requests
    - :ask-user-variant  - Built-in ask_user shape: :legacy or :elicitation.
    - :on-elicitation-request - Handler for elicitation requests (upstream PRs #908, #960).
@@ -4125,6 +4194,7 @@
               (catch Throwable t
                 (<! (fail-ch
                      session-id @remote-accepted? snapshot t))))))))))
+
 (defn <resume-session
   "Async version of resume-session. Returns a channel that delivers a CopilotSession.
 
@@ -4296,8 +4366,12 @@
                     requested-names
                     (:granted-environment-variables result)))))
         (catch Throwable t
-          (try (stop! c) (catch Throwable _))
-          (throw t))))))
+          (let [cleanup-failures
+                (try
+                  (stop! c)
+                  (catch Throwable cleanup-failure
+                    [cleanup-failure]))]
+            (throw (preserve-setup-failure! t cleanup-failures))))))))
 
 (defn- wire->session-metadata
   "Convert a wire-format session map to the Clojure session-metadata shape."
@@ -4408,15 +4482,15 @@
 ;; Testing Utilities
 ;; -----------------------------------------------------------------------------
 
-(defn connect-with-streams!
-  "Connect to a server using pre-existing input/output streams.
-   For testing purposes only."
-  [client in out]
+(defn- connect-with-streams*
+  [client in out caller-supplied?]
   (let [[old _] (swap-vals! (:state client)
                             (fn [s]
                               (if (#{:connecting :connected} (:status s))
                                 s
-                                (assoc s :status :connecting))))]
+                                (assoc s
+                                       :caller-supplied-streams? caller-supplied?
+                                       :status :connecting))))]
     (when-not (#{:connecting :connected} (:status old))
       (try
         ;; Initialize connection state before connecting
@@ -4445,3 +4519,12 @@
           (log-teardown-failures! (release-transport! client {:process :none}))
           (swap! (:state client) assoc :status :error)
           (throw e))))))
+
+(defn connect-with-streams!
+  "Connect to a server using caller-supplied input/output streams.
+
+   For testing purposes only. Because the SDK cannot authenticate the peer
+   represented by these streams, sessions using `:github-token-provider` reject
+   this transport before sending a session RPC."
+  [client in out]
+  (connect-with-streams* client in out true))

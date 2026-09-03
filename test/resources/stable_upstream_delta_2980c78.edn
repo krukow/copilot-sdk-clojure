@@ -372,6 +372,154 @@
   #{"_runOnDisconnected"
     "_setOnDisconnected"}}}
 
+ :target-public-surface
+ {:package-root
+  {:path "nodejs/src/index.ts"
+   :explicit-symbol-count 194
+   :explicit-symbols-sha256
+   "b806fae458482ff48a6fc8d80b68839cbfbd8414438da7f27586a2ca1296a399"
+   :star-exports
+   [{:module "./generated/session-events.js"
+     :path "nodejs/src/generated/session-events.ts"
+     :symbol-count 509
+     :symbols-sha256
+     "c3f189ded61369e86129dee26d0521b511e2233d2d6e47e2883570e28ec9d90b"}]
+   :symbol-count 694
+   :symbols-sha256
+   "1d620db83150ca6d9fed79e830a907d299fb986e09956dfdfb28b20174fcba75"}
+
+  :extension
+  {:path "nodejs/src/extension.ts"
+   :symbols
+   #{"Canvas"
+     "CanvasAction"
+     "CanvasDeclaration"
+     "CanvasError"
+     "CanvasHostContext"
+     "CanvasJsonSchema"
+     "CanvasOptions"
+     "ExtensionInfo"
+     "FactoryAgentOptions"
+     "FactoryAgentSummary"
+     "FactoryContext"
+     "FactoryDefinition"
+     "FactoryHandle"
+     "FactoryJsonSchema"
+     "FactoryLimits"
+     "FactoryListRunsOptions"
+     "FactoryMeta"
+     "FactoryPhaseObservation"
+     "FactoryPhaseStatus"
+     "FactoryPipelineStage"
+     "FactoryProgressLine"
+     "FactoryProgressPage"
+     "FactoryResumeError"
+     "FactoryResumeErrorCode"
+     "FactoryRunDetail"
+     "FactoryRunResult"
+     "FactoryRunStatus"
+     "FactoryRunSummary"
+     "FactoryRunsPage"
+     "FactoryStepOptions"
+     "JoinSessionConfig"
+     "JsonValue"
+     "ResumeOptions"
+     "RunOptions"
+     "SessionFactoryApi"
+     "createCanvas"
+     "defineFactory"
+     "isFactoryRunTerminal"}
+   :symbol-count 38
+   :symbols-sha256
+   "1c0c096a0840220a8fe5013e2df23fdbc2e05364f14a19540a7643a36dab7919"}
+
+  :classes
+  {:client
+   {:path "nodejs/src/client.ts"
+    :class-name "CopilotClient"
+    :methods
+    {:stable
+     #{"[Symbol.asyncDispose]"
+       "constructor"
+       "createSession"
+       "deleteSession"
+       "forceStop"
+       "getAuthStatus"
+       "getForegroundSessionId"
+       "getLastSessionId"
+       "getSessionMetadata"
+       "getStatus"
+       "listModels"
+       "listSessions"
+       "onLifecycle"
+       "ping"
+       "resumeSession"
+       "rpc"
+       "setForegroundSessionId"
+       "start"
+       "stop"}
+     :internal #{"resumeSessionForExtension"}
+     :experimental #{}}
+    :method-count 20
+    :methods-sha256
+    "bcf31a8e931df3230402c11670d9e14dd03b90564fb6e7192356d746edd273e6"
+    :properties {:stable #{} :internal #{} :experimental #{}}}
+
+   :session
+   {:path "nodejs/src/session.ts"
+    :class-name "CopilotSession"
+    :methods
+    {:stable
+     #{"[Symbol.asyncDispose]"
+       "abort"
+       "capabilities"
+       "disconnect"
+       "getEvents"
+       "log"
+       "on"
+       "openCanvases"
+       "rpc"
+       "send"
+       "sendAndWait"
+       "setModel"
+       "ui"
+       "workspacePath"}
+     :internal
+     #{"_dispatchEvent"
+       "_handleAutoModeSwitchRequest"
+       "_handleElicitationRequest"
+       "_handleExitPlanModeRequest"
+       "_handleHooksInvoke"
+       "_handleSystemMessageTransform"
+       "_handleUserInputRequest"
+       "_markDisconnected"
+       "_runOnDisconnected"
+       "_setOnDisconnected"
+       "constructor"
+       "getToolHandler"
+       "registerAutoModeSwitchHandler"
+       "registerBearerTokenProviders"
+       "registerCanvases"
+       "registerCommands"
+       "registerElicitationHandler"
+       "registerExitPlanModeHandler"
+       "registerFactories"
+       "registerHooks"
+       "registerPermissionHandler"
+       "registerTools"
+       "registerTransformCallbacks"
+       "registerUserInputHandler"
+       "setCapabilities"
+       "setOpenCanvases"}
+     :experimental #{}}
+    :method-count 40
+    :methods-sha256
+    "7b894949ac8cb7bdd4cec3e9fbe6cd875b305994f281e5745b2e3c55a89f5831"
+    :properties
+    {:stable #{"sessionId"}
+     :internal #{"clientSessionApis"}
+     :experimental #{"factory"}}}}}
+
  :stable-delta-ids
  #{:auth/github-token-provider
    :events/assistant-message-tool-request-caller
@@ -811,7 +959,7 @@
   {:source "@github/copilot-linux-x64@1.0.83-1/schemas/session-events.schema.json"
    :sha256 "11d24b4e8de44590d70e261ebf15be18d91de14d674fdcfb1f2554ad43a48169"}
   :generated-clojure-output
-  {:event-specs-sha256 "42abe43e585481a83d23592979ef8a3db3801fbd969d46655263a2d8b877df76"
+  {:event-specs-sha256 "1c32466764a46fded4d2344fbeb280f9b57728f38b0feb27d73ce28aa0b17181"
    :coercions-sha256 "5688dbc7cc1f5cc3ef05eab7ffd3230b516c431e7ed344dad137f45eee359d33"}}
 
  :published-schema-artifact

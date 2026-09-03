@@ -904,11 +904,11 @@
 (defn ^:no-doc purge-all-github-token-provider-resources
   "Remove every provider registration and active invocation."
   [state]
-  (assoc state
-         :github-token-provider-runtime
-         (assoc (:github-token-provider-runtime state)
-                :registrations {}
-                :invocations {})))
+  (update state
+          :github-token-provider-runtime
+          assoc
+          :registrations {}
+          :invocations {}))
 
 (defn ^:no-doc close-removed-github-token-provider-invocations!
   "Cancel invocations removed by one atomic client-state transition."
@@ -940,13 +940,11 @@
           (:state client)
           (fn [state]
             (let [session (get-in state [:sessions session-id])
-                  state (cond-> state
-                          provider-scope
-                          (purge-github-token-provider-resources
-                           session-id provider-scope)
-
-                          true
-                          (update :disconnecting-session-ids disj session-id))]
+                  state (-> (cond-> state
+                              provider-scope
+                              (purge-github-token-provider-resources
+                               session-id provider-scope))
+                            (update :disconnecting-session-ids disj session-id))]
               (if (or (nil? session) (:destroyed? session))
                 state
                 (assoc-in
@@ -2316,7 +2314,8 @@
           (:state client)
           (fn [state]
             (let [session (get-in state [:sessions session-id])]
-              (if (and (not (:destroyed? session))
+              (if (and session
+                       (not (:destroyed? session))
                        (not (contains?
                              (:disconnecting-session-ids state)
                              session-id)))
@@ -2364,14 +2363,14 @@
                                 5000))
          (when (get-in old-state [:sessions session-id])
            (teardown-local! client session-id))
-         (deliver completion {:result nil})
          (release-claim!)
+         (deliver completion {:result nil})
          (log/debug "Session disconnected: " session-id)
          (catch Throwable error
            (when (instance? InterruptedException error)
              (.interrupt (Thread/currentThread)))
-           (deliver completion {:error error})
            (release-claim!)
+           (deliver completion {:error error})
            (throw error)))
 
        shared-completion

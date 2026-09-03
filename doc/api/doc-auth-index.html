@@ -140,7 +140,7 @@
 <tbody>
 <tr><td> <code>:host</code> </td><td> GitHub host requesting the credential </td></tr>
 <tr><td> <code>:session-id</code> </td><td> Session ID when known; omitted during an initial cloud-session registration if the server assigns the ID </td></tr>
-<tr><td> <code>:reason</code> </td><td> <code>:initial</code> for the first credential, <code>:refresh</code> when the runtime requests renewal, or a future nonblank keyword passed through for forward compatibility </td></tr>
+<tr><td> <code>:reason</code> </td><td> <code>:initial</code> for the first credential or <code>:refresh</code> when the runtime requests renewal </td></tr>
 </tbody>
 </table>
 <p>Return <code>{:kind :token :access-token ... :expires-in ...}</code> with an integer expiry of at least 3,601 seconds and optional <code>:token-type</code>, or return <code>{:kind :cancelled}</code>. Either result may be returned directly or through a core.async channel. Both result variants may contain additional extension fields; the SDK validates the known discriminator and payload fields without stripping those extensions.</p>

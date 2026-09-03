@@ -214,6 +214,14 @@
   (set/union (declaration-symbols source)
              (export-list-symbols source)))
 
+(defn- star-export-modules
+  [source]
+  (into #{}
+        (map second)
+        (re-seq
+         #"(?m)^export\s+(?:type\s+)?\*\s+from\s+\"([^\"]+)\";"
+         source)))
+
 (defn- added-exported-symbols
   [upstream base target path]
   (set/difference
@@ -387,6 +395,56 @@
         (re-seq
          #"(?m)^    (?:(?:private|public|protected|async|static)\s+)*([A-Za-z_$][A-Za-z0-9_$]*)\s*\("
          source)))
+
+(defn- class-source
+  [source class-name]
+  (let [pattern
+        (re-pattern
+         (str "(?ms)^export class "
+              (java.util.regex.Pattern/quote class-name)
+              "\\b.*?\\{(.*?)^\\}"))
+        body (second (re-find pattern source))]
+    (when-not body
+      (throw (ex-info "Expected exported class was not found"
+                      {:class-name class-name})))
+    body))
+
+(defn- public-class-methods
+  [source class-name]
+  (->> (re-seq
+        #"(?m)^    ((?:(?:private|public|protected|async|static|override|readonly)\s+)*)(?:(?:get|set)\s+)?(\[Symbol\.[A-Za-z_$][A-Za-z0-9_$]*\]|[A-Za-z_$][A-Za-z0-9_$]*)\s*\("
+        (class-source source class-name))
+       (remove #(re-find #"\b(?:private|protected)\b" (second %)))
+       (map #(nth % 2))
+       set))
+
+(defn- public-class-properties
+  [source class-name]
+  (let [body (class-source source class-name)
+        fields
+        (->> (re-seq
+              #"(?m)^    ((?:(?:private|public|protected|static|override|readonly)\s+)*)([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::|=)"
+              body)
+             (remove #(re-find #"\b(?:private|protected)\b" (second %)))
+             (map #(nth % 2))
+             set)
+        parameter-properties
+        (->> (re-seq
+              #"(?m)^        ((?:(?:private|public|protected|readonly)\s+)+)([A-Za-z_$][A-Za-z0-9_$]*)\s*:"
+              body)
+             (remove #(re-find #"\b(?:private|protected)\b" (second %)))
+             (map #(nth % 2))
+             set)]
+    (set/union fields parameter-properties)))
+
+(defn- classified-symbols
+  [classification]
+  (apply set/union #{} (vals classification)))
+
+(defn- classification-duplicate-count
+  [classification]
+  (let [symbols (mapcat identity (vals classification))]
+    (- (count symbols) (count (set symbols)))))
 
 (defn- added-class-method-symbols
   [upstream base target path]
@@ -700,6 +758,80 @@
                   (is (seq (get changed-lines-by-path path))
                       "path-only evidence must identify a path changed within the certified range"))))))))))
 
+(deftest exact-target-public-surface-is-certified
+  (let [report (read-report)]
+    (is (some? report) "The 2980c78 parity oracle must be committed")
+    (when report
+      (note-upstream-validation-status! "exact-target-public-surface-is-certified")
+      (when-let [upstream-repo @upstream-repo]
+        (let [target-commit (get-in report [:upstream :target-commit])
+              {:keys [package-root extension classes]}
+              (:target-public-surface report)
+              read-source
+              (fn [path]
+                (git-output upstream-repo "show"
+                            (str target-commit ":" path)))
+              package-source (read-source (:path package-root))
+              explicit-package-symbols (exported-symbols package-source)
+              star-exports (:star-exports package-root)
+              star-export-symbols
+              (for [{:keys [module path symbol-count symbols-sha256]}
+                    star-exports
+                    :let [symbols (exported-symbols (read-source path))]]
+                (do
+                  (is (= symbol-count (count symbols))
+                      (str module " exported symbol count"))
+                  (is (= symbols-sha256
+                         (sha256-lines (sort symbols)))
+                      (str module " exported symbol inventory"))
+                  symbols))
+              package-symbols
+              (apply set/union explicit-package-symbols
+                     star-export-symbols)
+              extension-symbols
+              (exported-symbols (read-source (:path extension)))]
+          (testing "package root resolves every star-exported declaration"
+            (is (= (set (map :module star-exports))
+                   (star-export-modules package-source)))
+            (is (= (:explicit-symbol-count package-root)
+                   (count explicit-package-symbols)))
+            (is (= (:explicit-symbols-sha256 package-root)
+                   (sha256-lines (sort explicit-package-symbols))))
+            (is (= (:symbol-count package-root)
+                   (count package-symbols)))
+            (is (= (:symbols-sha256 package-root)
+                   (sha256-lines (sort package-symbols)))))
+          (testing "extension module exports remain exact"
+            (is (= (:symbols extension) extension-symbols))
+            (is (= (:symbol-count extension)
+                   (count extension-symbols)))
+            (is (= (:symbols-sha256 extension)
+                   (sha256-lines (sort extension-symbols)))))
+          (doseq [[surface {:keys [path class-name methods properties
+                                   method-count methods-sha256]}]
+                  classes
+                  :let [source (read-source path)
+                        actual-methods
+                        (public-class-methods source class-name)
+                        expected-methods (classified-symbols methods)
+                        actual-properties
+                        (public-class-properties source class-name)
+                        expected-properties
+                        (classified-symbols properties)]]
+            (testing (str (name surface)
+                          " public class members remain exact and classified")
+              (is (= #{:stable :internal :experimental}
+                     (set (keys methods))))
+              (is (= #{:stable :internal :experimental}
+                     (set (keys properties))))
+              (is (zero? (classification-duplicate-count methods)))
+              (is (zero? (classification-duplicate-count properties)))
+              (is (= expected-methods actual-methods))
+              (is (= method-count (count actual-methods)))
+              (is (= methods-sha256
+                     (sha256-lines (sort actual-methods))))
+              (is (= expected-properties actual-properties)))))))))
+
 (deftest runtime-schema-and-version-are-exact
   (let [report (read-report)]
     (is (some? report) "The 2980c78 parity oracle must be committed")
@@ -845,6 +977,10 @@
       (is (s/valid? ::specs/hook.start-data
                     {:hook-invocation-id "" :hook-type ""}))
       (is (s/valid? ::specs/hook.start-data (assoc base :parent-tool-call-id "call-1")))
+      (doseq [input [nil "text" 42 true [1 nil] {:nested ["value"]}]]
+        (is (s/valid? ::specs/hook.start-data (assoc base :input input))))
+      (is (not (s/valid? ::specs/hook.start-data
+                         (assoc base :input (Object.)))))
       (is (not (s/valid? ::specs/hook.start-data (dissoc base :hook-invocation-id))))
       (is (not (s/valid? ::specs/hook.start-data (dissoc base :hook-type))))))
   (testing "hook.end additionally requires success, parentToolCallId optional"
@@ -857,6 +993,10 @@
                     (assoc base :error {:message "boom"
                                         :source "plugin"
                                         :stack "trace"})))
+      (doseq [output [nil "text" 42 true [1 nil] {:nested ["value"]}]]
+        (is (s/valid? ::specs/hook.end-data (assoc base :output output))))
+      (is (not (s/valid? ::specs/hook.end-data
+                         (assoc base :output #{:not-json}))))
       (is (not (s/valid? ::specs/hook.end-data (assoc base :error "boom"))))
       (is (not (s/valid? ::specs/hook.end-data
                          (assoc base :error {:source "plugin"}))))
@@ -876,26 +1016,33 @@
                       (assoc base :arguments arguments))))
       (is (not (s/valid? ::specs/assistant-message-tool-request
                          (assoc base :arguments (Object.)))))))
-  (testing "tool execution fields remain open recursive JSON"
+  (testing "tool execution fields retain their schema-defined shapes"
     (is (s/valid? ::specs/tool.execution_start-data
                   {:tool-call-id "call-1" :tool-name "tool"
                    :arguments [1 {:camelCase true}]}))
     (is (s/valid? ::specs/tool.execution_complete-data
                   {:tool-call-id "call-1" :success false
-                   :result {:nested [true 1 "value" nil]}
-                   :error ["provider" {:code 42}]}))
-    (is (not (s/valid? ::specs/tool.execution_complete-data
-                       {:tool-call-id "call-1" :success false
-                        :result (Object.)}))))
-  (testing "tool-result-object error remains open recursive JSON"
+                   :result {:content "result"
+                            :structured-content {:nested [true 1 "value" nil]}}
+                   :error {:message "provider" :code "failed"}}))
+    (doseq [invalid [{:result "result"}
+                     {:result {:structured-content true}}
+                     {:result {:content "result" :contents {}}}
+                     {:error "boom"}
+                     {:error {:code "failed"}}
+                     {:error {:message "boom" :code 42}}]]
+      (is (not (s/valid? ::specs/tool.execution_complete-data
+                         (merge {:tool-call-id "call-1" :success false}
+                                invalid))))))
+  (testing "tool-result-object errors are strings"
     (is (s/valid? ::specs/tool-result-object
                   {:text-result-for-llm "failed"
                    :result-type :failure
-                   :error {:nested ["message"]}}))
+                   :error "message"}))
     (is (not (s/valid? ::specs/tool-result-object
                        {:text-result-for-llm "failed"
                         :result-type :failure
-                        :error (Object.)}))))
+                        :error {:message "boom"}}))))
   (testing "string-valued errors reject unrelated JSON values"
     (is (not (s/valid? ::specs/session.compaction_complete-data
                        {:success false :error {:message "boom"}})))

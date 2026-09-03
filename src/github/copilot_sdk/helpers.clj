@@ -27,14 +27,15 @@
    - Different `:client` options trigger client replacement
    - Client is automatically cleaned up on JVM shutdown (no manual cleanup needed)
    - Call `(shutdown!)` for explicit cleanup if desired
+   - Sessions created internally by helpers are disconnected after completion
    
    ## Options
    
-   All query functions accept keyword arguments:
+   Query functions accept keyword arguments including:
    - `:client` - Client options (cli-path, log-level, cwd, env)
    - `:session` - Session options (model, tools, streaming?, etc.)
-   - `:timeout-ms` - Idle/event wait timeout for `query`, `query-seq!`, and
-     `with-query-seq` (default: 60000)
+   - `:timeout-ms` - Fixed wait deadline for `query`, `query-seq!`, and
+     `with-query-seq` (default: 60000); `query-chan` has no deadline
    "
   (:require [clojure.core.async :as async :refer [go-loop <! chan close! alts!]]
             [clojure.core.async.impl.protocols :as async-protocols]
@@ -174,10 +175,6 @@
    :data {:message "Failed to disconnect helper-owned query session"
           :cause failure}})
 
-(defn- report-query-chan-cleanup-failure!
-  [failure]
-  (log/warn failure "Failed to disconnect helper-owned query session"))
-
 (defn- cancellable-channel
   [out-ch cancel-ch disconnect-ch]
   (reify
@@ -230,12 +227,16 @@
    Keyword options:
      :client - Client options map OR a CopilotClient instance
      :session - Session options map OR a CopilotSession instance
-     :timeout-ms - Session idle-wait timeout in milliseconds (default: 60000)
+     :timeout-ms - One fixed deadline in milliseconds for the wait from
+                   `session.send` completion through terminal
+                   `session.idle`/`session.error` (default: 60000)
 
-   When :session is a CopilotSession instance, the query uses that session
-   directly (enabling multi-turn conversations). Otherwise creates a fresh session.
+   When :session is a CopilotSession instance, the query uses that
+   caller-owned session directly (enabling multi-turn conversations) and does
+   not disconnect it. Otherwise it creates a helper-owned session and
+   disconnects it before returning or throwing.
 
-   When :client is a CopilotClient instance, uses it directly.
+   When :client is a CopilotClient instance, uses it without taking ownership.
    When :client is a map, uses/creates a shared client with those options.
 
    Returns the assistant's response text as a string.
@@ -259,27 +260,15 @@
        (query \"And 3+3?\" :session s))  ;; context preserved
    "
   [prompt & {:keys [client session timeout-ms] :or {timeout-ms 60000}}]
-  (cond
-    ;; Session instance provided - use directly
-    (session-instance? session)
+  (if (session-instance? session)
     (-> (copilot/send-and-wait! session {:prompt prompt} timeout-ms)
         (get-in [:data :content]))
-
-    ;; Client instance provided - create temp session
-    (client-instance? client)
-    (call-with-owned-session
-     client
-     (build-session-config session)
-     #(-> (copilot/send-and-wait! % {:prompt prompt} timeout-ms)
-          (get-in [:data :content])))
-
-    ;; Default - use shared client
-    :else
-    (let [c (ensure-client! client)
-          session-config (build-session-config session)]
+    (let [c (if (client-instance? client)
+              client
+              (ensure-client! client))]
       (call-with-owned-session
        c
-       session-config
+       (build-session-config session)
        #(-> (copilot/send-and-wait! % {:prompt prompt} timeout-ms)
             (get-in [:data :content]))))))
 
@@ -359,8 +348,10 @@
      :client - Client options map or CopilotClient instance
      :session - Session options map
      :max-events - Maximum number of events to emit (default: 256)
-     :timeout-ms - Deadline observed during event consumption (default: 60000);
-                   starts after session creation; nil disables it
+     :timeout-ms - One fixed deadline for subscribe, send, and event
+                   consumption (default: 60000); starts after session creation;
+                   nil disables it. Expiry throws ExceptionInfo with
+                   `:type :query-timeout` during sequence realization.
 
    Examples:
      (with-query-seq [events \"Tell me a story\"
@@ -410,8 +401,10 @@
      :client - Client options map or CopilotClient instance
      :session - Session options map
      :max-events - Maximum number of events to emit (default: 256)
-     :timeout-ms - Deadline observed during event consumption (default: 60000);
-                   starts after session creation; nil disables it
+     :timeout-ms - One fixed deadline for subscribe, send, and event
+                   consumption (default: 60000); starts after session creation;
+                   nil disables it. Expiry throws ExceptionInfo with
+                   `:type :query-timeout` during sequence realization.
 
    Returns a lazy sequence of at most :max-events events."
   [prompt & {:keys [client session max-events timeout-ms]
@@ -439,6 +432,11 @@
      :client - Client options map
      :session - Session options map
      :buffer - Channel buffer size (default: 256)
+
+   The hidden session is helper-owned and is disconnected after terminal idle,
+   source closure, setup failure, or consumer cancellation. The shared client
+   remains process-owned and is stopped by `shutdown!` or the JVM shutdown
+   hook.
 
    Returns a channel that yields event maps. The channel closes when the
    session ordinarily becomes idle or errors. If disconnecting the hidden
@@ -475,7 +473,8 @@
               (disconnect-owned-session! sess)
               {:status :ok}
               (catch Throwable failure
-                (report-query-chan-cleanup-failure! failure)
+                (log/warn failure
+                          "Failed to disconnect helper-owned query session")
                 {:status :error
                  :failure failure}))))]
     (try
@@ -485,38 +484,39 @@
             result-ch (cancellable-channel out-ch cancel-ch disconnect-ch)]
         (copilot/send! sess {:prompt prompt})
 
-        (go-loop []
-          (let [[event source] (alts! [cancel-ch events-ch] :priority true)]
-            (cond
-              (identical? source cancel-ch)
-              (do
-                (<! (force disconnect-ch))
-                (close! out-ch))
+        (go-loop [phase :read]
+          (let [next-phase
+                (case phase
+                  :read
+                  (let [[event source]
+                        (alts! [cancel-ch events-ch] :priority true)]
+                    (cond
+                      (identical? source cancel-ch) :cancel
+                      (nil? event) :finish
+                      :else
+                      (let [[accepted? destination]
+                            (alts! [cancel-ch [out-ch event]] :priority true)]
+                        (cond
+                          (not (identical? destination out-ch)) :cancel
+                          (not (true? accepted?)) :cancel
+                          (terminal-query-event? event) :finish
+                          :else :read))))
 
-              (nil? event)
-              (let [{:keys [status failure]} (<! (force disconnect-ch))]
-                (when (= :error status)
-                  (alts! [cancel-ch
-                          [out-ch (query-chan-cleanup-error failure)]]
-                         :priority true))
-                (close! out-ch))
+                  :finish
+                  (let [{:keys [status failure]} (<! (force disconnect-ch))]
+                    (when (= :error status)
+                      (alts! [cancel-ch
+                              [out-ch (query-chan-cleanup-error failure)]]
+                             :priority true))
+                    nil)
 
-              :else
-              (let [[accepted? destination]
-                    (alts! [cancel-ch [out-ch event]] :priority true)]
-                (if (and (identical? destination out-ch)
-                         (true? accepted?))
-                  (if (terminal-query-event? event)
-                    (let [{:keys [status failure]} (<! (force disconnect-ch))]
-                      (when (= :error status)
-                        (alts! [cancel-ch
-                                [out-ch (query-chan-cleanup-error failure)]]
-                               :priority true))
-                      (close! out-ch))
-                    (recur))
+                  :cancel
                   (do
                     (<! (force disconnect-ch))
-                    (close! out-ch)))))))
+                    nil))]
+            (if next-phase
+              (recur next-phase)
+              (close! out-ch))))
 
         result-ch)
       (catch Throwable t

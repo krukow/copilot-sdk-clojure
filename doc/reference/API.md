@@ -63,9 +63,9 @@ Use this as the default seq-style streaming helper. Cleanup runs when `body` ret
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `:client` | map or `CopilotClient` | `nil` | Client options map or caller-owned client |
-| `:max-events` | integer | `256` | Maximum number of events to emit; `0` disconnects immediately |
+| `:max-events` | non-negative integer | `256` | Maximum number of events to emit; `0` disconnects immediately |
 | `:session` | map | `nil` | Session options map |
-| `:timeout-ms` | positive integer or nil | `60000` | Deadline starts after session creation and is observed during event consumption; nonterminal autopilot idle events do not reset it. `nil` disables the deadline |
+| `:timeout-ms` | positive integer or nil | `60000` | Deadline starts after session creation and is observed during event consumption; nonterminal autopilot idle events do not reset it. `nil` disables the deadline. Expiry throws `ExceptionInfo` with `{:type :query-timeout}` during realization |
 
 Client startup and session creation are outside the deadline. Synchronous
 subscription and send calls are not preempted; if the deadline elapses during
@@ -96,9 +96,9 @@ Pass a client options map to use the helpers-managed client, or a started
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `:client` | map or `CopilotClient` | `nil` | Client options map or caller-owned client |
-| `:max-events` | integer | `256` | Maximum number of events to emit; `0` disconnects immediately |
+| `:max-events` | non-negative integer | `256` | Maximum number of events to emit; `0` disconnects immediately |
 | `:session` | map | `nil` | Session options map |
-| `:timeout-ms` | positive integer or nil | `60000` | Deadline starts after session creation and is observed during event consumption; nonterminal autopilot idle events do not reset it. `nil` disables the deadline |
+| `:timeout-ms` | positive integer or nil | `60000` | Deadline starts after session creation and is observed during event consumption; nonterminal autopilot idle events do not reset it. `nil` disables the deadline. Expiry throws `ExceptionInfo` with `{:type :query-timeout}` during realization |
 
 The deadline has the same scope and observation semantics as
 `with-query-seq`.
@@ -423,7 +423,7 @@ failures.
 | `:infinite-sessions` | map | Infinite session config (see below) |
 | `:reasoning-effort` | string | Reasoning effort level: `"low"`, `"medium"`, `"high"`, `"xhigh"`, or `"max"` ([upstream PR #2228](https://github.com/github/copilot-sdk/pull/2228)) |
 | `:github-token` | string | Static GitHub token for this session. Sent as `gitHubToken`; mutually exclusive with `:github-token-provider`. |
-| `:github-token-provider` | fn | Session-scoped, refreshable GitHub credential callback. Receives `{:host string :session-id string? :reason keyword}`; known reasons are `:initial` and `:refresh`, while future nonblank reasons pass through for forward compatibility. Returns `{:kind :token :access-token string :expires-in integer>=3601 :token-type string?}` or `{:kind :cancelled}`, directly or on a core.async channel. Both result variants are open to additional extension fields. Create, resume, and join configuration carries only an opaque registration ID; the callback remains local, while acquired credentials cross the JSON-RPC connection to the CLI when requested. Requires an SDK-owned transport: managed child-process stdio or SDK-managed TCP. Every explicit external `:cli-url`, including a loopback or tunneled endpoint, is rejected before provider-backed session setup. Provider work runs on a bounded client-owned executor. Failed create/resume/join calls roll back provisional registrations; session and client teardown remove committed registrations and cancel in-flight work. Mutually exclusive with `:github-token`. See [Authentication](../auth/index.md#session-scoped-token-provider). ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412)) |
+| `:github-token-provider` | fn | Session-scoped, refreshable GitHub credential callback. Receives `{:host string :session-id string? :reason keyword}` where `:reason` is exactly `:initial` or `:refresh`. Returns `{:kind :token :access-token string :expires-in integer>=3601 :token-type string?}` or `{:kind :cancelled}`, directly or on a core.async channel. Both result variants are open to additional extension fields. Create, resume, and join configuration carries only an opaque registration ID; the callback remains local, while acquired credentials cross the JSON-RPC connection to the CLI when requested. Requires an SDK-owned transport: managed child-process stdio or SDK-managed TCP. Every explicit external `:cli-url`, including a loopback or tunneled endpoint, is rejected before provider-backed session setup. Provider work runs on a bounded client-owned executor. Failed create/resume/join calls roll back provisional registrations; session and client teardown remove committed registrations and cancel in-flight work. Mutually exclusive with `:github-token`. See [Authentication](../auth/index.md#session-scoped-token-provider). ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412)) |
 | `:on-user-input-request` | fn | Handler for `ask_user` requests (see below) |
 | `:ask-user-variant` | keyword | Selects the built-in `ask_user` tool shape: `:legacy` or `:elicitation`. Omission preserves the runtime default; explicit values serialize as `askUserVariant` on create/resume/join. The `:elicitation` variant requires an `:on-elicitation-request` handler when the host must answer requests. ([upstream PR #2432](https://github.com/github/copilot-sdk/pull/2432)) |
 | `:hooks` | map | Lifecycle hooks (see below) |
@@ -1260,8 +1260,9 @@ Disconnect the session and free resources. This is the preferred way to close a
 session. The runtime is destroyed before local resources are released. If that
 request fails, the exception propagates and the local session remains connected
 so the caller can retry.
-While one disconnect is in progress, concurrent calls return without sending
-another runtime request.
+While one disconnect is in progress, concurrent callers wait for that operation
+without sending another runtime request. They then observe the same success or
+the identical exception instance.
 
 #### `destroy!` *(deprecated)*
 
@@ -2222,8 +2223,9 @@ What `:empty` mode enforces (vs `:copilot-cli`):
 - **Post-create options**: a follow-up `session.options.update` RPC sets
   `:skip-custom-instructions true`, `:custom-agents-local-only true`,
   `:coauthor-enabled false`, `:manage-schedule-enabled false`, and forces
-  `:installed-plugins []`. On failure, the SDK cleans up the half-configured
-  session before propagating the error.
+  `:installed-plugins []`. It also defaults `:included-builtin-skills` to `[]`
+  unless the caller supplies an explicit allowlist. On failure, the SDK cleans
+  up the half-configured session before propagating the error.
 
 Both modes always emit `:tool-filter-precedence "excluded"` on
 `session.create` and `session.resume`, and reject bare `"*"` in

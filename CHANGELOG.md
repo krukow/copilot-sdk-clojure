@@ -11,7 +11,6 @@ All notable changes to this project will be documented in this file. This change
   credentials cross the JSON-RPC connection to the CLI, so providers require an
   SDK-owned stdio or TCP transport and reject every explicit external
   `:cli-url`. Provider expiry must be an integer of at least 3,601 seconds.
-  Future nonblank acquisition reasons pass through to the callback.
   ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412))
 - Added stable session options for mode-specific built-in skill allowlisting,
   legacy versus elicitation `ask_user` variants, host-resolved feature flags,
@@ -54,9 +53,11 @@ All notable changes to this project will be documented in this file. This change
   ([upstream PR #2294](https://github.com/github/copilot-sdk/pull/2294))
 - **BREAKING:** `disconnect!` now destroys the runtime session before releasing
   local resources. Runtime destroy failures are rethrown and leave the local
-  session connected for retry instead of being ignored. Lifecycle macros keep
-  a body failure primary and attach concurrent cleanup failures as suppressed
-  exceptions; client shutdown still force-releases local session resources.
+  session connected for retry instead of being ignored. Concurrent disconnect
+  callers join the same operation and observe its identical success or failure.
+  Lifecycle macros keep a body failure primary and attach concurrent cleanup
+  failures as suppressed exceptions; client shutdown still force-releases local
+  session resources.
 - Updated the runtime and schema pin to `1.0.83-1` and recertified the complete
   stable Node SDK public surface through upstream commit
   [`2980c7828d35754bfc2b334831efec309ab8a2eb`](https://github.com/github/copilot-sdk/commit/2980c7828d35754bfc2b334831efec309ab8a2eb).
@@ -85,8 +86,10 @@ All notable changes to this project will be documented in this file. This change
   metadata.
 - Create/resume setup now prepares locally owned resources transactionally.
   Async local filesystem factory failures throw before a result channel is
-  returned, failed resumes restore the exact prior local registration, and
-  cleanup failures remain observable without replacing the primary failure.
+  returned when the session ID is known before the RPC; cloud create with a
+  server-assigned ID delivers a later factory failure through that channel.
+  Failed resumes restore the exact prior local registration, and cleanup
+  failures remain observable without replacing the primary failure.
 - TCP startup now waits for the complete newline-terminated server announcement
   before parsing its port, preventing multi-digit ports from being truncated.
 - The commands example now avoids the runtime-reserved `/help` command.
@@ -94,6 +97,27 @@ All notable changes to this project will be documented in this file. This change
   acronyms, separators, and leading underscores. Numeric schemas preserve
   integer versus general-number predicates and emit inclusive and exclusive
   bounds correctly.
+
+### Added (helper lifecycle)
+- `with-query-seq` and `query-seq!` now accept `:timeout-ms`. The option defines
+  one fixed deadline beginning after session creation and observed during
+  sequence realization; expiry throws `ExceptionInfo` with
+  `{:type :query-timeout}`. Client startup and synchronous session creation are
+  outside the timeout budget.
+
+### Changed (helper lifecycle)
+- **BREAKING:** `query-chan` now emits hidden-session cleanup failures as tagged
+  `:copilot/session.error` maps, with the original failure at `[:data :cause]`,
+  instead of widening its event stream with a bare `Throwable`.
+
+### Fixed (helper lifecycle)
+- Blocking, sequence, and channel helpers now deterministically own and release
+  only the sessions they create. Remote disconnect failures remain observable
+  while local resources for hidden sessions are still released.
+- Blocking `helpers/query` preserves its primary send failure and attaches a
+  concurrent hidden-session disconnect failure as suppressed. `query-chan`
+  logs cleanup failures when consumer cancellation has already closed its event
+  channel.
 
 ### Changed (upstream parity)
 - Recertified the complete stable Node SDK public surface through upstream
@@ -377,14 +401,6 @@ All notable changes to this project will be documented in this file. This change
   the hidden session and event tap. `query-seq!` remains supported and is not
   deprecated in this change.
 
-### Changed (helper lifecycle)
-- Sequence-helper deadlines now start after session creation and are observed
-  during event consumption. Client startup and synchronous session creation are
-  outside the timeout budget.
-- **BREAKING:** `query-chan` now emits hidden-session cleanup failures as tagged
-  `:copilot/session.error` maps, with the original failure at `[:data :cause]`,
-  instead of widening its event stream with a bare `Throwable`.
-
 ### Fixed (helper lifecycle)
 - `query-seq!` now disconnects the created session when setup fails during
   `send!`, and `:max-events 0` is accepted by the public helper specs under
@@ -396,14 +412,6 @@ All notable changes to this project will be documented in this file. This change
   concurrent close, and close/terminal races disconnect exactly once. Buffered
   values accepted before cancellation remain readable; an in-flight parked event
   may be dropped.
-- Blocking, sequence, and channel helpers now deterministically own and release
-  only the sessions they create. Remote disconnect failures remain observable
-  while local resources for hidden sessions are still released.
-- Blocking `helpers/query` preserves its primary send failure and attaches a
-  concurrent hidden-session disconnect failure as suppressed. `query-chan`
-  logs cleanup failures when consumer cancellation has already closed its event
-  channel.
-
 ### Changed (v1.0.79 sync)
 - **`send-and-wait!` default idle-wait timeout is now 60000ms** (was 300000ms),
   matching the upstream Node.js SDK (`nodejs/src/session.ts`,

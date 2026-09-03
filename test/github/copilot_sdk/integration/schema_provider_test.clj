@@ -102,15 +102,13 @@
         (is (s/valid? spec config) (s/explain-str spec config))))))
 
 (deftest test-included-builtin-skills-spec
-  (testing "built-in skill inclusion accepts nonblank skill names in general collections"
+  (testing "built-in skill inclusion accepts every string in general collections"
     (doseq [skills [[]
+                    ["" " "]
                     (list "search" "edit")
                     #{"search" "edit"}]]
       (is (s/valid? ::specs/included-builtin-skills skills)))
     (doseq [skills [nil
-                    [""]
-                    [" "]
-                    ["search" ""]
                     [:search]
                     "search"]]
       (is (not (s/valid? ::specs/included-builtin-skills skills))))))
@@ -876,6 +874,57 @@
             client
             {:github-token-provider (fn [_] {:kind :cancelled})}))))))
 
+(testing "caller-supplied streams reject credential callbacks before session RPCs"
+  (let [server (mock/create-mock-server)
+        _ (mock/start-mock-server! server)
+        client (sdk/client {:auto-start? false})
+        [in out] (mock/client-streams server)
+        requests (atom [])]
+    (try
+      (mock/set-request-hook!
+       server
+       (fn [method _]
+         (when (str/starts-with? method "session.")
+           (swap! requests conj method))))
+      (client/connect-with-streams! client in out)
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"caller-supplied streams"
+           (sdk/create-session
+            client
+            {:session-id "untrusted-stream-provider"
+             :on-permission-request sdk/approve-all
+             :github-token-provider (fn [_]
+                                      {:kind :token
+                                       :access-token "must-not-cross-stream"
+                                       :expires-in 3601})})))
+      (is (empty? @requests))
+      (finally
+        (sdk/stop! client)
+        (mock/stop-mock-server! server)))))
+
+(deftest test-join-session-preserves-stop-failures
+  (let [returned-cleanup (ex-info "returned cleanup failure" {})
+        thrown-cleanup (ex-info "thrown cleanup failure" {})]
+    (doseq [[stop-result cleanup-failure]
+            [[(fn [_] [returned-cleanup]) returned-cleanup]
+             [(fn [_] (throw thrown-cleanup)) thrown-cleanup]]]
+      (let [primary (ex-info "join failed" {:type :join-failed})
+            caught
+            (try
+              (with-redefs-fn
+                {#'client/foreground-session-id (constantly "foreground")
+                 #'client/client (constantly ::joined-client)
+                 #'client/resume-session-result*
+                 (fn [& _] (throw primary))
+                 #'client/stop! stop-result}
+                #(client/join-session {}))
+              nil
+              (catch Throwable failure
+                failure))]
+        (is (identical? primary caught))
+        (is (= [cleanup-failure] (vec (.getSuppressed caught))))))))
+
 (deftest test-session-github-token-provider-wire-and-callbacks
   (testing "only an opaque UUID-v4 registration is serialized and callbacks map token and cancellation results"
     (let [create-params (atom nil)
@@ -1098,7 +1147,8 @@
                   log-output
                   (str/join "\n" (map :message (log-test/the-log)))]
               (is (= -32603 (get-in response [:error :code])))
-              (is (= "Internal error: GitHub token provider returned an invalid result"
+              (is (= (str "Internal error: GitHub token provider returned an invalid result: "
+                          (name constraint))
                      (get-in response [:error :message])))
               (is (not (str/includes? (pr-str response) secret)))
               (is (not (str/includes? log-output secret)))
@@ -1148,27 +1198,26 @@
           (is (str/includes? log-output "github.example"))
           (is (str/includes? log-output ":refresh"))))))
 
-  (testing "unknown acquire reasons remain forward-compatible"
+  (testing "unknown acquire reasons are rejected before callback invocation"
     (let [client (sdk/client {:auto-start? false})
-          observed (atom nil)
+          called? (atom false)
           registration-id
           (@#'client/register-github-token-provider!
            client
-           (fn [args]
-             (reset! observed args)
+           (fn [_]
+             (reset! called? true)
              {:kind :cancelled})
            "invalid-arguments")]
-      (is (= {:result {:kind :cancelled}}
-             (<!!
-              (@#'client/github-token-provider-response
-               client
-               {:registration-id registration-id
-                :host "github.com"
-                :reason "future_reason"}))))
-      (is (= {:host "github.com"
-              :session-id "invalid-arguments"
-              :reason :future_reason}
-             @observed))))
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"Invalid GitHub token provider request"
+           (@#'client/github-token-provider-response
+            client
+            {:registration-id registration-id
+             :host "github.com"
+             :reason "future_reason"})))
+      (is (false? @called?))
+      (is (empty? (provider-invocations @(:state client))))))
 
   (testing "invalid callback arguments are rejected before invocation"
     (let [client (sdk/client {:auto-start? false})
@@ -1210,6 +1259,15 @@
              (s/valid? ::specs/github-token-provider-result result)))
       (is (= valid?
              (nil? (specs/github-token-provider-result-constraint result))))))
+
+  (testing "the public result spec explains the failed named constraint"
+    (let [explanation
+          (s/explain-data
+           ::specs/github-token-provider-result
+           {:kind :token :access-token "token" :expires-in 3600})]
+      (is (str/includes?
+           (pr-str explanation)
+           "github-token-provider-result-expires-in-minimum?"))))
 
   (testing "provider results are open maps"
     (doseq [result [{:kind :cancelled :reason :expired}
@@ -1907,7 +1965,10 @@
                     {:registration-id next-registration-id
                      :host "github.com"
                      :reason "initial"}]
-                (is (= {:result {:kind :cancelled}}
+                (is (= {:error
+                        {:code -32603
+                         :message
+                         "Internal error: GitHub token provider executor unavailable"}}
                        (<!!
                         (@#'client/github-token-provider-response
                          client next-request))))
@@ -1929,6 +1990,31 @@
             (finally
               (.countDown release)
               (@#'client/release-github-token-provider-runtime! client)))))))
+
+  (testing "unexpected response construction failures are sanitized and close the response channel"
+    (let [client (sdk/client {:auto-start? false})
+          registration-id
+          (@#'client/register-github-token-provider!
+           client (constantly {:kind :cancelled}) "response-construction")]
+      (try
+        (with-redefs [client/github-token-provider-outcome-response
+                      (fn [& _]
+                        (throw (AssertionError. "response-construction-secret")))]
+          (let [response
+                (@#'client/github-token-provider-response
+                 client
+                 {:registration-id registration-id
+                  :host "github.com"
+                  :reason "refresh"})]
+            (is (= {:error
+                    {:code -32603
+                     :message
+                     (str "Internal error: GitHub token provider response "
+                          "construction failed")}}
+                   (<!! response)))
+            (is (nil? (<!! response)))))
+        (finally
+          (@#'client/release-github-token-provider-runtime! client)))))
 
   (testing "executor saturation produces an explicit sanitized response"
     (with-redefs-fn
