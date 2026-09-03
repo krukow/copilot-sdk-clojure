@@ -8,9 +8,11 @@ All notable changes to this project will be documented in this file. This change
   resume, and join, with initial and refresh callbacks, core.async results,
   atomic replacement on resume, and deterministic rollback and teardown.
   Session configuration carries only an opaque registration ID; acquired
-  credentials cross the JSON-RPC connection to the CLI, so providers require an
-  SDK-owned stdio or TCP transport and reject every explicit external
-  `:cli-url`. Provider expiry must be an integer of at least 3,601 seconds.
+  credentials cross the JSON-RPC connection to the CLI. Providers work over
+  managed stdio, SDK-managed TCP, and explicit `:cli-url` connections; only the
+  Clojure testing transport with caller-supplied streams is rejected. Each
+  callback has a 120-second deadline and is not retried by the SDK. Provider
+  expiry must be an integer of at least 3,601 seconds.
   ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412))
 - Added stable session options for mode-specific built-in skill allowlisting,
   legacy versus elicitation `ask_user` variants, host-resolved feature flags,
@@ -73,9 +75,8 @@ All notable changes to this project will be documented in this file. This change
   forward compatibility. Number schemas reject ratios and non-finite values,
   and code generation remains within JVM method-size limits.
 - Curated idiom specs now validate recursive opaque JSON values, strict
-  `hook.end` errors, finite non-negative timing fields, and nonblank built-in
-  skill names. Empty tool-call IDs remain valid where permitted by the pinned
-  schema.
+  `hook.end` errors, and finite non-negative timing fields. Empty tool-call IDs
+  remain valid where permitted by the pinned schema.
 - `::github-token-provider-result` now validates the token-provider result
   discriminator and known payload fields while preserving extension fields on
   both token and cancelled variants. `:expires-in` remains a strict integer
@@ -412,6 +413,7 @@ All notable changes to this project will be documented in this file. This change
   concurrent close, and close/terminal races disconnect exactly once. Buffered
   values accepted before cancellation remain readable; an in-flight parked event
   may be dropped.
+
 ### Changed (v1.0.79 sync)
 - **`send-and-wait!` default idle-wait timeout is now 60000ms** (was 300000ms),
   matching the upstream Node.js SDK (`nodejs/src/session.ts`,

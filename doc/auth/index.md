@@ -191,15 +191,18 @@ core.async channel. Both result variants may contain additional extension
 fields; the SDK validates the known discriminator and payload fields without
 stripping those extensions.
 
+Each acquisition has a fixed 120-second deadline. A callback failure, invalid
+result, or timeout is returned directly to the runtime; the SDK does not retry
+the callback. If the credential broker needs retry behavior, implement bounded
+attempts inside the callback within that deadline.
+
 `:github-token-provider` and session `:github-token` are mutually exclusive.
 Create, resume, and join requests carry only an opaque registration ID in session
 configuration. The callback remains inside the SDK process; when the runtime
 requests a credential, its result crosses the JSON-RPC connection to the CLI.
-`:github-token-provider` therefore requires an SDK-owned transport: managed
-child-process stdio or SDK-managed TCP. Every explicit external `:cli-url` is
-rejected before provider-backed session setup, including loopback and tunneled
-endpoints, because the authentication token would cross a connection the SDK
-does not own.
+Providers work over managed child-process stdio, SDK-managed TCP, and explicit
+`:cli-url` connections, matching the Node SDK. The Clojure-only testing
+transport that connects caller-supplied streams rejects token providers.
 
 Failed create/resume/join calls roll back provisional registrations, a
 successful resume replaces the session's previous provider, and disconnect,
