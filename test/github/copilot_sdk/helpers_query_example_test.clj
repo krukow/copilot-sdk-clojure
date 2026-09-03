@@ -3,7 +3,8 @@
             [clojure.core.async :as async]
             [clojure.core.async.impl.protocols :as async-protocols]
             [clojure.test :refer [deftest is]]
-            [github.copilot-sdk :as sdk])
+            [github.copilot-sdk :as sdk]
+            [github.copilot-sdk.session :as session])
   (:import [java.nio.file Files]
            [java.util.concurrent CountDownLatch TimeUnit]))
 
@@ -83,8 +84,9 @@
                       sdk/subscribe-events (fn [_session]
                                              (swap! calls conj :subscribe)
                                              events-ch)
-                      sdk/send! (fn [_session _message]
-                                  (swap! calls conj :send))
+                      session/send-with-timeout!
+                      (fn [_session _message _timeout-ms]
+                        (swap! calls conj :send))
                       sdk/force-stop! (fn [actual-client]
                                         (is (identical? client actual-client))
                                         (swap! calls conj :force-stop)

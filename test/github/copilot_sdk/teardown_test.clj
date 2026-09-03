@@ -16,7 +16,8 @@
             [github.copilot-sdk.logging :as log]
             [github.copilot-sdk.mock-server :as mock]
             [github.copilot-sdk.process :as proc]
-            [github.copilot-sdk.protocol :as protocol])
+            [github.copilot-sdk.protocol :as protocol]
+            [github.copilot-sdk.teardown :as teardown])
   (:import [java.io IOException]
            [java.nio.channels ClosedChannelException ReadableByteChannel WritableByteChannel]))
 
@@ -145,6 +146,21 @@
           (is (= "cleanup failed" (:message entry)))
           (is (= (find-ns 'github.copilot-sdk.teardown-test) (:logger-ns entry)))))
       (is (= 1 @calls) "the Throwable argument must be evaluated once"))))
+
+(deftest cleanup-failure-is-suppressed-and-logged
+  (let [primary (ex-info "primary failure" {:phase :body})
+        cleanup (ex-info "cleanup failure" {:phase :cleanup})]
+    (log-test/with-log
+      (is (identical?
+           primary
+           (teardown/cleanup-preserving!
+            primary
+            #(throw cleanup))))
+      (is (= [cleanup] (vec (.getSuppressed primary))))
+      (let [entry (first (log-test/the-log))]
+        (is (identical? cleanup (:throwable entry)))
+        (is (= "Cleanup failed while preserving the primary failure"
+               (:message entry)))))))
 
 ;; -----------------------------------------------------------------------------
 ;; IDI-002 - expected vs unexpected teardown outcomes

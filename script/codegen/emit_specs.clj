@@ -468,7 +468,12 @@
    When an envelope property conflicts with a differently shaped data
    property, emit a predicate against its strict envelope-only form. The
    exclusions and bytecode-size rationale are documented beside the
-   `strict-preds` binding."
+   `strict-preds` binding.
+
+   When the event schema declares `additionalProperties: false`, close the
+   envelope to exactly its declared keys. The variant's `:data` payload is
+   still validated by the trailing `data-kw` predicate, whose own
+   `::<event>-data` spec stays open so event data can carry future fields."
   [variant env-form-by-kebab conflicted]
   (let [event-type (get-in variant [:properties :type :const])
         envelope   (:properties variant)
@@ -514,8 +519,8 @@
         ;;     just re-check membership in the union of every variant's
         ;;     literal — provably weaker and pure bloat (one huge redundant
         ;;     union per envelope, multiplied across ~100+ event variants,
-        ;;     is what previously produced multi-KB `s/def` forms large
-        ;;     enough to trip the JVM's 64KB-per-method bytecode limit).
+        ;;     is what produces multi-KB `s/def` forms large enough to trip
+        ;;     the JVM's 64KB-per-method bytecode limit).
         ;;   - `"data"` is always covered by the trailing `data-kw` predicate
         ;;     below, which validates `:data` against *this* variant's own
         ;;     `::<event>-data` spec — strictly more precise than a union
@@ -538,12 +543,22 @@
                                         (~'s/valid? ~env-form ~getter))
                                      `(~'fn [~'event]
                                         (~'or (~'not (~'contains? ~'event ~(keyword prop-name)))
-                                              (~'s/valid? ~env-form ~getter))))))))]
+                                              (~'s/valid? ~env-form ~getter))))))))
+        ;; When the event schema is closed (`additionalProperties: false`),
+        ;; restrict the envelope to exactly its declared keys. Data payload
+        ;; forward-compatibility is unaffected: `:data` is validated by the
+        ;; trailing `data-kw` predicate against an open `::<event>-data` spec.
+        closed?      (false? (:additionalProperties variant))
+        closed-pred  (when closed?
+                       (let [allowed (into (sorted-set)
+                                          (map (fn [[k _]] (keyword (kebab k))) envelope))]
+                         `(~'fn [~'event] (~'every? ~allowed (~'keys ~'event)))))]
     `(~'s/def ~(ns-kw event-type)
               (~'s/and
                 ~keys-form
                 ~@const-preds
                 ~@strict-preds
+                ~@(when closed-pred [closed-pred])
                 (~'fn [~'event] (~'s/valid? ~data-kw (:data ~'event)))))))
 
 (defn- emit-event-multi-spec

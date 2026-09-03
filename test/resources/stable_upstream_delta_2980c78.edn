@@ -428,10 +428,11 @@
      "SessionFactoryApi"
      "createCanvas"
      "defineFactory"
-     "isFactoryRunTerminal"}
-   :symbol-count 38
+     "isFactoryRunTerminal"
+     "joinSession"}
+   :symbol-count 39
    :symbols-sha256
-   "1c0c096a0840220a8fe5013e2df23fdbc2e05364f14a19540a7643a36dab7919"}
+   "13316e0859171d9c8be79a0bdbe2626b9c21a1947dae04a24fc51ddede17b52c"}
 
   :classes
   {:client
@@ -802,6 +803,10 @@
    :classification :experimental
    :evidence [:permission-response-capability-export]
    :reason "PermissionResponseCapability and its containing PermissionDecisionContext are explicitly experimental upstream. The Clojure SDK preserves wire compatibility without certifying the contract as stable public API."}
+ {:id :permissions/decision-surface-acp
+  :classification :experimental
+  :evidence [:permission-decision-surface-acp]
+  :reason "PermissionDecisionSurface is an explicitly experimental generated RPC enum. The 2980c78 range adds the \"acp\" (Agent Client Protocol host) member; the Clojure SDK preserves it as generated wire evidence without certifying the enum as stable public API."}
  {:id :events/assistant-message-reasoning-blocks
   :classification :experimental
   :evidence [:assistant-message-reasoning-blocks]
@@ -868,6 +873,9 @@
   :permission-response-capability-export
   {:path "nodejs/src/types.ts"
    :symbol "PermissionResponseCapability,"}
+  :permission-decision-surface-acp
+  {:path "nodejs/src/generated/rpc.ts"
+   :symbol "| \"acp\""}
   :ask-user-variant-type
   {:path "nodejs/src/types.ts"
    :symbol "askUserVariant?: AskUserVariant;"}
@@ -959,7 +967,7 @@
   {:source "@github/copilot-linux-x64@1.0.83-1/schemas/session-events.schema.json"
    :sha256 "11d24b4e8de44590d70e261ebf15be18d91de14d674fdcfb1f2554ad43a48169"}
   :generated-clojure-output
-  {:event-specs-sha256 "1c32466764a46fded4d2344fbeb280f9b57728f38b0feb27d73ce28aa0b17181"
+  {:event-specs-sha256 "b3e65ffcce7f48d6a06160e905bb697ec3a96768cca81da3e7430b484f3e833f"
    :coercions-sha256 "5688dbc7cc1f5cc3ef05eab7ffd3230b516c431e7ed344dad137f45eee359d33"}}
 
  :published-schema-artifact

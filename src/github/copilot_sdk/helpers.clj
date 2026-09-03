@@ -277,6 +277,45 @@
   (or (= :copilot/session.error (:type event))
       (session/terminal-idle-event? event)))
 
+(defn- query-timeout-failure
+  [timeout-ms]
+  (ex-info
+   (str "Query timed out after " timeout-ms " ms")
+   {:type :query-timeout
+    :timeout-ms timeout-ms}))
+
+(defn- request-timeout?
+  [failure]
+  (let [data (ex-data failure)]
+    (and (= "session.send" (:method data))
+         (contains? data :timeout-ms)
+         (nil? (:error data)))))
+
+(defn- monotonic-nanos
+  []
+  (System/nanoTime))
+
+(defn- remaining-timeout-ms
+  [deadline-nanos timeout-ms]
+  (let [remaining-nanos (- deadline-nanos (monotonic-nanos))]
+    (when-not (pos? remaining-nanos)
+      (throw (query-timeout-failure timeout-ms)))
+    (max 1 (quot (+ remaining-nanos 999999) 1000000))))
+
+(defn- send-query!
+  [sess prompt deadline-nanos timeout-ms]
+  (if deadline-nanos
+    (try
+      (session/send-with-timeout!
+       sess
+       {:prompt prompt}
+       (remaining-timeout-ms deadline-nanos timeout-ms))
+      (catch Throwable failure
+        (if (request-timeout? failure)
+          (throw (query-timeout-failure timeout-ms))
+          (throw failure))))
+    (copilot/send! sess {:prompt prompt})))
+
 (defn- query-seq-source
   [prompt & {:keys [client session max-events timeout-ms]
              :or {max-events 256
@@ -292,6 +331,9 @@
             (ensure-client! client))
         session-config (build-session-config session)
         sess (copilot/create-session c session-config)
+        deadline-nanos
+        (when timeout-ms
+          (+ (monotonic-nanos) (* timeout-ms 1000000)))
         deadline-ch (when timeout-ms (async/timeout timeout-ms))
         done? (atom false)]
     (letfn [(finish! []
@@ -306,11 +348,7 @@
                          [(async/<!! events-ch) events-ch])]
                    (cond
                      (identical? port deadline-ch)
-                     (let [failure
-                           (ex-info
-                            (str "Query timed out after " timeout-ms " ms")
-                            {:type :query-timeout
-                             :timeout-ms timeout-ms})]
+                     (let [failure (query-timeout-failure timeout-ms)]
                        (teardown/cleanup-preserving! failure finish!)
                        (throw failure))
 
@@ -324,7 +362,7 @@
                      (cons event (event-seq events-ch (dec remaining))))))))]
       (try
         (let [events-ch (copilot/subscribe-events sess)]
-          (copilot/send! sess {:prompt prompt})
+          (send-query! sess prompt deadline-nanos timeout-ms)
           (let [events (event-seq events-ch max-events)]
             (when (zero? max-events) (finish!))
             [events finish!]))
@@ -484,39 +522,37 @@
             result-ch (cancellable-channel out-ch cancel-ch disconnect-ch)]
         (copilot/send! sess {:prompt prompt})
 
-        (go-loop [phase :read]
-          (let [next-phase
-                (case phase
-                  :read
+        (async/go
+          (let [report-cleanup-failure?
+                (loop []
                   (let [[event source]
                         (alts! [cancel-ch events-ch] :priority true)]
                     (cond
-                      (identical? source cancel-ch) :cancel
-                      (nil? event) :finish
+                      (identical? source cancel-ch)
+                      false
+
+                      (nil? event)
+                      true
+
                       :else
                       (let [[accepted? destination]
                             (alts! [cancel-ch [out-ch event]] :priority true)]
                         (cond
-                          (not (identical? destination out-ch)) :cancel
-                          (not (true? accepted?)) :cancel
-                          (terminal-query-event? event) :finish
-                          :else :read))))
+                          (or (not (identical? destination out-ch))
+                              (not (true? accepted?)))
+                          false
 
-                  :finish
-                  (let [{:keys [status failure]} (<! (force disconnect-ch))]
-                    (when (= :error status)
-                      (alts! [cancel-ch
-                              [out-ch (query-chan-cleanup-error failure)]]
-                             :priority true))
-                    nil)
+                          (terminal-query-event? event)
+                          true
 
-                  :cancel
-                  (do
-                    (<! (force disconnect-ch))
-                    nil))]
-            (if next-phase
-              (recur next-phase)
-              (close! out-ch))))
+                          :else
+                          (recur))))))
+                {:keys [status failure]} (<! (force disconnect-ch))]
+            (when (and report-cleanup-failure? (= :error status))
+              (alts! [cancel-ch
+                      [out-ch (query-chan-cleanup-error failure)]]
+                     :priority true))
+            (close! out-ch)))
 
         result-ch)
       (catch Throwable t

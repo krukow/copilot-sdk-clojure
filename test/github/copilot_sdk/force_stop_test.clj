@@ -157,9 +157,7 @@
                         [:sessions session-id :destroyed?])))
     (is (false? (contains? (:disconnecting-session-ids @(:state client))
                            session-id)))
-    (is (= ::open (async/alt!!
-                    events-ch ([event] event)
-                    (async/timeout 25) ::open)))))
+    (is (false? (async-protocols/closed? events-ch)))))
 
 (deftest client-stop-forces-local-teardown-after-runtime-destroy-failure
   (let [client (sdk/client {:auto-start? false})
@@ -236,15 +234,28 @@
                       (catch Throwable error
                         error)))
             _ (is (= true (deref destroy-started 500 ::pending)))
-            joiner (future
-                     (try
-                       (session/disconnect! client session-id)
-                       (catch Throwable error
-                         error)))]
-        (is (= ::pending (deref joiner 25 ::pending)))
-        (deliver finish-destroy true)
-        (is (identical? destroy-error (deref owner 500 ::pending)))
-        (is (identical? destroy-error (deref joiner 500 ::pending)))))
+            shared-completion
+            (get-in @(:state client)
+                    [:session-disconnects session-id])
+            joiner-waiting (promise)
+            original-deref deref]
+        (with-redefs [clojure.core/deref
+                      (fn
+                        ([ref]
+                         (when (identical? ref shared-completion)
+                           (deliver joiner-waiting true))
+                         (original-deref ref))
+                        ([ref timeout-ms timeout-value]
+                         (original-deref ref timeout-ms timeout-value)))]
+          (let [joiner (future
+                         (try
+                           (session/disconnect! client session-id)
+                           (catch Throwable error
+                             error)))]
+            (is (true? (deref joiner-waiting 500 false)))
+            (deliver finish-destroy true)
+            (is (identical? destroy-error (deref owner 500 ::pending)))
+            (is (identical? destroy-error (deref joiner 500 ::pending)))))))
     (is (= 1 @rpc-calls))
     (is (false? (get-in @(:state client)
                         [:sessions session-id :destroyed?])))
@@ -277,6 +288,78 @@
                         session-id)))
     (is (not (contains? (:session-disconnects @state-at-delivery)
                         session-id)))))
+
+(deftest disconnect-rejects-an-in-progress-session-setup
+  (let [client (sdk/client {:auto-start? false})
+        copilot-session (session/create-session client "setup-race" {})
+        session-id (sdk/session-id copilot-session)
+        setup-token (Object.)
+        rpc-calls (atom 0)]
+    (swap! (:state client)
+           assoc
+           :connection-io :connection
+           :session-setups {session-id setup-token})
+    (with-redefs [protocol/send-request!
+                  (fn [& _]
+                    (swap! rpc-calls inc)
+                    {:success true})]
+      (let [failure
+            (try
+              (session/disconnect! client session-id)
+              nil
+              (catch Throwable error
+                error))]
+        (is (instance? clojure.lang.ExceptionInfo failure))
+        (is (= {:type :session-setup-in-progress
+                :session-id session-id}
+               (ex-data failure)))))
+    (is (zero? @rpc-calls))
+    (is (identical? setup-token
+                    (get-in @(:state client)
+                            [:session-setups session-id])))
+    (is (false? (get-in @(:state client)
+                        [:sessions session-id :destroyed?])))
+    (is (not (contains? (:disconnecting-session-ids @(:state client))
+                        session-id)))
+    (is (not (contains? (:session-disconnects @(:state client))
+                        session-id)))))
+
+(deftest stale-disconnect-does-not-tear-down-a-replacement-registration
+  (let [client (sdk/client {:auto-start? false})
+        original (session/create-session client "replacement-race" {})
+        session-id (sdk/session-id original)
+        original-token (get-in @(:state client)
+                               [:sessions session-id :registration-token])
+        destroy-started (promise)
+        finish-destroy (promise)]
+    (swap! (:state client) assoc :connection-io :connection)
+    (with-redefs [protocol/send-request!
+                  (fn [_ method _ & _]
+                    (when (= "session.destroy" method)
+                      (deliver destroy-started true)
+                      @finish-destroy)
+                    {:success true})]
+      (let [disconnect (future (session/disconnect! client session-id))]
+        (is (true? (deref destroy-started 500 false)))
+        (swap! (:state client)
+               (fn [state]
+                 (-> state
+                     (update :disconnecting-session-ids disj session-id)
+                     (update :session-disconnects dissoc session-id))))
+        (let [replacement (session/create-session client session-id {})
+              replacement-token
+              (get-in @(:state client)
+                      [:sessions session-id :registration-token])
+              replacement-events (session/subscribe-events replacement)]
+          (is (not (identical? original-token replacement-token)))
+          (deliver finish-destroy true)
+          (is (nil? (deref disconnect 500 ::pending)))
+          (is (identical? replacement-token
+                          (get-in @(:state client)
+                                  [:sessions session-id :registration-token])))
+          (is (false? (get-in @(:state client)
+                              [:sessions session-id :destroyed?])))
+          (is (false? (async-protocols/closed? replacement-events))))))))
 
 (deftest failed-disconnect-can-be-retried-successfully
   (let [client (sdk/client {:auto-start? false})

@@ -12,6 +12,7 @@
    become an `ex-info` carrying the operation and resource identity so the
    caller can return or log it. Nothing is propagated, so a failing step cannot
    short-circuit the steps that follow it."
+  (:require [github.copilot-sdk.logging :as log])
   (:import [java.nio.channels ClosedChannelException]))
 
 (defn expected-failure?
@@ -67,6 +68,16 @@
          thrown# (attempt ~step (vreset! collected# (do ~@body)))]
      (collect (conj (vec @collected#) thrown#))))
 
+(defn attach-cleanup-failures!
+  "Attach cleanup failures to primary and log each retained failure."
+  [^Throwable primary cleanup-failures]
+  (doseq [^Throwable cleanup-failure cleanup-failures]
+    (when-not (identical? primary cleanup-failure)
+      (.addSuppressed primary cleanup-failure))
+    (log/warn cleanup-failure
+              "Cleanup failed while preserving the primary failure"))
+  primary)
+
 (defn cleanup-preserving!
   "Run `cleanup`, preserving `primary` when both body and cleanup fail.
 
@@ -81,8 +92,7 @@
         (when (instance? InterruptedException cleanup-failure)
           (.interrupt (Thread/currentThread)))
         (if primary
-          (when-not (identical? primary cleanup-failure)
-            (.addSuppressed ^Throwable primary cleanup-failure))
+          (attach-cleanup-failures! primary [cleanup-failure])
           (throw cleanup-failure)))
       (finally
         (when interrupted?

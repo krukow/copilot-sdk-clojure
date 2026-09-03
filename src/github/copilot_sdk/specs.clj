@@ -1052,6 +1052,27 @@
   [result]
   (every? #(or (keyword? %) (string? %)) (keys result)))
 
+(defn- wire-json-member-name
+  [key]
+  (let [wire-key (first (keys (util/clj->wire {key nil})))]
+    (if (keyword? wire-key)
+      (name wire-key)
+      wire-key)))
+
+(defn- github-token-provider-result-collision-free?
+  [value]
+  (cond
+    (map? value)
+    (let [member-names (map wire-json-member-name (keys value))]
+      (and (apply distinct? member-names)
+           (every? github-token-provider-result-collision-free? (vals value))))
+
+    (coll? value)
+    (every? github-token-provider-result-collision-free? value)
+
+    :else
+    true))
+
 (defn- github-token-provider-result-field-values?
   [result]
   (every? github-token-provider-field-value?
@@ -1078,47 +1099,37 @@
       (not (contains? result :token-type))
       (s/valid? ::non-blank-string (:token-type result))))
 
+(def ^:private github-token-provider-result-constraints
+  [[:result-must-be-map
+    github-token-provider-result-map?]
+   [:kind-must-be-token-or-cancelled
+    github-token-provider-result-kind?]
+   [:keys-must-be-keywords-or-strings
+    github-token-provider-result-keys?]
+   [:keys-must-not-collide-after-wire-conversion
+    github-token-provider-result-collision-free?]
+   [:fields-must-be-json-values
+    github-token-provider-result-field-values?]
+   [:access-token-must-be-non-blank-string
+    github-token-provider-result-access-token?]
+   [:expires-in-must-be-integer
+    github-token-provider-result-expires-in-integer?]
+   [:expires-in-must-exceed-3600
+    github-token-provider-result-expires-in-minimum?]
+   [:token-type-must-be-non-blank-string
+    github-token-provider-result-token-type?]])
+
 (defn ^:no-doc github-token-provider-result-constraint
   "Return the first violated provider-result constraint, or nil when valid.
    Both result variants are open to additional upstream-compatible fields."
   [result]
-  (cond
-    (not (github-token-provider-result-map? result))
-    :result-must-be-map
-
-    (not (github-token-provider-result-kind? result))
-    :kind-must-be-token-or-cancelled
-
-    (not (github-token-provider-result-keys? result))
-    :keys-must-be-keywords-or-strings
-
-    (not (github-token-provider-result-field-values? result))
-    :fields-must-be-json-values
-
-    (not (github-token-provider-result-access-token? result))
-    :access-token-must-be-non-blank-string
-
-    (not (github-token-provider-result-expires-in-integer? result))
-    :expires-in-must-be-integer
-
-    (not (github-token-provider-result-expires-in-minimum? result))
-    :expires-in-must-exceed-3600
-
-    (not (github-token-provider-result-token-type? result))
-    :token-type-must-be-non-blank-string
-
-    :else
-    nil))
+  (some (fn [[constraint valid?]]
+          (when-not (valid? result)
+            constraint))
+        github-token-provider-result-constraints))
 
 (s/def ::github-token-provider-result
-  (s/and github-token-provider-result-map?
-         github-token-provider-result-kind?
-         github-token-provider-result-keys?
-         github-token-provider-result-field-values?
-         github-token-provider-result-access-token?
-         github-token-provider-result-expires-in-integer?
-         github-token-provider-result-expires-in-minimum?
-         github-token-provider-result-token-type?))
+  #(nil? (github-token-provider-result-constraint %)))
 
 ;; Session options (upstream PR #1865) — shared by create + resume/join.
 ;; excludedBuiltinAgents: names of built-in agents to hide from the session.

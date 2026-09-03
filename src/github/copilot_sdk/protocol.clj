@@ -469,19 +469,23 @@
   (case (:type raw-event)
     "external_tool.requested"
     (cond-> converted-event
-      (contains? (:data raw-event) :arguments)
+      (and (map? (:data raw-event))
+           (contains? (:data raw-event) :arguments))
       (assoc-in [:data :arguments] (get-in raw-event [:data :arguments])))
 
     "session.custom_notification"
     (cond-> converted-event
-      (contains? (:data raw-event) :subject)
+      (and (map? (:data raw-event))
+           (contains? (:data raw-event) :subject))
       (assoc-in [:data :subject] (get-in raw-event [:data :subject]))
-      (contains? (:data raw-event) :payload)
+      (and (map? (:data raw-event))
+           (contains? (:data raw-event) :payload))
       (assoc-in [:data :payload] (get-in raw-event [:data :payload])))
 
     "assistant.message"
     (cond-> converted-event
-      (contains? (:data raw-event) :reasoningBlocks)
+      (and (map? (:data raw-event))
+           (contains? (:data raw-event) :reasoningBlocks))
       (assoc-in [:data :reasoning-blocks]
                 (get-in raw-event [:data :reasoningBlocks])))
 
@@ -491,9 +495,11 @@
     ;; preserve their raw keys so consumers can forward them verbatim.
     "mcp_app.tool_call_complete"
     (cond-> converted-event
-      (contains? (:data raw-event) :arguments)
+      (and (map? (:data raw-event))
+           (contains? (:data raw-event) :arguments))
       (assoc-in [:data :arguments] (get-in raw-event [:data :arguments]))
-      (contains? (:data raw-event) :result)
+      (and (map? (:data raw-event))
+           (contains? (:data raw-event) :result))
       (assoc-in [:data :result] (get-in raw-event [:data :result])))
 
     ;; Upstream schema 1.0.57: `extension_context` attachments carry an opaque
@@ -515,7 +521,8 @@
     ;; convention used for `external_tool.requested` `:arguments` etc.
     "session.canvas.opened"
     (cond-> converted-event
-      (contains? (:data raw-event) :input)
+      (and (map? (:data raw-event))
+           (contains? (:data raw-event) :input))
       (assoc-in [:data :input] (get-in raw-event [:data :input])))
 
     converted-event))
@@ -709,7 +716,12 @@
                                                       (str "Connection error: " (ex-message e)))}))))
          (catch Exception e
            (when (:running? (conn-state state-atom))
-             (log/error "Read loop exception: " (ex-message e))))
+             (log/error "Read loop exception: " (ex-message e))
+             (update-conn! state-atom assoc :running? false)
+             (drain-pending! state-atom
+                             {:code -32000
+                              :message (str "Connection error: "
+                                            (ex-message e))})))
          (finally
            (log/debug "Read loop ending")
            (close! (:incoming-ch conn))))))))

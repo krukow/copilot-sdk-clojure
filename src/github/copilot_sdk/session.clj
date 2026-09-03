@@ -13,6 +13,7 @@
             [clojure.data.json :as json]
             [github.copilot-sdk.protocol :as proto]
             [github.copilot-sdk.factory :as factory]
+            [github.copilot-sdk.github-token-provider :as token-provider]
             [github.copilot-sdk.logging :as log]
             [github.copilot-sdk.specs :as specs]
             [github.copilot-sdk.util :as util]
@@ -83,6 +84,7 @@
                              hooks workspace-path on-event config commands]}]
   (log/debug "Creating session: " session-id)
   (let [factory-definitions (factory/definitions-by-name (:factories config))
+        registration-token (Object.)
         event-chan (chan (async/sliding-buffer 4096))
         event-mult (mult event-chan)
         send-lock (doto (chan 1) (>!! :token))
@@ -105,7 +107,8 @@
                           state
                           (-> state
                               (assoc-in [:sessions session-id]
-                                        {:tool-handlers tool-handlers
+                                        {:registration-token registration-token
+                                         :tool-handlers tool-handlers
                                          :command-handlers command-handlers
                                          :permission-handler on-permission-request
                                          :mcp-auth-handler on-mcp-auth-request
@@ -125,7 +128,8 @@
                                          :open-canvases []
                                          :config config})
                               (assoc-in [:session-io session-id]
-                                        {:event-chan event-chan
+                                        {:registration-token registration-token
+                                         :event-chan event-chan
                                          :event-mult event-mult
                                          :send-lock send-lock})))))]
       (when-not (identical? event-chan
@@ -579,19 +583,38 @@
       {}
       sections)}))
 
-(declare cancel-all-factory-executions!)
+(declare cancel-all-factory-executions! cancel-executions!)
 
-(defn remove-session!
+(defn ^:no-doc remove-session!
   "Remove a session from client state. Called on RPC failure during pre-registration."
-  [client session-id]
-  (let [event-chan (get-in @(:state client) [:session-io session-id :event-chan])]
-    (cancel-all-factory-executions! client session-id)
-    (swap! (:state client) (fn [s]
-                             (-> s
-                                 (update :sessions dissoc session-id)
-                                 (update :session-io dissoc session-id))))
-    (when event-chan
-      (close! event-chan))))
+  ([client session-id]
+   (remove-session! client session-id nil))
+  ([client session-id expected-registration-token]
+   (let [[old new]
+         (swap-vals!
+          (:state client)
+          (fn [state]
+            (let [registration-token
+                  (get-in state [:sessions session-id :registration-token])]
+              (if (or (nil? expected-registration-token)
+                      (identical? expected-registration-token registration-token))
+                (-> state
+                    (update :sessions dissoc session-id)
+                    (update :session-io dissoc session-id))
+                state))))
+         removed-session (get-in old [:sessions session-id])
+         removed?
+         (and removed-session
+              (nil? (get-in new [:sessions session-id])))]
+     (when removed?
+       (cancel-executions!
+        (mapcat vals (vals (:factory-executions removed-session))))
+       (let [{:keys [event-chan send-lock]} (get-in old [:session-io session-id])]
+         (when event-chan
+           (close! event-chan))
+         (when send-lock
+           (close! send-lock))))
+     (if removed? :removed :not-removed))))
 
 (defn dispatch-event!
   "Dispatch an event to all subscribers via the mult. Called by client notification router.
@@ -849,83 +872,6 @@
            (vals (get-in @(:state client)
                          [:sessions session-id :factory-executions])))))
 
-(defn ^:no-doc purge-github-token-provider-registrations
-  "Remove registrations owned by session-id.
-
-   scope is :all for teardown, or :committed-only when rotating a provider
-   after a successful create/resume operation."
-  [registrations session-id scope]
-  (into {}
-        (remove
-         (fn [[_ registration]]
-           (and (= session-id (:session-id registration))
-                (case scope
-                  :all true
-                  :committed-only (:committed? registration)
-                  (throw (ex-info "Invalid GitHub token provider purge scope"
-                                  {:scope scope}))))))
-        registrations))
-
-(defn- purge-github-token-provider-invocations
-  [invocations registration-ids]
-  (into {}
-        (remove (fn [[_ invocation]]
-                  (contains? registration-ids
-                             (:registration-id invocation))))
-        invocations))
-
-(defn ^:no-doc purge-github-token-provider-resources
-  "Remove a session's provider registrations and their active invocations."
-  [state session-id scope]
-  (let [registrations
-        (get-in state [:github-token-provider-runtime :registrations])
-        retained (purge-github-token-provider-registrations
-                  registrations session-id scope)
-        removed-ids (into #{}
-                          (remove #(contains? retained %))
-                          (keys registrations))]
-    (-> state
-        (assoc-in [:github-token-provider-runtime :registrations] retained)
-        (update-in [:github-token-provider-runtime :invocations]
-                   purge-github-token-provider-invocations
-                   removed-ids))))
-
-(defn ^:no-doc purge-github-token-provider-registration
-  "Remove one provider registration and its active invocations."
-  [state registration-id]
-  (-> state
-      (update-in [:github-token-provider-runtime :registrations]
-                 dissoc
-                 registration-id)
-      (update-in [:github-token-provider-runtime :invocations]
-                 purge-github-token-provider-invocations
-                 #{registration-id})))
-
-(defn ^:no-doc purge-all-github-token-provider-resources
-  "Remove every provider registration and active invocation."
-  [state]
-  (update state
-          :github-token-provider-runtime
-          assoc
-          :registrations {}
-          :invocations {}))
-
-(defn ^:no-doc close-removed-github-token-provider-invocations!
-  "Cancel invocations removed by one atomic client-state transition."
-  [old-state new-state]
-  (doseq [[invocation-id {:keys [cancel-chan cancelled? task] :as invocation}]
-          (get-in old-state [:github-token-provider-runtime :invocations])
-          :when (not (identical?
-                      invocation
-                      (get-in new-state
-                              [:github-token-provider-runtime
-                               :invocations
-                               invocation-id])))]
-    (reset! cancelled? true)
-    (close! cancel-chan)
-    (when-let [^java.util.concurrent.Future future @task]
-      (.cancel future true))))
-
 (defn ^:no-doc teardown-local!
   "Mark a session terminal and release resources without contacting the runtime.
 
@@ -935,17 +881,26 @@
   ([client session-id]
    (teardown-local! client session-id :all))
   ([client session-id provider-scope]
+   (teardown-local! client session-id provider-scope nil))
+  ([client session-id provider-scope expected-registration-token]
    (let [[old new]
          (swap-vals!
           (:state client)
           (fn [state]
             (let [session (get-in state [:sessions session-id])
-                  state (-> (cond-> state
-                              provider-scope
-                              (purge-github-token-provider-resources
-                               session-id provider-scope))
-                            (update :disconnecting-session-ids disj session-id))]
-              (if (or (nil? session) (:destroyed? session))
+                  registration-token (:registration-token session)
+                  owned?
+                  (or (nil? expected-registration-token)
+                      (identical? expected-registration-token
+                                  registration-token))
+                  state
+                  (if (and owned? provider-scope)
+                    (token-provider/purge-session-resources
+                     state session-id provider-scope)
+                    state)]
+              (if (or (not owned?)
+                      (nil? session)
+                      (:destroyed? session))
                 state
                 (assoc-in
                  state
@@ -959,8 +914,14 @@
                         :factory-executions {}
                         :hooks {}
                         :config nil))))))]
-     (close-removed-github-token-provider-invocations! old new)
+     (token-provider/close-removed-invocations! old new)
      (cond
+       (and expected-registration-token
+            (not (identical?
+                  expected-registration-token
+                  (get-in old [:sessions session-id :registration-token]))))
+       :superseded
+
        (nil? (get-in old [:sessions session-id]))
        :absent
 
@@ -1676,26 +1637,7 @@
   (let [{:keys [session-id client]} session]
     (:config (session-state client session-id))))
 
-(defn send!
-  "Send a message to the session.
-   Returns the message ID immediately (fire-and-forget).
-   
-   Options:
-   - :prompt          - The message text (required)
-   - :attachments     - Vector of attachments (file/directory/selection)
-   - :mode            - :enqueue (default) or :immediate
-   - :agent-mode      - **Optional**. One of :interactive (default), :plan,
-                        :autopilot, or :shell. Selects the agent mode for
-                        this turn (upstream PR #1438).
-   - :display-prompt  - **Optional**. String shown in the session timeline
-                        instead of the model `:prompt` (e.g., when the model
-                        prompt is augmented with internal context that should
-                        not be shown to end users). (upstream PR #1470)
-   - :request-headers - Optional map of HTTP headers forwarded to the
-                        upstream LLM on this send (upstream PR #1094).
-                        Keys and values must both be strings (do not use
-                        Clojure keywords — they would be camelized by the
-                        wire-conversion layer)."
+(defn- prepare-send-request
   [session opts]
   (when-not (s/valid? ::specs/send-options opts)
     (throw (ex-info "Invalid send options"
@@ -1721,10 +1663,48 @@
                    (:agent-mode opts) (assoc :agent-mode (name (:agent-mode opts)))
                    (some? (:display-prompt opts)) (assoc :display-prompt (:display-prompt opts))
                    (:request-headers opts) (assoc :request-headers (:request-headers opts)))
-          result (proto/send-request! conn "session.send" params)
-          msg-id (:message-id result)]
-      (log/debug "send! completed for session " session-id " message-id=" msg-id)
-      msg-id)))
+          request {:connection conn
+                   :params params
+                   :session-id session-id}]
+      request)))
+
+(defn- send-request!
+  [session opts timeout-ms]
+  (let [{:keys [connection params session-id]}
+        (prepare-send-request session opts)
+        result (proto/send-request!
+                connection "session.send" params timeout-ms)
+        msg-id (:message-id result)]
+    (log/debug "send! completed for session " session-id " message-id=" msg-id)
+    msg-id))
+
+(defn send!
+  "Send a message to the session.
+   Returns the message ID immediately (fire-and-forget).
+
+   Options:
+   - :prompt          - The message text (required)
+   - :attachments     - Vector of attachments (file/directory/selection)
+   - :mode            - :enqueue (default) or :immediate
+   - :agent-mode      - **Optional**. One of :interactive (default), :plan,
+                       :autopilot, or :shell. Selects the agent mode for
+                       this turn (upstream PR #1438).
+   - :display-prompt  - **Optional**. String shown in the session timeline
+                       instead of the model `:prompt` (e.g., when the model
+                       prompt is augmented with internal context that should
+                       not be shown to end users). (upstream PR #1470)
+   - :request-headers - Optional map of HTTP headers forwarded to the
+                       upstream LLM on this send (upstream PR #1094).
+                       Keys and values must both be strings (do not use
+                       Clojure keywords — they would be camelized by the
+                       wire-conversion layer)."
+  [session opts]
+  (send-request! session opts 60000))
+
+(defn ^:no-doc send-with-timeout!
+  "Internal bounded send used by helper APIs with an existing deadline."
+  [session opts timeout-ms]
+  (send-request! session opts timeout-ms))
 
 (def ^:private ^:const default-send-and-wait-timeout-ms
   "Default idle-wait timeout (ms) for the `send-and-wait!` / `send-async`
@@ -2314,7 +2294,8 @@
           (:state client)
           (fn [state]
             (let [session (get-in state [:sessions session-id])]
-              (if (and session
+              (if (and (not (contains? (:session-setups state) session-id))
+                       session
                        (not (:destroyed? session))
                        (not (contains?
                              (:disconnecting-session-ids state)
@@ -2325,6 +2306,8 @@
                             session-id)
                     (assoc-in [:session-disconnects session-id] completion))
                 state))))
+         setup-in-progress?
+         (contains? (:session-setups old-state) session-id)
          shared-completion
          (get-in new-state [:session-disconnects session-id])
          claimed? (identical? completion shared-completion)
@@ -2349,9 +2332,17 @@
                           (update :session-disconnects dissoc session-id))
                       state))))]
      (cond
+       setup-in-progress?
+       (throw
+        (ex-info "Session setup is in progress; cannot disconnect session"
+                 {:type :session-setup-in-progress
+                  :session-id session-id}))
+
        claimed?
        (try
-         (let [conn (or (connection-io client)
+         (let [registration-token
+               (get-in old-state [:sessions session-id :registration-token])
+               conn (or (connection-io client)
                         (throw
                          (ex-info
                           "Cannot disconnect session: client transport is unavailable"
@@ -2360,9 +2351,9 @@
            (proto/send-request! conn
                                 "session.destroy"
                                 {:session-id session-id}
-                                5000))
-         (when (get-in old-state [:sessions session-id])
-           (teardown-local! client session-id))
+                                5000)
+           (when (get-in old-state [:sessions session-id])
+             (teardown-local! client session-id :all registration-token)))
          (release-claim!)
          (deliver completion {:result nil})
          (log/debug "Session disconnected: " session-id)

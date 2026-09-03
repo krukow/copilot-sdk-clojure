@@ -10,6 +10,9 @@
 
 (deftest wait-for-port-reads-the-complete-announced-port
   (doseq [announcement ["CLI server listening on port 63234\n"
+                        "CLI server listening on port 63234\r"
+                        "CLI server listening on port 63234\r\n"
+                        "CLI server listening on port 63234"
                         "CLI server listening on port 63234 (localhost only)\n"
                         "CLI server listening on port 63234\u001b[0m\n"]]
     (let [process (proxy [Process] []

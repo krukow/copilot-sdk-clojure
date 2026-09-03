@@ -115,26 +115,32 @@
       (async-protocols/closed? ch))))
 
 (defn- call-with-controlled-query
-  [{:keys [events-ch disconnect-fn local-teardown-fn subscribe-fn send-fn chan-fn]}
+  [{:keys [events-ch disconnect-fn local-teardown-fn subscribe-fn send-fn
+           send-with-timeout-fn chan-fn]}
    test-fn]
-  (with-redefs-fn
-    (cond-> {(requiring-resolve 'github.copilot-sdk.helpers/ensure-client!)
-             (fn [_client-opts] ::client)
-             #'sdk/create-session
-             (fn [_client _session-config] ::session)
-             #'sdk/subscribe-events
-             (or subscribe-fn (fn [_session] events-ch))
-             #'sdk/send!
-             (or send-fn (fn [_session _message] ::message-id))
-             #'sdk/disconnect!
-             (or disconnect-fn (fn [_session] nil))
-             #'session/teardown-local!
-             (or local-teardown-fn
-                 (fn
-                   ([_client _session-id] :claimed)
-                   ([_client _session-id _provider-scope] :claimed)))}
-      chan-fn (assoc #'async/chan chan-fn))
-    test-fn))
+  (let [send-fn (or send-fn (fn [_session _message] ::message-id))]
+    (with-redefs-fn
+      (cond-> {(requiring-resolve 'github.copilot-sdk.helpers/ensure-client!)
+               (fn [_client-opts] ::client)
+               #'sdk/create-session
+               (fn [_client _session-config] ::session)
+               #'sdk/subscribe-events
+               (or subscribe-fn (fn [_session] events-ch))
+               #'sdk/send!
+               send-fn
+               #'session/send-with-timeout!
+               (or send-with-timeout-fn
+                   (fn [copilot-session message _timeout-ms]
+                     (send-fn copilot-session message)))
+               #'sdk/disconnect!
+               (or disconnect-fn (fn [_session] nil))
+               #'session/teardown-local!
+               (or local-teardown-fn
+                   (fn
+                     ([_client _session-id] :claimed)
+                     ([_client _session-id _provider-scope] :claimed)))}
+        chan-fn (assoc #'async/chan chan-fn))
+      test-fn)))
 
 (deftest query-chan-close-releases-a-put-parked-on-a-full-buffer
   (let [events-ch (async/chan 3)
@@ -780,8 +786,8 @@
 (deftest query-seq-setup-failure-disconnects-created-session-once
   (with-single-helper-client [copilot-client]
     (let [disconnects (atom [])]
-      (with-redefs [sdk/send!
-                    (fn [_session _opts]
+      (with-redefs [session/send-with-timeout!
+                    (fn [_session _opts _timeout-ms]
                       (throw (ex-info "send failed" {})))
                     sdk/disconnect!
                     (fn [session-or-client & maybe-session-id]
@@ -792,6 +798,40 @@
              #"send failed"
              (h/query-seq! "setup failure")))
         (is (= 1 (count @disconnects)))))))
+
+(deftest query-seq-send-uses-the-remaining-fixed-deadline
+  (let [events-ch (async/chan)
+        clock (atom [0 40000000])
+        send-timeout (atom nil)
+        disconnects (atom 0)]
+    (call-with-controlled-query
+     {:events-ch events-ch
+      :send-with-timeout-fn
+      (fn [_session _message timeout-ms]
+        (reset! send-timeout timeout-ms)
+        (throw
+         (ex-info "session.send timed out"
+                  {:method "session.send"
+                   :timeout-ms timeout-ms})))
+      :disconnect-fn (fn [_session] (swap! disconnects inc))}
+     #(with-redefs-fn
+        {(requiring-resolve 'github.copilot-sdk.helpers/monotonic-nanos)
+         (fn []
+           (let [value (first @clock)]
+             (swap! clock subvec 1)
+             value))}
+        (fn []
+          (let [failure
+                (try
+                  (h/query-seq! "fixed deadline" :timeout-ms 100)
+                  nil
+                  (catch Throwable error
+                    error))]
+            (is (= 60 @send-timeout))
+            (is (= {:type :query-timeout
+                    :timeout-ms 100}
+                   (ex-data failure)))
+            (is (= 1 @disconnects))))))))
 
 (deftest query-seq-source-rejects-invalid-max-events-before-setup
   (let [setup-called? (atom false)]

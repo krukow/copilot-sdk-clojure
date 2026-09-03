@@ -274,32 +274,39 @@
   (let [stdout (:stdout mp)
         reader (java.io.BufferedReader.
                 (java.io.InputStreamReader. stdout "UTF-8"))
-        deadline (+ (System/currentTimeMillis) timeout-ms)]
-    (loop [buffer ""]
-      (when (> (System/currentTimeMillis) deadline)
-        (throw (ex-info "Timeout waiting for CLI server to start" {:timeout-ms timeout-ms})))
-      (when-not (alive? mp)
-        (throw (ex-info "CLI process exited before announcing port" {})))
-      (if (.ready reader)
-        (let [ch (.read reader)]
-          (if (neg? ch)
-            (throw (ex-info "CLI stdout closed unexpectedly" {}))
-            (let [new-buffer (str buffer (char ch))
-                  matcher (re-find #"listening on port (\d+)[^\r\n]*\r?\n"
-                                   (str/lower-case new-buffer))]
-              (if matcher
-                (do
-                  (async/thread
-                    (try
-                      (loop []
-                        (when (.readLine reader)
-                          (recur)))
-                      (catch Exception _)))
-                  (parse-long (second matcher)))
-                (recur new-buffer)))))
-        (do
-          (Thread/sleep 50)
-          (recur buffer))))))
+        result-chan (async/promise-chan)]
+    (async/thread
+      (try
+        (loop [announced? false]
+          (if-let [line (.readLine reader)]
+            (let [matcher (when-not announced?
+                            (re-find #"listening on port (\d+)"
+                                     (str/lower-case line)))]
+              (when matcher
+                (>!! result-chan {:port (parse-long (second matcher))}))
+              (recur (or announced? (some? matcher))))
+            (when-not announced?
+              (>!! result-chan
+                   {:error (ex-info "CLI stdout closed before announcing port"
+                                    {})}))))
+        (catch Exception error
+          (>!! result-chan {:error error}))
+        (finally
+          (close! result-chan))))
+    (let [[result selected]
+          (async/alts!! [result-chan (async/timeout timeout-ms)]
+                        :priority true)]
+      (cond
+        (and (= selected result-chan) (:port result))
+        (:port result)
+
+        (= selected result-chan)
+        (throw (or (:error result)
+                   (ex-info "CLI process exited before announcing port" {})))
+
+        :else
+        (throw (ex-info "Timeout waiting for CLI server to start"
+                        {:timeout-ms timeout-ms}))))))
 
 (defn connect-tcp
   "Connect to a TCP server. Returns a socket."

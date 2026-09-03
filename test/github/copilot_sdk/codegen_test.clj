@@ -512,6 +512,22 @@
                      {:mode :autopilot
                       :future-idle-field true}))))
 
+(deftest hook-start-envelope-is-closed-but-data-is-forward-compatible
+  (let [data (get fixtures "hook.start")
+        valid-envelope (envelope "hook.start" data)]
+    (testing "hook.start data stays open — event data carries future fields"
+      (is (s/valid? ::gen/hook.start-data
+                    (assoc data :future-hook-field {:enabled true}))))
+    (testing "hook.start envelope accepts exactly its declared keys"
+      (is (s/valid? ::gen/hook.start valid-envelope)))
+    (testing "hook.start envelope rejects undeclared envelope-level keys"
+      (is (not (s/valid? ::gen/hook.start
+                         (assoc valid-envelope :future-envelope-field true)))
+          "schema-closed envelopes must reject fields outside the declared envelope keys"))
+    (testing "closing the envelope does not close the nested data payload"
+      (is (s/valid? ::gen/hook.start
+                    (envelope "hook.start" (assoc data :future-hook-field {:enabled true})))))))
+
 (deftest public-event-types-match-generated-schema-set
   (testing "the public curated `event-types` set covers exactly the schema's public event types
             (guards against drift without exposing internal or intentionally excluded experimental events)"

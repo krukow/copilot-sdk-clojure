@@ -191,7 +191,7 @@
   (into #{}
         (map second)
         (re-seq
-         #"(?m)^export\s+(?:(?:declare|abstract)\s+)*(?:type|interface|class|enum|const|function)\s+([A-Za-z_$][A-Za-z0-9_$]*)"
+         #"(?m)^export\s+(?:(?:declare|abstract)\s+)*(?:type|interface|class|enum|const|(?:async\s+)?function)\s+([A-Za-z_$][A-Za-z0-9_$]*)"
          source)))
 
 (defn- export-list-symbols

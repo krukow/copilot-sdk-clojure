@@ -322,7 +322,6 @@
     remote-disable {:kind :fn, :arglists ([session]), :experimental true}
     remote-enable {:kind :fn, :arglists ([session] [session opts]), :experimental true}
     remove-open-canvas! {:kind :fn, :arglists ([client session-id data])}
-    remove-session! {:kind :fn, :arglists ([client session-id])}
     respond-to-queued-command! {:kind :fn, :arglists ([session {:as params, :keys [request-id handled? stop-processing-queue?]}]), :experimental true}
     select! {:kind :fn, :arglists ([session message options])}
     send! {:kind :fn, :arglists ([session opts])}
@@ -889,7 +888,6 @@
     :github.copilot-sdk.specs/permission-kind
     :github.copilot-sdk.specs/permission-mode
     :github.copilot-sdk.specs/permission-request
-    :github.copilot-sdk.specs/permission-response-capability
     :github.copilot-sdk.specs/permission-result
     :github.copilot-sdk.specs/permission-result-kind
     :github.copilot-sdk.specs/permissions

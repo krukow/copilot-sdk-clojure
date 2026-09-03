@@ -829,41 +829,20 @@
       (is (empty? @requests)))))
 
 (deftest test-session-github-token-provider-transport-security
-  (testing "every external cli-url rejects credential callbacks before session RPCs"
-    (let [requests (atom [])
-          _ (mock/set-request-hook! *mock-server*
-                                    (fn [method _]
-                                      (when (str/starts-with? method "session.")
-                                        (swap! requests conj method))))
-          config {:session-id "remote-token-provider"
-                  :on-permission-request sdk/approve-all
-                  :github-token-provider (fn [_] {:kind :cancelled})}]
-      (doseq [url ["example.com:4444"
-                   "localhost:4444"
-                   "127.0.0.1:4444"
-                   "127.255.2.3:4444"
-                   "[::1]:4444"
-                   "[0:0:0:0:0:0:0:1]:4444"
-                   "https://localhost:4444"]
-              invoke [(fn [client]
-                        (sdk/create-session client config))
-                      (fn [client]
-                        (sdk/<create-session client config))
-                      (fn [client]
-                        (sdk/resume-session
-                         client "remote-token-provider"
-                         (dissoc config :session-id)))
-                      (fn [client]
-                        (sdk/<resume-session
-                         client "remote-token-provider"
-                         (dissoc config :session-id)))]]
-        (let [client (sdk/client {:cli-url url :auto-start? false})]
-          (is (thrown-with-msg?
-               clojure.lang.ExceptionInfo
-               #"external cli-url"
-               (invoke client))
-              url)))
-      (is (empty? @requests))))
+  (testing "explicit cli-url transports accept credential callbacks"
+    (doseq [url ["example.com:4444"
+                 "localhost:4444"
+                 "127.0.0.1:4444"
+                 "127.255.2.3:4444"
+                 "[::1]:4444"
+                 "[0:0:0:0:0:0:0:1]:4444"
+                 "https://localhost:4444"]]
+      (let [client (sdk/client {:cli-url url :auto-start? false})]
+        (is (nil?
+             (@#'client/ensure-github-token-provider-transport!
+              client
+              {:github-token-provider (fn [_] {:kind :cancelled})}))
+            url))))
 
   (testing "SDK-owned TCP and child-process stdio transports are accepted"
     (doseq [client [(sdk/client {:auto-start? false})
@@ -889,7 +868,7 @@
       (client/connect-with-streams! client in out)
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo
-           #"caller-supplied streams"
+           #"caller-supplied testing streams"
            (sdk/create-session
             client
             {:session-id "untrusted-stream-provider"
@@ -1130,7 +1109,19 @@
              :access-token secret
              :token-type " "
              :expires-in 3601}
-            :token-type-must-be-non-blank-string]]]
+            :token-type-must-be-non-blank-string]
+           [{:kind :token
+             :access-token secret
+             :expires-in 3601
+             :token-type "bearer"
+             "tokenType" "alternate"}
+            :keys-must-not-collide-after-wire-conversion]
+           [{:kind :token
+             :access-token secret
+             :expires-in 3601
+             :metadata {:account-label "primary"
+                        "accountLabel" "alternate"}}
+            :keys-must-not-collide-after-wire-conversion]]]
       (doseq [[result constraint] invalid-results]
         (let [client (sdk/client {:auto-start? false})
               registration-id
@@ -1260,14 +1251,10 @@
       (is (= valid?
              (nil? (specs/github-token-provider-result-constraint result))))))
 
-  (testing "the public result spec explains the failed named constraint"
-    (let [explanation
-          (s/explain-data
-           ::specs/github-token-provider-result
-           {:kind :token :access-token "token" :expires-in 3600})]
-      (is (str/includes?
-           (pr-str explanation)
-           "github-token-provider-result-expires-in-minimum?"))))
+  (testing "the public result validator identifies the failed named constraint"
+    (is (= :expires-in-must-exceed-3600
+           (specs/github-token-provider-result-constraint
+            {:kind :token :access-token "token" :expires-in 3600}))))
 
   (testing "provider results are open maps"
     (doseq [result [{:kind :cancelled :reason :expired}
@@ -1665,7 +1652,8 @@
              :host "github.com"
              :reason "refresh"})))]
     (await-atom! (:state client)
-                 #(seq (provider-invocations %))
+                 #(and (seq (provider-invocations %))
+                       (some? (provider-executor %)))
                  "GitHub token provider invocation registration"
                  1000)
     response))
@@ -2092,15 +2080,19 @@
                     id))
                 (provider-registrations @(:state *test-client*)))
           response
-          (pending-github-token-request *test-client* registration-id)]
+          (pending-github-token-request *test-client* registration-id)
+          executor (provider-executor @(:state *test-client*))]
+      (is (some? executor))
       (close! (protocol/notifications
                (:connection-io @(:state *test-client*))))
       (assert-provider-request-cancelled! response)
       (await-atom! (:state *test-client*)
                    #(and (empty? (provider-registrations %))
-                         (empty? (provider-invocations %)))
+                         (empty? (provider-invocations %))
+                         (nil? (provider-executor %)))
                    "GitHub token provider cleanup after notification closure"
-                   1000))))
+                   1000)
+      (is (.isShutdown ^ThreadPoolExecutor executor)))))
 
 (deftest test-session-github-token-provider-lifecycle
   (testing "resume rotates providers only on success and omission clears the previous provider"
@@ -2184,7 +2176,11 @@
            client (constantly {:kind :token :access-token "old"}) session-id)
           _ (@#'client/commit-github-token-provider!
              client session-id old-id)
+          setup-token (@#'client/claim-session-setup! client session-id)
           snapshot (@#'client/session-registration-snapshot client session-id)
+          registration-token
+          (get-in @(:state client)
+                  [:sessions session-id :registration-token])
           failing-id
           (@#'client/register-github-token-provider!
            client (constantly {:kind :token :access-token "failing"})
@@ -2198,7 +2194,14 @@
              client session-id committed-id)
           failure (ex-info "setup failed" {:phase :options-update})]
       (@#'client/fail-session-setup!
-       client session-id failing-id true snapshot failure)
+       client
+       {:session-id session-id
+        :provider-registration-id failing-id
+        :registration-token registration-token
+        :setup-token setup-token
+        :remote-accepted? true
+        :snapshot snapshot}
+       failure)
       (let [registrations (provider-registrations @(:state client))]
         (is (= #{committed-id} (set (keys registrations))))
         (is (true? (get-in registrations [committed-id :committed?])))
@@ -2486,3 +2489,59 @@
         (finally
           (try (sdk/disconnect! client) (catch Exception _))
           (mock/stop-mock-server! server))))))
+
+(deftest same-session-id-cannot-be-set-up-concurrently
+  (let [session-id "concurrent-session-setup"
+        setup-token (@#'client/claim-session-setup! *test-client* session-id)
+        rpc-calls (atom 0)]
+    (try
+      (mock/set-request-hook!
+       *mock-server*
+       (fn [method _]
+         (when (= "session.create" method)
+           (swap! rpc-calls inc))))
+      (let [failure
+            (try
+              (sdk/create-session
+               *test-client*
+               {:session-id session-id
+                :on-permission-request sdk/approve-all})
+              nil
+              (catch Throwable error
+                error))]
+        (is (instance? clojure.lang.ExceptionInfo failure))
+        (is (= {:type :session-setup-in-progress
+                :session-id session-id}
+               (ex-data failure))))
+      (is (zero? @rpc-calls))
+      (finally
+        (@#'client/release-session-setup!
+         *test-client* session-id setup-token)))))
+
+(deftest cloud-inline-setup-failure-rolls-back-before-callback-return
+  (let [client (sdk/client {:auto-start? false})
+        session-id "cloud-inline-rollback"
+        assigned-session-id (atom nil)
+        setup-context (atom nil)
+        result-promise (promise)
+        callback
+        (@#'client/make-create-session-inline-callback
+         client
+         {:on-permission-request sdk/approve-all}
+         {}
+         nil
+         assigned-session-id
+         setup-context
+         result-promise)]
+    (with-redefs-fn
+      {#'client/install-session-fs-handler!
+       (fn [& _]
+         (throw (ex-info "inline setup failed" {:phase :session-fs})))}
+      #(callback {:session-id session-id}))
+    (let [failure (deref result-promise 1000 ::timeout)]
+      (is (instance? clojure.lang.ExceptionInfo failure))
+      (is (= "inline setup failed" (ex-message failure))))
+    (is (= session-id @assigned-session-id))
+    (is (not (contains? (:sessions @(:state client)) session-id)))
+    (is (not (contains? (:session-io @(:state client)) session-id)))
+    (is (not (contains? (:session-setups @(:state client)) session-id)))))
