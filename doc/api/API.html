@@ -5,6 +5,7 @@
 <p>The helpers namespace provides simple, stateless query functions with automatic client management.</p>
 <pre><code class="language-clojure">(require '[github.copilot-sdk.helpers :as h])
 </code></pre>
+<p>Helpers do not stop caller-supplied clients or disconnect caller-supplied sessions. Sessions created internally by a helper are helper-owned and release their local resources even if remote disconnect fails.</p>
 <h3><a href="#query" id="query"></a><code>query</code></h3>
 <pre><code class="language-clojure">(h/query prompt &amp; {:keys [client session timeout-ms]})
 </code></pre>
@@ -45,9 +46,10 @@
 <tr><td> <code>:client</code> </td><td> map or <code>CopilotClient</code> </td><td> <code>nil</code> </td><td> Client options map or caller-owned client </td></tr>
 <tr><td> <code>:max-events</code> </td><td> integer </td><td> <code>256</code> </td><td> Maximum number of events to emit; <code>0</code> disconnects immediately </td></tr>
 <tr><td> <code>:session</code> </td><td> map </td><td> <code>nil</code> </td><td> Session options map </td></tr>
-<tr><td> <code>:timeout-ms</code> </td><td> positive integer or nil </td><td> <code>60000</code> </td><td> One deadline covering session creation and event consumption; nonterminal autopilot idle events do not reset it. <code>nil</code> disables the deadline </td></tr>
+<tr><td> <code>:timeout-ms</code> </td><td> positive integer or nil </td><td> <code>60000</code> </td><td> Deadline starts after session creation and is observed during event consumption; nonterminal autopilot idle events do not reset it. <code>nil</code> disables the deadline </td></tr>
 </tbody>
 </table>
+<p>Client startup and session creation are outside the deadline. Synchronous subscription and send calls are not preempted; if the deadline elapses during either call, the timeout is observed when event consumption begins.</p>
 <pre><code class="language-clojure">(h/with-query-seq [events "Tell me a story"
                    :session {:on-permission-request copilot/approve-all
                              :streaming? true}]
@@ -69,9 +71,10 @@
 <tr><td> <code>:client</code> </td><td> map or <code>CopilotClient</code> </td><td> <code>nil</code> </td><td> Client options map or caller-owned client </td></tr>
 <tr><td> <code>:max-events</code> </td><td> integer </td><td> <code>256</code> </td><td> Maximum number of events to emit; <code>0</code> disconnects immediately </td></tr>
 <tr><td> <code>:session</code> </td><td> map </td><td> <code>nil</code> </td><td> Session options map </td></tr>
-<tr><td> <code>:timeout-ms</code> </td><td> positive integer or nil </td><td> <code>60000</code> </td><td> One deadline covering session creation and event consumption; nonterminal autopilot idle events do not reset it. <code>nil</code> disables the deadline </td></tr>
+<tr><td> <code>:timeout-ms</code> </td><td> positive integer or nil </td><td> <code>60000</code> </td><td> Deadline starts after session creation and is observed during event consumption; nonterminal autopilot idle events do not reset it. <code>nil</code> disables the deadline </td></tr>
 </tbody>
 </table>
+<p>The deadline has the same scope and observation semantics as <code>with-query-seq</code>.</p>
 <p><strong>Warning:</strong> cleanup (session disconnect) runs only when the sequence is consumed to its natural end — a terminal <code>:copilot/session.idle</code> / <code>:copilot/session.error</code> event, or the events channel closing (detected when the next read yields <code>nil</code>, the end-of-stream sentinel — not an emitted element). An idle event whose wire <code>:mode</code> is the string <code>"autopilot"</code> is emitted as a nonterminal turn boundary. Abandoning the seq before it reaches a terminal event (e.g. <code>(first ...)</code> or <code>(take 1 ...)</code> when the first element isn’t already terminal), or hitting a positive <code>:max-events</code> bound before that end of stream, leaks the session and its event tap (the sole exception is <code>:max-events 0</code>, which disconnects immediately without emitting anything). Consume the whole seq, or use <code>with-query-seq</code> or <code>query</code> when you may stop reading early.</p>
 <pre><code class="language-clojure">(run! println
       (h/query-seq! "Tell me a story"
@@ -88,7 +91,7 @@
 </thead>
 <tbody>
 <tr><td> <code>:buffer</code> </td><td> positive integer </td><td> <code>256</code> </td><td> Maximum number of events buffered before producer backpressure </td></tr>
-<tr><td> <code>:client</code> </td><td> map or <code>CopilotClient</code> </td><td> <code>nil</code> </td><td> Client options map or caller-owned client </td></tr>
+<tr><td> <code>:client</code> </td><td> map </td><td> <code>nil</code> </td><td> Client options used for the shared client </td></tr>
 <tr><td> <code>:session</code> </td><td> map </td><td> <code>nil</code> </td><td> Session options map </td></tr>
 </tbody>
 </table>
@@ -109,7 +112,7 @@
 </code></pre>
 <p>Close the returned channel when you stop consuming before a terminal event. Closing cancels the hidden query and disconnects its session even when the output buffer is full. The example above closes after ten events instead of abandoning the channel.</p>
 <p>Values accepted into the buffer before cancellation remain readable after <code>close!</code>. An in-flight event whose parked put loses to cancellation may be dropped; cancellation is not a lossless drain.</p>
-<p>On natural completion, <code>query-chan</code> disconnects its hidden session before closing. If that disconnect fails, the channel yields the <code>Throwable</code> after the terminal event and then closes. When a consumer explicitly closes the channel, cleanup still runs, but a cleanup failure cannot be delivered through the already-closed channel.</p>
+<p>On natural completion, <code>query-chan</code> disconnects its hidden session before closing. If that disconnect fails, the channel yields a tagged <code>:copilot/session.error</code> map after the terminal event and then closes; the original failure is available at <code>[:data :cause]</code>. When a consumer explicitly closes the channel, cleanup still runs and logs a cleanup failure because it cannot be delivered through the already-closed channel. In both cases, local resources for the hidden session are released even when remote disconnect fails.</p>
 <h3><a href="#shutdown" id="shutdown"></a><code>shutdown!</code></h3>
 <pre><code class="language-clojure">(h/shutdown!)
 </code></pre>
@@ -240,7 +243,7 @@
   ;; use client and session
   )
 </code></pre>
-<p>Create a client and session together, ensuring both are cleaned up on exit. Nested cleanup follows the same failure contract as <code>with-session</code>: body failures remain primary and cleanup failures are attached as suppressed exceptions.</p>
+<p>Create a client and session together, ensuring both are asked to clean up on exit. A thrown session cleanup failure follows the <code>with-session</code> contract: body failures remain primary and the session cleanup failure is attached as a suppressed exception. Client <code>stop!</code> failures are returned in its error vector rather than thrown, so this macro cannot attach them as suppressed exceptions. Use explicit lifecycle management when the caller must inspect client cleanup failures.</p>
 <p><strong>Config:</strong></p>
 <table>
 <thead>

@@ -867,7 +867,7 @@
 
 (deftest event-fields-with-colliding-names-use-field-specific-contracts
   (testing "shared leaf specs do not silently constrain unrelated event fields"
-    (doseq [spec [::specs/result ::specs/error ::specs/arguments]]
+    (doseq [spec [::specs/result ::specs/error ::specs/arguments ::specs/caller]]
       (is (nil? (s/get-spec spec)))))
   (testing "assistant tool arguments accept every recursive JSON value"
     (let [base {:tool-call-id "call-1" :name "tool"}]
@@ -980,4 +980,17 @@
         "type must be the literal \"program\"")
     (is (not (s/valid? ::generated-events/assistant-message-tool-request-caller-shape
                        {:caller-id "abc" :type "program" :extra "nope"}))
-        "additionalProperties=false must reject unknown keys")))
+        "additionalProperties=false must reject unknown keys"))
+  (testing "the idiom event spec validates known fields without closing future extensions"
+    (let [base {:tool-call-id "call-1" :name "tool"}]
+      (is (s/valid? ::specs/assistant-message-tool-request
+                    (assoc base :caller {:caller-id "abc" :type "program"})))
+      (is (not (s/valid? ::specs/assistant-message-tool-request
+                         (assoc base :caller {:type "program"}))))
+      (is (not (s/valid? ::specs/assistant-message-tool-request
+                         (assoc base :caller {:caller-id "abc"
+                                              :type "user"}))))
+      (is (s/valid? ::specs/assistant-message-tool-request
+                    (assoc base :caller {:caller-id "abc"
+                                         :type "program"
+                                         :future-field "value"}))))))

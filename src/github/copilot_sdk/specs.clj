@@ -963,7 +963,7 @@
 (s/def ::coauthor-enabled boolean?)
 (s/def ::manage-schedule-enabled boolean?)
 (s/def ::included-builtin-skills
-  (s/nilable (s/coll-of ::non-blank-string)))
+  (s/coll-of ::non-blank-string))
 
 ;; Reasoning summary mode (upstream PR #813 - pre-existing parity gap).
 ;; Wire enum: "none" | "concise" | "detailed". Mirrors upstream's ReasoningSummary type.
@@ -1050,40 +1050,9 @@
     :else
     nil))
 
-(defn- github-token-provider-result-kind?
-  [result]
-  (#{:token :cancelled} (:kind result)))
-
-(defn- github-token-provider-result-json-fields?
-  [result]
-  (and (every? #(or (keyword? %) (string? %)) (keys result))
-       (every? github-token-provider-field-value?
-               (vals (dissoc result :kind)))))
-
-(defn- github-token-provider-access-token?
-  [result]
-  (or (= :cancelled (:kind result))
-      (s/valid? ::non-blank-string (:access-token result))))
-
-(defn- github-token-provider-expires-in?
-  [result]
-  (or (= :cancelled (:kind result))
-      (and (integer? (:expires-in result))
-           (< 3600 (:expires-in result)))))
-
-(defn- github-token-provider-token-type?
-  [result]
-  (or (= :cancelled (:kind result))
-      (not (contains? result :token-type))
-      (s/valid? ::non-blank-string (:token-type result))))
-
 (s/def ::github-token-provider-result
   (s/and map?
-         github-token-provider-result-kind?
-         github-token-provider-result-json-fields?
-         github-token-provider-access-token?
-         github-token-provider-expires-in?
-         github-token-provider-token-type?))
+         (comp nil? github-token-provider-result-constraint)))
 
 ;; Session options (upstream PR #1865) — shared by create + resume/join.
 ;; excludedBuiltinAgents: names of built-in agents to hide from the session.
@@ -1800,7 +1769,10 @@
   (s/keys :req-un [::error-type ::message]
           :opt-un [::stack ::status-code ::provider-call-id ::url]))
 
-(s/def ::session-idle-mode #{"interactive" "autopilot" "plan"})
+(def ^:no-doc autopilot-session-mode "autopilot")
+(def ^:no-doc session-modes #{"interactive" autopilot-session-mode "plan"})
+
+(s/def ::session-idle-mode session-modes)
 (s/def ::session.idle-data
   (s/and
    map?
@@ -1911,13 +1883,15 @@
    #(contains? % :type)
    #(string? (:caller-id %))
    #(s/valid? ::assistant-message-tool-request-caller-type (:type %))))
-(s/def ::caller ::assistant-message-tool-request-caller)
 (s/def ::assistant-message-tool-request
   (s/and
    (s/keys :req-un [::tool-call-id ::name]
            :opt-un [::tool-title ::mcp-server-name ::mcp-tool-name
-                    ::intention-summary ::caller])
+                    ::intention-summary])
    #(optional-field? % :arguments opaque-json-value?)
+   #(optional-field? % :caller
+                     (partial s/valid?
+                              ::assistant-message-tool-request-caller))
    #(or (not (contains? % :type))
         (s/valid? ::assistant-message-tool-request-type (:type %)))))
 (s/def ::tool-requests
@@ -2386,7 +2360,7 @@
 
 (s/def ::session.mode_notice_delivered-data
   (s/and map?
-         #(required-value? % :mode #{"interactive" "plan" "autopilot"})
+         #(required-value? % :mode session-modes)
          #(optional-value? % :content string?)))
 
 (s/def ::model-call-failure-source #{"top_level" "subagent" "mcp_sampling"})

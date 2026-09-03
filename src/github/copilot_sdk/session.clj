@@ -30,7 +30,9 @@
 
 (defn- session-disconnected?
   [client session-id]
-  (not (false? (:destroyed? (session-state client session-id)))))
+  (let [state @(:state client)]
+    (or (contains? (:disconnecting-session-ids state) session-id)
+        (not (false? (get-in state [:sessions session-id :destroyed?]))))))
 
 (defn- update-session! [client session-id f & args]
   (swap! (:state client)
@@ -919,10 +921,9 @@
                               [:github-token-provider-runtime
                                :invocations
                                invocation-id])))]
-    (when cancelled?
-      (reset! cancelled? true))
+    (reset! cancelled? true)
     (close! cancel-chan)
-    (when-let [^java.util.concurrent.Future future (some-> task deref)]
+    (when-let [^java.util.concurrent.Future future @task]
       (.cancel future true))))
 
 (defn ^:no-doc teardown-local!
@@ -1737,7 +1738,7 @@
 (defn ^:no-doc terminal-idle-event?
   [event]
   (and (= :copilot/session.idle (:type event))
-       (not= "autopilot" (get-in event [:data :mode]))))
+       (not= specs/autopilot-session-mode (get-in event [:data :mode]))))
 
 (defn send-and-wait!
   "Send a message and wait until the session becomes idle.
@@ -2309,49 +2310,75 @@
    (disconnect! (:client session) (:session-id session)))
   ([client session-id]
    (log/debug "Disconnecting session: " session-id)
-   (let [claimable?
-         (fn [state]
-           (let [session (get-in state [:sessions session-id])]
-             (and session
-                  (false? (:destroyed? session))
-                  (not (contains?
-                        (:disconnecting-session-ids state)
-                        session-id)))))
+   (let [completion (promise)
          [old-state new-state]
          (swap-vals!
           (:state client)
           (fn [state]
-            (if (claimable? state)
-              (update state
-                      :disconnecting-session-ids
-                      (fnil conj #{})
-                      session-id)
-              state)))
-         session (get-in old-state [:sessions session-id])
-         claimed? (and (claimable? old-state)
-                       (contains?
-                        (:disconnecting-session-ids new-state)
-                        session-id))
-         disconnect? (or (nil? session) claimed?)]
-     (when disconnect?
+            (let [session (get-in state [:sessions session-id])]
+              (if (and (not (:destroyed? session))
+                       (not (contains?
+                             (:disconnecting-session-ids state)
+                             session-id)))
+                (-> state
+                    (update :disconnecting-session-ids
+                            (fnil conj #{})
+                            session-id)
+                    (assoc-in [:session-disconnects session-id] completion))
+                state))))
+         shared-completion
+         (get-in new-state [:session-disconnects session-id])
+         claimed? (identical? completion shared-completion)
+         await-completion!
+         (fn []
+           (try
+             (let [{:keys [error]} @shared-completion]
+               (when error
+                 (throw error)))
+             (catch InterruptedException error
+               (.interrupt (Thread/currentThread))
+               (throw error))))
+         release-claim!
+         (fn []
+           (swap! (:state client)
+                  (fn [state]
+                    (if (identical?
+                         completion
+                         (get-in state [:session-disconnects session-id]))
+                      (-> state
+                          (update :disconnecting-session-ids disj session-id)
+                          (update :session-disconnects dissoc session-id))
+                      state))))]
+     (cond
+       claimed?
        (try
-         (proto/send-request! (connection-io client)
-                              "session.destroy"
-                              {:session-id session-id}
-                              5000)
-         (when claimed?
+         (let [conn (or (connection-io client)
+                        (throw
+                         (ex-info
+                          "Cannot disconnect session: client transport is unavailable"
+                          {:type :transport-unavailable
+                           :session-id session-id})))]
+           (proto/send-request! conn
+                                "session.destroy"
+                                {:session-id session-id}
+                                5000))
+         (when (get-in old-state [:sessions session-id])
            (teardown-local! client session-id))
+         (deliver completion {:result nil})
+         (release-claim!)
+         (log/debug "Session disconnected: " session-id)
          (catch Throwable error
-           (when claimed?
-             (swap! (:state client)
-                    update
-                    :disconnecting-session-ids
-                    disj
-                    session-id))
            (when (instance? InterruptedException error)
              (.interrupt (Thread/currentThread)))
+           (deliver completion {:error error})
+           (release-claim!)
            (throw error)))
-       (log/debug "Session disconnected: " session-id)))
+
+       shared-completion
+       (await-completion!)
+
+       :else
+       nil))
    nil))
 
 (defn destroy!

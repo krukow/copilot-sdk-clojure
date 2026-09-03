@@ -6,10 +6,11 @@
    - COPILOT_E2E_TESTS: Set to 'true' to enable these tests
    
    Run with: COPILOT_E2E_TESTS=true COPILOT_CLI_PATH=/path/to/copilot clojure -M:test"
-  (:require [clojure.java.io :as io]
+  (:require [clojure.core.async :refer [alts!! timeout]]
+            [clojure.java.io :as io]
             [clojure.test :refer [deftest testing is use-fixtures]]
-            [clojure.core.async :refer [alts!! timeout]]
-            [github.copilot-sdk :as sdk])
+            [github.copilot-sdk :as sdk]
+            [github.copilot-sdk.teardown :as teardown])
   (:import [java.nio.file Files]))
 
 ;; Check if E2E tests are enabled
@@ -61,13 +62,35 @@
 
 ;; Dynamic var for test client
 (def ^:dynamic *e2e-client* nil)
-(def ^:dynamic *e2e-home* nil)
 
 (defn- delete-tree!
   [root]
   (when (.exists root)
     (doseq [file (reverse (file-seq root))]
       (io/delete-file file))))
+
+(defn- stop-client-failures
+  [resource copilot-client]
+  (teardown/attempt-collecting
+   {:operation :stop :resource resource}
+   (sdk/stop! copilot-client)))
+
+(defn- disconnect-session-failures
+  [resource copilot-session]
+  (teardown/collect
+   [(teardown/attempt
+     {:operation :disconnect :resource resource}
+     (sdk/disconnect! copilot-session))]))
+
+(defn- throw-cleanup-failures!
+  [message failures]
+  (when (seq failures)
+    (let [aggregate (ex-info message
+                             {:cleanup-failures failures}
+                             (first failures))]
+      (doseq [failure (rest failures)]
+        (.addSuppressed aggregate failure))
+      (throw aggregate))))
 
 (defn with-e2e-client
   "Fixture that creates a real client for E2E tests."
@@ -84,12 +107,14 @@
                               :copilot-home home-path})]
       (try
         (sdk/start! client)
-        (binding [*e2e-client* client
-                  *e2e-home* home-path]
+        (binding [*e2e-client* client]
           (test-fn))
         (finally
-          (try (sdk/stop! client) (catch Exception _))
-          (delete-tree! home))))
+          (let [failures (stop-client-failures :e2e-client client)]
+            (throw-cleanup-failures!
+             "Failed to stop the E2E client cleanly"
+             failures)
+            (delete-tree! home)))))
     ;; E2E disabled - still run the tests but they will skip
     (test-fn)))
 
@@ -237,35 +262,51 @@
 (deftest ^:e2e test-e2e-resume-session
   (when-e2e
    (testing "Resume an active session through a second TCP client"
-     (let [connection-token (str (java.util.UUID/randomUUID))
+     (let [home (.toFile
+                 (Files/createTempDirectory
+                  "copilot-sdk-clojure-resume-e2e-"
+                  (make-array java.nio.file.attribute.FileAttribute 0)))
+           home-path (.getCanonicalPath home)
+           connection-token (str (java.util.UUID/randomUUID))
            owner-client (sdk/client {:cli-path cli-path
                                      :use-stdio? false
                                      :port 0
                                      :tcp-connection-token connection-token
                                      :auto-start? false
-                                     :copilot-home *e2e-home*})
+                                     :copilot-home home-path})
            resume-client (atom nil)
            sessions (atom [])]
-       (try
-         (sdk/start! owner-client)
-         (let [session1 (sdk/create-session owner-client {})
-               _registered-session1 (swap! sessions conj session1)
-               session-id (sdk/session-id session1)
-               port (:actual-port @(:state owner-client))
-               client2 (sdk/client {:cli-url (str "localhost:" port)
-                                    :tcp-connection-token connection-token
-                                    :auto-start? false})]
-           (reset! resume-client client2)
-           (sdk/start! client2)
-           (let [session2 (sdk/resume-session client2 session-id {})
-                 _registered-session2 (swap! sessions conj session2)]
-             (is (= session-id (sdk/session-id session2)))))
-         (finally
-           (doseq [session (reverse @sessions)]
-             (try (sdk/disconnect! session) (catch Exception _)))
-           (when-let [client2 @resume-client]
-             (try (sdk/stop! client2) (catch Exception _)))
-           (try (sdk/stop! owner-client) (catch Exception _))))))))
+       (teardown/call-with-cleanup
+        #(do
+           (sdk/start! owner-client)
+           (let [session1 (sdk/create-session owner-client {})
+                 _registered-session1 (swap! sessions conj session1)
+                 session-id (sdk/session-id session1)
+                 port (:actual-port @(:state owner-client))
+                 client2 (sdk/client {:cli-url (str "localhost:" port)
+                                      :tcp-connection-token connection-token
+                                      :auto-start? false})]
+             (reset! resume-client client2)
+             (sdk/start! client2)
+             (let [session2 (sdk/resume-session client2 session-id {})
+                   _registered-session2 (swap! sessions conj session2)]
+               (is (= session-id (sdk/session-id session2))))))
+        #(let [failures
+               (into []
+                     cat
+                     [(into []
+                            (mapcat (fn [session]
+                                      (disconnect-session-failures
+                                       :resumed-session
+                                       session)))
+                            (reverse @sessions))
+                      (when-let [client2 @resume-client]
+                        (stop-client-failures :resume-client client2))
+                      (stop-client-failures :owner-client owner-client)])]
+           (throw-cleanup-failures!
+            "Failed to clean up the TCP resume E2E clients"
+            failures)
+           (delete-tree! home)))))))
 
 (deftest ^:e2e test-e2e-multiple-sessions
   (when-e2e

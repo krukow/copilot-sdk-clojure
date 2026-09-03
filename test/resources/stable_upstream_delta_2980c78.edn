@@ -811,7 +811,7 @@
   {:source "@github/copilot-linux-x64@1.0.83-1/schemas/session-events.schema.json"
    :sha256 "11d24b4e8de44590d70e261ebf15be18d91de14d674fdcfb1f2554ad43a48169"}
   :generated-clojure-output
-  {:event-specs-sha256 "55c3223c69905548cd9314aad75e1b129dc426037aff955a96578b5ef92e71e3"
+  {:event-specs-sha256 "42abe43e585481a83d23592979ef8a3db3801fbd969d46655263a2d8b877df76"
    :coercions-sha256 "5688dbc7cc1f5cc3ef05eab7ffd3230b516c431e7ed344dad137f45eee359d33"}}
 
  :published-schema-artifact

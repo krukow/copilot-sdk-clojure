@@ -37,6 +37,9 @@ All notable changes to this project will be documented in this file. This change
   model provenance, and shell-exit output paths. Experimental assistant
   reasoning blocks remain generated wire evidence rather than a curated public
   idiom field.
+  ([upstream PR #2401](https://github.com/github/copilot-sdk/pull/2401),
+  [upstream PR #2409](https://github.com/github/copilot-sdk/pull/2409),
+  [upstream PR #2467](https://github.com/github/copilot-sdk/pull/2467))
 
 ### Changed (stable 2980c78 sync)
 - **BREAKING:** Wait and stream APIs now treat `session.idle` events whose wire
@@ -374,6 +377,14 @@ All notable changes to this project will be documented in this file. This change
   the hidden session and event tap. `query-seq!` remains supported and is not
   deprecated in this change.
 
+### Changed (helper lifecycle)
+- Sequence-helper deadlines now start after session creation and are observed
+  during event consumption. Client startup and synchronous session creation are
+  outside the timeout budget.
+- **BREAKING:** `query-chan` now emits hidden-session cleanup failures as tagged
+  `:copilot/session.error` maps, with the original failure at `[:data :cause]`,
+  instead of widening its event stream with a bare `Throwable`.
+
 ### Fixed (helper lifecycle)
 - `query-seq!` now disconnects the created session when setup fails during
   `send!`, and `:max-events 0` is accepted by the public helper specs under
@@ -385,6 +396,13 @@ All notable changes to this project will be documented in this file. This change
   concurrent close, and close/terminal races disconnect exactly once. Buffered
   values accepted before cancellation remain readable; an in-flight parked event
   may be dropped.
+- Blocking, sequence, and channel helpers now deterministically own and release
+  only the sessions they create. Remote disconnect failures remain observable
+  while local resources for hidden sessions are still released.
+- Blocking `helpers/query` preserves its primary send failure and attaches a
+  concurrent hidden-session disconnect failure as suppressed. `query-chan`
+  logs cleanup failures when consumer cancellation has already closed its event
+  channel.
 
 ### Changed (v1.0.79 sync)
 - **`send-and-wait!` default idle-wait timeout is now 60000ms** (was 300000ms),

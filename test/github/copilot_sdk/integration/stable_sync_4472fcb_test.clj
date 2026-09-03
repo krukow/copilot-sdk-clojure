@@ -27,6 +27,10 @@
    :source :host-policy
    :surface :sdk})
 
+(def ^:private historical-decision-context
+  (get-in stable-delta-report
+          [:historical-contracts :permission-decision-context]))
+
 (deftest stable-delta-inventory-is-complete-and-internally-consistent
   (let [source-symbols (:source-symbols stable-delta-report)
         stable-deltas (:stable-deltas stable-delta-report)
@@ -209,6 +213,23 @@
            (ex-cause (first (.getSuppressed ^Throwable startup-error)))))
       (is (= :error (sdk/state copilot-client))))))
 
+(deftest historical-permission-decision-context-vocabulary-is-pinned
+  (is (= #{:auto-approved :autopilot-denied :prompted-user}
+         (:outcomes historical-decision-context)))
+  (is (= #{:judge-recommendation
+           :human-response
+           :host-policy
+           :unattended-fallback}
+         (:sources historical-decision-context)))
+  (is (= #{:tui :prompt-mode :copilot-app :sdk}
+         (:surfaces historical-decision-context)))
+  (is (not (contains? (:sources historical-decision-context)
+                      :assisted-approval))
+      "assisted_approval was introduced after the 4472fcb target")
+  (is (not (contains? (:surfaces historical-decision-context)
+                      :acp))
+      "the ACP surface was introduced after the 4472fcb target"))
+
 (deftest attributed-permission-result-contract
   (testing "helper constructs and replaces attribution without nesting"
     (let [attributed
@@ -299,7 +320,7 @@
               {:permission-kind :shell}))]
         (is (= expected (:decision-context response))))))
 
-  (testing "the pre-schema judge spelling is rejected"
+  (testing "the current spec rejects the historical judge spelling"
     (is (not (s/valid? ::specs/permission-decision-context
                        {:outcome :auto-approved
                         :source :judge-recommendation

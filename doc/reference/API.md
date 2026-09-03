@@ -8,6 +8,10 @@ The helpers namespace provides simple, stateless query functions with automatic 
 (require '[github.copilot-sdk.helpers :as h])
 ```
 
+Helpers do not stop caller-supplied clients or disconnect caller-supplied
+sessions. Sessions created internally by a helper are helper-owned and release
+their local resources even if remote disconnect fails.
+
 ### `query`
 
 ```clojure
@@ -61,7 +65,11 @@ Use this as the default seq-style streaming helper. Cleanup runs when `body` ret
 | `:client` | map or `CopilotClient` | `nil` | Client options map or caller-owned client |
 | `:max-events` | integer | `256` | Maximum number of events to emit; `0` disconnects immediately |
 | `:session` | map | `nil` | Session options map |
-| `:timeout-ms` | positive integer or nil | `60000` | One deadline covering session creation and event consumption; nonterminal autopilot idle events do not reset it. `nil` disables the deadline |
+| `:timeout-ms` | positive integer or nil | `60000` | Deadline starts after session creation and is observed during event consumption; nonterminal autopilot idle events do not reset it. `nil` disables the deadline |
+
+Client startup and session creation are outside the deadline. Synchronous
+subscription and send calls are not preempted; if the deadline elapses during
+either call, the timeout is observed when event consumption begins.
 
 ```clojure
 (h/with-query-seq [events "Tell me a story"
@@ -90,7 +98,10 @@ Pass a client options map to use the helpers-managed client, or a started
 | `:client` | map or `CopilotClient` | `nil` | Client options map or caller-owned client |
 | `:max-events` | integer | `256` | Maximum number of events to emit; `0` disconnects immediately |
 | `:session` | map | `nil` | Session options map |
-| `:timeout-ms` | positive integer or nil | `60000` | One deadline covering session creation and event consumption; nonterminal autopilot idle events do not reset it. `nil` disables the deadline |
+| `:timeout-ms` | positive integer or nil | `60000` | Deadline starts after session creation and is observed during event consumption; nonterminal autopilot idle events do not reset it. `nil` disables the deadline |
+
+The deadline has the same scope and observation semantics as
+`with-query-seq`.
 
 **Warning:** cleanup (session disconnect) runs only when the sequence is consumed to its natural end — a
 terminal `:copilot/session.idle` / `:copilot/session.error` event, or the events channel closing (detected
@@ -121,7 +132,7 @@ terminal `:copilot/session.idle` or `:copilot/session.error` event. An idle even
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `:buffer` | positive integer | `256` | Maximum number of events buffered before producer backpressure |
-| `:client` | map or `CopilotClient` | `nil` | Client options map or caller-owned client |
+| `:client` | map | `nil` | Client options used for the shared client |
 | `:session` | map | `nil` | Session options map |
 
 ```clojure
@@ -150,9 +161,11 @@ in-flight event whose parked put loses to cancellation may be dropped; cancellat
 lossless drain.
 
 On natural completion, `query-chan` disconnects its hidden session before closing. If that
-disconnect fails, the channel yields the `Throwable` after the terminal event and then closes.
-When a consumer explicitly closes the channel, cleanup still runs, but a cleanup failure cannot
-be delivered through the already-closed channel.
+disconnect fails, the channel yields a tagged `:copilot/session.error` map after the terminal
+event and then closes; the original failure is available at `[:data :cause]`. When a consumer
+explicitly closes the channel, cleanup still runs and logs a cleanup failure because it cannot
+be delivered through the already-closed channel. In both cases, local resources for the hidden
+session are released even when remote disconnect fails.
 
 ### `shutdown!`
 
@@ -354,10 +367,13 @@ thrown.
   )
 ```
 
-Create a client and session together, ensuring both are cleaned up on exit.
-Nested cleanup follows the same failure contract as `with-session`: body
-failures remain primary and cleanup failures are attached as suppressed
-exceptions.
+Create a client and session together, ensuring both are asked to clean up on
+exit. A thrown session cleanup failure follows the `with-session` contract:
+body failures remain primary and the session cleanup failure is attached as a
+suppressed exception. Client `stop!` failures are returned in its error vector
+rather than thrown, so this macro cannot attach them as suppressed exceptions.
+Use explicit lifecycle management when the caller must inspect client cleanup
+failures.
 
 **Config:**
 

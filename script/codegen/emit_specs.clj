@@ -202,7 +202,7 @@
                                  (~'s/valid? ~form (~kw ~'m))))))
         closed?     (false? (:additionalProperties node))
         closed-pred (when closed?
-                      (let [allowed (set (map :kw prop-info))]
+                      (let [allowed (into (sorted-set) (map :kw prop-info))]
                         `(~'fn [~'m] (~'every? ~allowed (~'keys ~'m)))))]
     `(~'s/and map? ~@prop-preds ~@(when closed-pred [closed-pred]))))
 
@@ -254,6 +254,20 @@
   [props]
   (for [[wire-k node] props]
     [(cc/wire-key->kebab (name wire-k)) node]))
+
+(defn- envelope-leaf-node
+  "Keep envelope `:data` open at the global leaf layer.
+
+   Each event envelope has a variant-specific data-spec predicate, so closing
+   the shared `::data` leaf over every currently known payload would reject
+   forward-compatible fields before that precise predicate runs."
+  [root kebab node]
+  (let [resolved (cc/deref-once root node)]
+    (if (and (= "data" kebab)
+             (= "object" (:type resolved))
+             (:properties resolved))
+      {:type "object"}
+      node)))
 
 (defn- collect-leaf-properties
   "Return a map describing emitted leaf-property forms.
@@ -307,7 +321,9 @@
                          schema declared by each event."
   [root variants]
   (let [env-pairs  (mapcat (fn [{:keys [variant]}]
-                             (walk-props (:properties variant)))
+                             (map (fn [[k node]]
+                                    [k (envelope-leaf-node root k node)])
+                                  (walk-props (:properties variant))))
                            variants)
         data-pairs (mapcat (fn [{:keys [variant]}]
                              (let [data-node (cc/deref-once root (get-in variant [:properties :data]))]
@@ -589,7 +605,7 @@
         ;; above) has already registered its nested object shapes by then.
         data-specs     (mapv #(emit-data-spec root (:variant %) data-conflicted) sorted)
         envelope-specs (mapv #(emit-envelope-spec (:variant %) env-form-by-kebab conflicted) sorted)
-        object-shape-defs (for [[kw form] @object-defs]
+        object-shape-defs (for [[kw form] (sort-by (comp name first) @object-defs)]
                              `(~'s/def ~kw ~form))]
     (concat
       [`(~'ns ~(symbol ns-name)

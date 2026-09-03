@@ -60,13 +60,21 @@
             "      exclusive-spec (eval (emit/emit-type {:type \"number\" :exclusiveMinimum 1 :exclusiveMaximum 2} "
             "                                            {:type \"number\" :exclusiveMinimum 1 :exclusiveMaximum 2})) "
             "      nullable-spec (eval (emit/emit-type {:type [\"string\" \"null\"]} "
-            "                                           {:type [\"string\" \"null\"]}))] "
+            "                                           {:type [\"string\" \"null\"]})) "
+            "      closed-object-form "
+            "      (pr-str (emit/emit-type {:type \"object\"} "
+            "                              {:type \"object\" "
+            "                               :properties {:z {:type \"string\"} "
+            "                                            :a {:type \"string\"} "
+            "                                            :m {:type \"string\"}} "
+            "                               :additionalProperties false}))] "
             "  (prn {:keys (mapv core/wire-key->kebab "
             "                    [\"_meta\" \"sessionId\" \"tool_efficiency\" "
             "                     \"URLValue\" \"someURLValue\" \"__foo_bar\"]) "
             "        :bounded (mapv #(s/valid? bounded-spec %) [1 2 2.5 4 5]) "
             "        :exclusive (mapv #(s/valid? exclusive-spec %) [1 1.5 2]) "
-            "        :nullable (mapv #(s/valid? nullable-spec %) [\"value\" nil 1])}))"))]
+            "        :nullable (mapv #(s/valid? nullable-spec %) [\"value\" nil 1]) "
+            "        :closed-object-form closed-object-form}))"))]
       (when-not (zero? exit)
         (throw (ex-info "Codegen probe failed" {:exit exit :stderr err})))
       (edn/read-string out))))
@@ -80,6 +88,19 @@
   (is (= [false true false true false] (:bounded @codegen-probe)))
   (is (= [false true false] (:exclusive @codegen-probe)))
   (is (= [true true false] (:nullable @codegen-probe))))
+
+(deftest codegen-emits-canonical-closed-object-key-order
+  (is (str/includes? (:closed-object-form @codegen-probe) "#{:a :m :z}")))
+
+(deftest generated-object-shape-definitions-are-canonical
+  (let [source    (slurp "src/github/copilot_sdk/generated/event_specs.clj")
+        all-names (map second
+                       (re-seq
+                        #"\(s/def :github\.copilot-sdk\.generated\.event-specs/([^ \n]+) "
+                        source))
+        names     (vec (take-while #(str/ends-with? % "-shape") all-names))]
+    (is (seq names))
+    (is (= (sort names) names))))
 
 ;; ---------------------------------------------------------------------------
 ;; Schema introspection helpers — used by the envelope helper to honour
@@ -590,11 +611,15 @@
           (pr-str invalid)))))
 
 (deftest generated-event-data-remains-open-at-the-top-level
-  (testing "future event fields pass while nested schema objects stay closed"
-    (is (s/valid? ::gen/hook.start-data
-                  {:hook-invocation-id "hook-1"
-                   :hook-type "pre-tool-use"
-                   :future-field {:nested ["value"]}}))
+  (testing "future event fields pass standalone and through envelope specs"
+    (let [data {:hook-invocation-id "hook-1"
+                :hook-type "pre-tool-use"
+                :future-field {:nested ["value"]}}
+          event (envelope "hook.start" data)]
+      (is (s/valid? ::gen/hook.start-data data))
+      (is (s/valid? ::gen/hook.start event))
+      (is (s/valid? ::gen/event event))))
+  (testing "nested schema objects stay closed"
     (is (not (s/valid?
               ::gen/assistant-message-tool-request-caller-shape
               {:caller-id "caller-1"

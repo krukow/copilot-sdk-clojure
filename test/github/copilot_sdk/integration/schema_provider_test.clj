@@ -107,7 +107,8 @@
                     (list "search" "edit")
                     #{"search" "edit"}]]
       (is (s/valid? ::specs/included-builtin-skills skills)))
-    (doseq [skills [[""]
+    (doseq [skills [nil
+                    [""]
                     [" "]
                     ["search" ""]
                     [:search]
@@ -1107,7 +1108,7 @@
               (is (str/includes? log-output ":initial"))
               (is (empty? (provider-invocations @(:state client))))))))))
 
-  (testing "callback failure logs only exception classes and request identity"
+  (testing "callback failure logs a sanitized throwable with the original stack"
     (let [secret "provider-exception-secret"
           cause-secret "provider-cause-secret"
           client (sdk/client {:auto-start? false})
@@ -1127,10 +1128,19 @@
                 {:registration-id registration-id
                  :host "github.example"
                  :reason "refresh"}))
-              log-output (str/join "\n" (map :message (log-test/the-log)))]
+              log-entries (log-test/the-log)
+              log-output (str/join "\n" (map :message log-entries))
+              logged-failure (some :throwable log-entries)]
           (is (= -32603 (get-in response [:error :code])))
           (is (not (str/includes? log-output secret)))
           (is (not (str/includes? log-output cause-secret)))
+          (is (instance? Throwable logged-failure))
+          (is (= "GitHub token provider callback failed"
+                 (ex-message logged-failure)))
+          (is (not (re-find #"provider-(exception|cause)-secret|access-token"
+                            (pr-str (Throwable->map logged-failure)))))
+          (is (some #(= "schema_provider_test.clj" (.getFileName %))
+                    (.getStackTrace ^Throwable logged-failure)))
           (is (str/includes? log-output "clojure.lang.ExceptionInfo"))
           (is (str/includes? log-output "java.lang.RuntimeException"))
           (is (str/includes? log-output registration-id))
@@ -1185,12 +1195,23 @@
              :reason "initial"})))
       (is (false? @called?))))
 
-  (testing "provider results are open maps with integer expiry above one hour"
-    (doseq [expires-in [3600 3600.5]]
-      (is (not (s/valid? ::specs/github-token-provider-result
-                         {:kind :token
-                          :access-token "token"
-                          :expires-in expires-in}))))
+  (testing "the public result spec is the provider-result enforcement source"
+    (doseq [[result valid?]
+            [[{:kind :cancelled} true]
+             [{:kind :cancelled :reason :expired} true]
+             [{:kind :token :access-token "token" :expires-in 3601} true]
+             [{:kind :token :access-token "token" :expires-in 3600} false]
+             [{:kind :token :access-token "token" :expires-in 3600.5} false]
+             [{:kind :token :access-token "" :expires-in 3601} false]
+             [{:kind :other} false]
+             [{:access-token "token" :expires-in 3601} false]
+             ["token" false]]]
+      (is (= valid?
+             (s/valid? ::specs/github-token-provider-result result)))
+      (is (= valid?
+             (nil? (specs/github-token-provider-result-constraint result))))))
+
+  (testing "provider results are open maps"
     (doseq [result [{:kind :cancelled :reason :expired}
                     {:kind :token
                      :access-token "token"
@@ -1759,6 +1780,56 @@
                 (future-cancel response-call)
                 (@#'client/release-github-token-provider-runtime! client))))))))
 
+  (testing "interrupted executor shutdown reports the still-live resource"
+    (let [client (sdk/client {:auto-start? false})
+          entered (CountDownLatch. 1)
+          release (CountDownLatch. 1)
+          registration-id
+          (@#'client/register-github-token-provider!
+           client
+           (fn [_]
+             (.countDown entered)
+             (loop []
+               (if (try
+                     (.await release)
+                     true
+                     (catch InterruptedException _
+                       false))
+                 {:kind :cancelled}
+                 (recur))))
+           "interrupted-shutdown")
+          response
+          (@#'client/github-token-provider-response
+           client
+           {:registration-id registration-id
+            :host "github.com"
+            :reason "refresh"})]
+      (try
+        (is (.await entered 1 TimeUnit/SECONDS))
+        (let [executor (provider-executor @(:state client))
+              cleanup
+              (future
+                (.interrupt (Thread/currentThread))
+                (let [failures
+                      (@#'client/release-github-token-provider-runtime! client)]
+                  {:failures failures
+                   :interrupted? (.isInterrupted (Thread/currentThread))}))
+              result (deref cleanup 1000 ::timeout)]
+          (is (not= ::timeout result))
+          (is (:interrupted? result))
+          (is (= [{:operation :terminate
+                   :resource :github-token-provider-executor
+                   :stage :await-termination
+                   :timeout-ms
+                   @#'client/github-token-provider-shutdown-timeout-ms}]
+                 (mapv ex-data (:failures result))))
+          (is (identical? executor
+                          (provider-executor @(:state client))))
+          (is (not (.isTerminated ^ThreadPoolExecutor executor))))
+        (finally
+          (.countDown release)
+          (<!! response)))))
+
   (testing "callback and channel deadlines return sanitized failures"
     (with-redefs-fn
       {#'client/github-token-provider-timeout-ms 50}
@@ -2002,6 +2073,51 @@
       (@#'client/commit-github-token-provider! client "concurrent" second-id)
       (is (= #{second-id}
              (set (keys (provider-registrations @(:state client))))))))
+
+  (testing "registration is rejected after client stopping begins"
+    (let [client (sdk/client {:auto-start? false})]
+      (swap! (:state client) assoc :stopping? true)
+      (let [failure
+            (try
+              (@#'client/register-github-token-provider!
+               client (constantly {:kind :cancelled}) "stopping-session")
+              nil
+              (catch Throwable t
+                t))]
+        (is (instance? clojure.lang.ExceptionInfo failure))
+        (is (= :client-stopping (-> failure ex-data :type)))
+        (is (= "stopping-session" (-> failure ex-data :session-id)))
+        (is (empty? (provider-registrations @(:state client)))))))
+
+  (testing "failed setup preserves a provider committed after its snapshot"
+    (let [client (sdk/client {:auto-start? false})
+          session-id "concurrent-provider-setup"
+          _ (session/create-session client session-id {})
+          old-id
+          (@#'client/register-github-token-provider!
+           client (constantly {:kind :token :access-token "old"}) session-id)
+          _ (@#'client/commit-github-token-provider!
+             client session-id old-id)
+          snapshot (@#'client/session-registration-snapshot client session-id)
+          failing-id
+          (@#'client/register-github-token-provider!
+           client (constantly {:kind :token :access-token "failing"})
+           session-id)
+          committed-provider
+          (constantly {:kind :token :access-token "concurrent"})
+          committed-id
+          (@#'client/register-github-token-provider!
+           client committed-provider session-id)
+          _ (@#'client/commit-github-token-provider!
+             client session-id committed-id)
+          failure (ex-info "setup failed" {:phase :options-update})]
+      (@#'client/fail-session-setup!
+       client session-id failing-id true snapshot failure)
+      (let [registrations (provider-registrations @(:state client))]
+        (is (= #{committed-id} (set (keys registrations))))
+        (is (true? (get-in registrations [committed-id :committed?])))
+        (is (identical? committed-provider
+                        (get-in registrations [committed-id :provider]))))))
 
   (testing "teardown removes provisional registrations and a later commit is a no-op"
     (let [client (sdk/client {:auto-start? false})

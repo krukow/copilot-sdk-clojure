@@ -229,6 +229,7 @@
    :sessions {}              ; session state by session-id
    :session-io {}            ; session IO resources by session-id
    :disconnecting-session-ids #{}
+   :session-disconnects {}    ; session-id -> shared disconnect completion promise
    :actual-port port
    :router-ch nil
    :router-queue nil
@@ -951,13 +952,29 @@
 (defn- register-github-token-provider!
   [client provider session-id]
   (when provider
-    (let [registration-id (str (java.util.UUID/randomUUID))]
-      (swap! (:state client) assoc-in
-             [:github-token-provider-runtime :registrations registration-id]
-             {:provider provider
-              :session-id session-id
-              :committed? false})
-      registration-id)))
+    (let [registration-id (str (java.util.UUID/randomUUID))
+          state-atom (:state client)
+          registration {:provider provider
+                        :session-id session-id
+                        :committed? false}]
+      (loop []
+        (let [state @state-atom]
+          (when (:stopping? state)
+            (throw
+             (ex-info "Client is stopping; cannot register GitHub token provider"
+                      {:type :client-stopping
+                       :session-id session-id})))
+          (if (compare-and-set!
+               state-atom
+               state
+               (assoc-in
+                state
+                [:github-token-provider-runtime
+                 :registrations
+                 registration-id]
+                registration))
+            registration-id
+            (recur)))))))
 
 (defn- register-session-github-token-provider
   [client config session-id]
@@ -1145,9 +1162,14 @@
             {:operation :terminate
              :resource :github-token-provider-executor
              :timeout-ms github-token-provider-shutdown-timeout-ms})])
-        (catch InterruptedException _
+        (catch InterruptedException failure
           (.interrupt (Thread/currentThread))
-          [])
+          [(td/failure
+            {:operation :terminate
+             :resource :github-token-provider-executor
+             :stage :await-termination
+             :timeout-ms github-token-provider-shutdown-timeout-ms}
+            failure)])
         (catch Exception failure
           [(td/failure
             {:operation :shutdown
@@ -1255,24 +1277,24 @@
         nil))))
 
 (defn- github-token-provider-log-metadata
-  [{:keys [registration-id session-id host reason]}]
-  {:registration-id registration-id
-   :session-id session-id
-   :host host
-   :reason reason})
+  [invocation]
+  (select-keys invocation [:registration-id :session-id :host :reason]))
 
 (defn- throwable-class-name
   [failure]
   (some-> failure class .getName))
 
+(defn- sanitized-github-token-provider-failure
+  [^Throwable failure]
+  (doto
+   (RuntimeException. "GitHub token provider callback failed")
+    (.setStackTrace (.getStackTrace failure))))
+
 (defn- bounded-executor-facts
   [^ThreadPoolExecutor executor]
-  {:active-count (min github-token-provider-thread-count
-                      (.getActiveCount executor))
-   :pool-size (min github-token-provider-thread-count
-                   (.getPoolSize executor))
-   :queue-depth (min github-token-provider-queue-size
-                     (.size (.getQueue executor)))
+  {:active-count (.getActiveCount executor)
+   :pool-size (.getPoolSize executor)
+   :queue-depth (.size (.getQueue executor))
    :thread-limit github-token-provider-thread-count
    :queue-limit github-token-provider-queue-size})
 
@@ -1345,6 +1367,7 @@
       :failed
       (do
         (log/warn
+         (sanitized-github-token-provider-failure failure)
          "GitHub token provider callback failed"
          (assoc
           (github-token-provider-log-metadata invocation)
@@ -2781,34 +2804,42 @@
   "Release every locally owned resource from a failed session setup.
 
    `destroy-runtime?` is true only after create/resume has succeeded remotely.
-   `provider-scope` is nil for a failed resume before that point so the
-   previously committed provider remains usable. After remote success, the
-   committed provider is purged; the operation's provisional registration is
-   rolled back separately.
+   `provider-registration-ids` contains only committed registrations visible
+   when this setup transaction began, so cleanup cannot remove a provider that
+   another concurrent transaction committed later. The caller rolls back this
+   operation's provisional registration separately.
    Returns unexpected cleanup failures without replacing the setup failure."
-  [client session-id {:keys [destroy-runtime? provider-scope]
+  [client session-id {:keys [destroy-runtime? provider-registration-ids]
                       :or {destroy-runtime? false
-                           provider-scope :committed-only}}]
+                           provider-registration-ids #{}}}]
   (td/collect
-   [(when (and destroy-runtime? session-id)
-      (td/attempt
-       {:operation :destroy :resource :failed-session-setup
-        :session-id session-id}
-       (when-let [connection-io (:connection-io @(:state client))]
-         (proto/send-request! connection-io
-                              "session.destroy"
-                              {:session-id session-id}
-                              5000))))
-    (when session-id
-      (td/attempt
-       {:operation :teardown :resource :failed-session-setup
-        :session-id session-id}
-       (session/teardown-local! client session-id provider-scope)))
-    (when session-id
-      (td/attempt
-       {:operation :remove :resource :failed-session-setup
-        :session-id session-id}
-       (session/remove-session! client session-id)))]))
+   (concat
+    [(when (and destroy-runtime? session-id)
+       (td/attempt
+        {:operation :destroy :resource :failed-session-setup
+         :session-id session-id}
+        (when-let [connection-io (:connection-io @(:state client))]
+          (proto/send-request! connection-io
+                               "session.destroy"
+                               {:session-id session-id}
+                               5000))))]
+    (map
+     (fn [provider-registration-id]
+       (td/attempt
+        {:operation :rollback :resource :github-token-provider
+         :registration-id provider-registration-id}
+        (rollback-github-token-provider! client provider-registration-id)))
+     provider-registration-ids)
+    [(when session-id
+       (td/attempt
+        {:operation :teardown :resource :failed-session-setup
+         :session-id session-id}
+        (session/teardown-local! client session-id nil)))
+     (when session-id
+       (td/attempt
+        {:operation :remove :resource :failed-session-setup
+         :session-id session-id}
+        (session/remove-session! client session-id)))])))
 
 (defn- preserve-setup-failure!
   [^Throwable failure cleanup-failures]
@@ -2823,7 +2854,17 @@
     (when (contains? (:sessions state) session-id)
       {:session (get-in state [:sessions session-id])
        :session-io-present? (contains? (:session-io state) session-id)
-       :session-io (get-in state [:session-io session-id])})))
+       :session-io (get-in state [:session-io session-id])
+       :committed-github-token-provider-registration-ids
+       (into
+        #{}
+        (keep
+         (fn [[registration-id registration]]
+           (when (and (= session-id (:session-id registration))
+                      (:committed? registration))
+             registration-id)))
+        (get-in state
+                [:github-token-provider-runtime :registrations]))})))
 
 (defn- restore-session-registration!
   [client session-id snapshot]
@@ -2846,7 +2887,9 @@
            client
            session-id
            {:destroy-runtime? remote-accepted?
-            :provider-scope (when remote-accepted? :committed-only)})
+            :provider-registration-ids
+            (when remote-accepted?
+              (:committed-github-token-provider-registration-ids snapshot))})
           [(td/attempt
             {:operation :rollback :resource :github-token-provider
              :registration-id registration-id}

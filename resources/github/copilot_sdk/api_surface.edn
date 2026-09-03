@@ -528,7 +528,6 @@
     :github.copilot-sdk.specs/cache-price
     :github.copilot-sdk.specs/cache-read-tokens
     :github.copilot-sdk.specs/cache-write-tokens
-    :github.copilot-sdk.specs/caller
     :github.copilot-sdk.specs/caller-id
     :github.copilot-sdk.specs/can-offer-server-wide-approval
     :github.copilot-sdk.specs/can-offer-session-approval
