@@ -184,10 +184,12 @@
     :version 1                                 ;; number per schema
     :producer "test"
     :copilot-version "1.0.0"
+    :auto-tier "balance"
     :start-time "2024-01-01T00:00:00Z"}        ;; ISO string per schema
 
    "session.resume"
    {:resume-time "2024-01-01T00:00:00Z"
+    :auto-tier "efficiency"
     :event-count 0}
 
    "session.error"

@@ -1046,10 +1046,11 @@
   ([conn method params timeout-ms opts]
    (let [state-atom (:state-atom conn)
          response-ch (send-request conn method params opts)
-         timeout-ch (async/timeout timeout-ms)
-         [result port] (async/alts!! [response-ch timeout-ch])]
+         timeout-ch (when timeout-ms (async/timeout timeout-ms))
+         [result port] (async/alts!! (cond-> [response-ch]
+                                       timeout-ch (conj timeout-ch)))]
      (cond
-       (= port timeout-ch)
+       (and timeout-ch (= port timeout-ch))
        (do
          (remove-pending-by-chan! state-atom response-ch)
          (close! response-ch)

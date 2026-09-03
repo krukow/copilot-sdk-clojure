@@ -16,6 +16,7 @@
             [github.copilot-sdk.github-token-provider :as token-provider]
             [github.copilot-sdk.logging :as log]
             [github.copilot-sdk.specs :as specs]
+            [github.copilot-sdk.teardown :as teardown]
             [github.copilot-sdk.util :as util]
             [github.copilot-sdk.generated.coerce :as coerce]))
 
@@ -66,6 +67,11 @@
 (defrecord CopilotSession
            [session-id
             client])     ; reference to owning client
+
+(defn ^:no-doc registration-token
+  "Return the immutable token for this session handle's state registration."
+  [copilot-session]
+  (::registration-token (meta copilot-session)))
 
 ;; -----------------------------------------------------------------------------
 ;; Internal functions
@@ -171,7 +177,8 @@
               nil)))))
     (log/debug "Session created: " session-id)
     ;; Return lightweight handle
-    (->CopilotSession session-id client)))
+    (with-meta (->CopilotSession session-id client)
+      {::registration-token registration-token})))
 
 (defn set-workspace-path!
   "Update the workspace path in session state. Called after RPC response."
@@ -583,7 +590,29 @@
       {}
       sections)}))
 
-(declare cancel-all-factory-executions! cancel-executions!)
+(declare cancel-executions! throw-cleanup-failures!)
+
+(defn- release-session-resources!
+  [session-id session {:keys [event-chan send-lock]}]
+  (teardown/collect
+   [(teardown/attempt
+     {:operation :cancel
+      :resource :factory-executions
+      :session-id session-id}
+     (cancel-executions!
+      (mapcat vals (vals (:factory-executions session)))))
+    (teardown/attempt
+     {:operation :close
+      :resource :event-channel
+      :session-id session-id}
+     (when event-chan
+       (close! event-chan)))
+    (teardown/attempt
+     {:operation :close
+      :resource :send-lock
+      :session-id session-id}
+     (when send-lock
+       (close! send-lock)))]))
 
 (defn ^:no-doc remove-session!
   "Remove a session from client state. Called on RPC failure during pre-registration."
@@ -607,13 +636,11 @@
          (and removed-session
               (nil? (get-in new [:sessions session-id])))]
      (when removed?
-       (cancel-executions!
-        (mapcat vals (vals (:factory-executions removed-session))))
-       (let [{:keys [event-chan send-lock]} (get-in old [:session-io session-id])]
-         (when event-chan
-           (close! event-chan))
-         (when send-lock
-           (close! send-lock))))
+       (throw-cleanup-failures!
+        (release-session-resources!
+         session-id
+         removed-session
+         (get-in old [:session-io session-id]))))
      (if removed? :removed :not-removed))))
 
 (defn dispatch-event!
@@ -866,11 +893,11 @@
    (vals (get-in @(:state client)
                  [:sessions session-id :factory-executions run-id]))))
 
-(defn- cancel-all-factory-executions! [client session-id]
-  (cancel-executions!
-   (mapcat vals
-           (vals (get-in @(:state client)
-                         [:sessions session-id :factory-executions])))))
+(defn- throw-cleanup-failures!
+  [failures]
+  (when-let [primary (first failures)]
+    (teardown/attach-cleanup-failures! primary (rest failures))
+    (throw primary)))
 
 (defn ^:no-doc teardown-local!
   "Mark a session terminal and release resources without contacting the runtime.
@@ -914,31 +941,39 @@
                         :factory-executions {}
                         :hooks {}
                         :config nil))))))]
-     (token-provider/close-removed-invocations! old new)
-     (cond
-       (and expected-registration-token
-            (not (identical?
-                  expected-registration-token
-                  (get-in old [:sessions session-id :registration-token]))))
-       :superseded
+     (let [old-session (get-in old [:sessions session-id])
+           status
+           (cond
+             (and expected-registration-token
+                  (not (identical?
+                        expected-registration-token
+                        (:registration-token old-session))))
+             :superseded
 
-       (nil? (get-in old [:sessions session-id]))
-       :absent
+             (nil? old-session)
+             :absent
 
-       (get-in old [:sessions session-id :destroyed?])
-       :already-destroyed
+             (:destroyed? old-session)
+             :already-destroyed
 
-       :else
-       (do
-         (cancel-executions!
-          (mapcat vals
-                  (vals (get-in old [:sessions session-id :factory-executions]))))
-         (let [{:keys [event-chan send-lock]} (get-in old [:session-io session-id])]
-           (when event-chan
-             (close! event-chan))
-           (when send-lock
-             (close! send-lock)))
-         :claimed)))))
+             :else
+             :claimed)
+           failures
+           (cond->
+            (teardown/collect
+             [(teardown/attempt
+               {:operation :close
+                :resource :provider-invocations
+                :session-id session-id}
+               (token-provider/close-removed-invocations! old new))])
+             (= :claimed status)
+             (into
+              (release-session-resources!
+               session-id
+               old-session
+               (get-in old [:session-io session-id]))))]
+       (throw-cleanup-failures! failures)
+       status))))
 
 (defn- factory-context
   [client session-id {:keys [run-id execution-token args] :as _params} execution]
@@ -1662,11 +1697,10 @@
                    (:mode opts) (assoc :mode (name (:mode opts)))
                    (:agent-mode opts) (assoc :agent-mode (name (:agent-mode opts)))
                    (some? (:display-prompt opts)) (assoc :display-prompt (:display-prompt opts))
-                   (:request-headers opts) (assoc :request-headers (:request-headers opts)))
-          request {:connection conn
-                   :params params
-                   :session-id session-id}]
-      request)))
+                   (:request-headers opts) (assoc :request-headers (:request-headers opts)))]
+      {:connection conn
+       :params params
+       :session-id session-id})))
 
 (defn- send-request!
   [session opts timeout-ms]
@@ -1717,6 +1751,11 @@
   [event]
   (and (= :copilot/session.idle (:type event))
        (not= specs/autopilot-session-mode (get-in event [:data :mode]))))
+
+(defn ^:no-doc terminal-event?
+  [event]
+  (or (terminal-idle-event? event)
+      (= :copilot/session.error (:type event))))
 
 (defn send-and-wait!
   "Send a message and wait until the session becomes idle.
@@ -1968,8 +2007,7 @@
                       (nil? event)
                       (do (untap event-mult event-ch) (close! out-ch) (release-lock!))
 
-                      (or (terminal-idle-event? event)
-                          (= :copilot/session.error (:type event)))
+                      (terminal-event? event)
                       (do (emit! event) (cleanup!))
 
                       :else
@@ -2022,8 +2060,7 @@
             (= :copilot/assistant.message (:type event))
             (recur (get-in event [:data :content]))
 
-            (or (terminal-idle-event? event)
-                (= :copilot/session.error (:type event)))
+            (terminal-event? event)
             (when last-content
               (async/offer! out-ch last-content))
 
@@ -2061,8 +2098,7 @@
             (= :copilot/assistant.message (:type event))
             (recur event)
 
-            (or (terminal-idle-event? event)
-                (= :copilot/session.error (:type event)))
+            (terminal-event? event)
             (when last-msg
               (async/offer! out-ch last-msg))
 
@@ -2352,8 +2388,7 @@
                                 "session.destroy"
                                 {:session-id session-id}
                                 5000)
-           (when (get-in old-state [:sessions session-id])
-             (teardown-local! client session-id :all registration-token)))
+           (teardown-local! client session-id :all registration-token))
          (release-claim!)
          (deliver completion {:result nil})
          (log/debug "Session disconnected: " session-id)

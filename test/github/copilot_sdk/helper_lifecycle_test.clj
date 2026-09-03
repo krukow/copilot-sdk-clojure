@@ -138,7 +138,10 @@
                (or local-teardown-fn
                    (fn
                      ([_client _session-id] :claimed)
-                     ([_client _session-id _provider-scope] :claimed)))}
+                     ([_client _session-id _provider-scope] :claimed)
+                     ([_client _session-id _provider-scope
+                       _expected-registration-token]
+                      :claimed)))}
         chan-fn (assoc #'async/chan chan-fn))
       test-fn)))
 
@@ -263,7 +266,7 @@
                        (swap! disconnects inc)
                        (throw cleanup-error))
       :local-teardown-fn
-      (fn [client session-id]
+      (fn [client session-id _provider-scope _registration-token]
         (swap! local-teardowns conj [client session-id])
         :claimed)}
      (fn []
@@ -548,7 +551,7 @@
        #'sdk/disconnect!
        (fn [_session] (throw cleanup-error))
        #'session/teardown-local!
-       (fn [client session-id]
+       (fn [client session-id _provider-scope _registration-token]
          (swap! local-teardowns conj [client session-id])
          :claimed)}
       (fn []
@@ -577,7 +580,7 @@
        #'sdk/disconnect!
        (fn [_session] (throw cleanup-error))
        #'session/teardown-local!
-       (fn [client session-id]
+       (fn [client session-id _provider-scope _registration-token]
          (swap! local-teardowns conj [client session-id])
          :claimed)}
       #(is (identical?
@@ -832,6 +835,56 @@
                     :timeout-ms 100}
                    (ex-data failure)))
             (is (= 1 @disconnects))))))))
+
+(deftest helper-sends-without-a-deadline-when-timeout-is-nil
+  (testing "query-seq! forwards nil instead of falling back to send!'s deadline"
+    (let [events-ch (async/chan)
+          observed-timeout (atom ::unset)]
+      (call-with-controlled-query
+       {:events-ch events-ch
+        :send-fn (fn [& _]
+                   (throw (ex-info "public send! must not be used" {})))
+        :send-with-timeout-fn
+        (fn [_session _message timeout-ms]
+          (reset! observed-timeout timeout-ms)
+          ::message-id)}
+       #(do
+          (is (= [] (vec (h/query-seq! "unbounded"
+                                       :timeout-ms nil
+                                       :max-events 0))))
+          (is (nil? @observed-timeout)))))))
+
+(deftest failed-helper-disconnect-cannot-tear-down-a-replacement-registration
+  (let [copilot-client (sdk/client {:auto-start? false})
+        session-id "reused-helper-session"
+        owned-session (session/create-session copilot-client session-id {})
+        owned-token (get-in @(:state copilot-client)
+                            [:sessions session-id :registration-token])
+        replacement (atom nil)
+        primary (ex-info "runtime disconnect failed" {})]
+    (try
+      (with-redefs [sdk/disconnect!
+                    (fn [_session]
+                      (session/remove-session!
+                       copilot-client session-id owned-token)
+                      (reset! replacement
+                              (session/create-session
+                               copilot-client session-id {}))
+                      (throw primary))]
+        (let [caught
+              (try
+                ((requiring-resolve
+                  'github.copilot-sdk.helpers/disconnect-owned-session!)
+                 owned-session)
+                nil
+                (catch Throwable failure
+                  failure))]
+          (is (identical? primary caught))
+          (is (false? (get-in @(:state copilot-client)
+                              [:sessions session-id :destroyed?])))))
+      (finally
+        (when @replacement
+          (session/teardown-local! copilot-client session-id))))))
 
 (deftest query-seq-source-rejects-invalid-max-events-before-setup
   (let [setup-called? (atom false)]

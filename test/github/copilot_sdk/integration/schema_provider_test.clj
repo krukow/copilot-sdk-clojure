@@ -109,6 +109,8 @@
                     #{"search" "edit"}]]
       (is (s/valid? ::specs/included-builtin-skills skills)))
     (doseq [skills [nil
+                    {}
+                    {"search" "edit"}
                     [:search]
                     "search"]]
       (is (not (s/valid? ::specs/included-builtin-skills skills))))))
@@ -167,6 +169,24 @@
           ":result must preserve camelCase keys verbatim")
       (is (= "preserve" (get-in data [:result :customField]))
           ":result must preserve user-defined keys"))))
+
+(deftest non-map-event-data-bypasses-opaque-field-restoration
+  (let [normalize @#'protocol/normalize-incoming]
+    (doseq [event-type ["assistant.message"
+                        "external_tool.requested"
+                        "mcp_app.tool_call_complete"
+                        "session.canvas.opened"
+                        "session.custom_notification"
+                        "session.user_message"
+                        "session.user_message_attachment_pushed"]]
+      (let [raw-msg {:jsonrpc "2.0"
+                     :method "session.event"
+                     :params {:sessionId "abc"
+                              :event {:type event-type
+                                      :data "opaque-data"}}}]
+        (is (= "opaque-data"
+               (get-in (normalize raw-msg) [:params :event :data]))
+            event-type)))))
 
 (deftest test-schema-1-0-52-4-service-request-id
   (testing "::service-request-id field is propagated through wire->clj on relevant event data specs"
@@ -853,34 +873,35 @@
             client
             {:github-token-provider (fn [_] {:kind :cancelled})}))))))
 
-(testing "caller-supplied streams reject credential callbacks before session RPCs"
-  (let [server (mock/create-mock-server)
-        _ (mock/start-mock-server! server)
-        client (sdk/client {:auto-start? false})
-        [in out] (mock/client-streams server)
-        requests (atom [])]
-    (try
-      (mock/set-request-hook!
-       server
-       (fn [method _]
-         (when (str/starts-with? method "session.")
-           (swap! requests conj method))))
-      (client/connect-with-streams! client in out)
-      (is (thrown-with-msg?
-           clojure.lang.ExceptionInfo
-           #"caller-supplied testing streams"
-           (sdk/create-session
-            client
-            {:session-id "untrusted-stream-provider"
-             :on-permission-request sdk/approve-all
-             :github-token-provider (fn [_]
-                                      {:kind :token
-                                       :access-token "must-not-cross-stream"
-                                       :expires-in 3601})})))
-      (is (empty? @requests))
-      (finally
-        (sdk/stop! client)
-        (mock/stop-mock-server! server)))))
+(deftest test-session-github-token-provider-caller-stream-security
+  (testing "caller-supplied streams reject credential callbacks before session RPCs"
+    (let [server (mock/create-mock-server)
+          _ (mock/start-mock-server! server)
+          client (sdk/client {:auto-start? false})
+          [in out] (mock/client-streams server)
+          requests (atom [])]
+      (try
+        (mock/set-request-hook!
+         server
+         (fn [method _]
+           (when (str/starts-with? method "session.")
+             (swap! requests conj method))))
+        (client/connect-with-streams! client in out)
+        (is (thrown-with-msg?
+             clojure.lang.ExceptionInfo
+             #"caller-supplied testing streams"
+             (sdk/create-session
+              client
+              {:session-id "untrusted-stream-provider"
+               :on-permission-request sdk/approve-all
+               :github-token-provider (fn [_]
+                                        {:kind :token
+                                         :access-token "must-not-cross-stream"
+                                         :expires-in 3601})})))
+        (is (empty? @requests))
+        (finally
+          (sdk/stop! client)
+          (mock/stop-mock-server! server))))))
 
 (deftest test-join-session-preserves-stop-failures
   (let [returned-cleanup (ex-info "returned cleanup failure" {})
@@ -1240,6 +1261,10 @@
             [[{:kind :cancelled} true]
              [{:kind :cancelled :reason :expired} true]
              [{:kind :token :access-token "token" :expires-in 3601} true]
+             [{:kind :token :access-token "token" :expires-in 3601
+               :metadata {}} true]
+             [{:kind :token :access-token "token" :expires-in 3601
+               "tokenType" ""} false]
              [{:kind :token :access-token "token" :expires-in 3600} false]
              [{:kind :token :access-token "token" :expires-in 3600.5} false]
              [{:kind :token :access-token "" :expires-in 3601} false]

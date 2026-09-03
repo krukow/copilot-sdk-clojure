@@ -7,9 +7,13 @@
 
 (defn instant->iso-string "Render a java.time.Instant as an ISO-8601 string. nil-safe and\n      idempotent: returns nil for nil, the same string for a string input,\n      and throws ex-info for any other value class." [v] (cond (nil? v) nil (string? v) v (instance? java.time.Instant v) (.toString v) :else (throw (ex-info "Expected Instant or ISO string" {:value v, :value-class (class v)}))))
 
-(def ^{:private true} converters "Map of [wire-tag idiom-tag] → {:wire->idiom fn :idiom->wire fn}." {[:iso-string :instant] {:wire->idiom iso-string->instant, :idiom->wire instant->iso-string}})
+(defn enum-string->keyword "Convert a wire enum string to a keyword. nil-safe and idempotent." [v] (cond (nil? v) nil (keyword? v) v (string? v) (keyword v) :else (throw (ex-info "Expected enum string or keyword" {:value v, :value-class (class v)}))))
 
-(def field-coercions "Per-event-type field coercion table. Generated from\n   script/codegen/coercions.edn." {"assistant.usage" {:cache-expires-at [:iso-string :instant]}, "session.start" {:start-time [:iso-string :instant]}})
+(defn keyword->enum-string "Convert an idiomatic enum keyword to its wire string. nil-safe and\n      idempotent." [v] (cond (nil? v) nil (string? v) v (keyword? v) (name v) :else (throw (ex-info "Expected keyword or enum string" {:value v, :value-class (class v)}))))
+
+(def ^{:private true} converters "Map of [wire-tag idiom-tag] → {:wire->idiom fn :idiom->wire fn}." {[:iso-string :instant] {:wire->idiom iso-string->instant, :idiom->wire instant->iso-string}, [:enum-string :keyword] {:wire->idiom enum-string->keyword, :idiom->wire keyword->enum-string}})
+
+(def field-coercions "Per-event-type field coercion table. Generated from\n   script/codegen/coercions.edn." {"assistant.usage" {:cache-expires-at [:iso-string :instant]}, "session.resume" {:auto-tier [:enum-string :keyword]}, "session.start" {:auto-tier [:enum-string :keyword], :start-time [:iso-string :instant]}})
 
 (defn coerce-data "Apply coercions to a `data` map for the given event-type and direction\n      (:wire->idiom or :idiom->wire). Unknown event types and unknown fields\n      pass through unchanged. Each converter is nil-safe and idempotent so\n      the same coercion can be applied twice without corruption.\n\n      If a converter throws (e.g. malformed wire payload), the exception is\n      re-thrown as ex-info with `:event-type`, `:field`, and `:direction`\n      added to ex-data so callers can diagnose without inspecting the\n      converter source." [event-type data direction] (if-let [fields (get field-coercions event-type)] (reduce-kv (fn [acc k v] (assoc acc k (if-let [tag-pair (get fields k)] (if-let [f (get-in converters [tag-pair direction])] (try (f v) (catch Exception e (throw (ex-info (str "Coercion failed for " event-type "/" k " (" direction "): " (.getMessage e)) (merge (or (ex-data e) {}) {:event-type event-type, :field k, :direction direction, :tag-pair tag-pair}) e)))) v) v))) {} data) data))
 

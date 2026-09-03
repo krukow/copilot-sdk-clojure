@@ -996,7 +996,8 @@
 (s/def ::coauthor-enabled boolean?)
 (s/def ::manage-schedule-enabled boolean?)
 (s/def ::included-builtin-skills
-  (s/coll-of string?))
+  (s/coll-of string?
+             :kind #(and (coll? %) (not (map? %)))))
 
 ;; Reasoning summary mode (upstream PR #813 - pre-existing parity gap).
 ;; Wire enum: "none" | "concise" | "detailed". Mirrors upstream's ReasoningSummary type.
@@ -1064,7 +1065,7 @@
   (cond
     (map? value)
     (let [member-names (map wire-json-member-name (keys value))]
-      (and (apply distinct? member-names)
+      (and (= (count member-names) (count (set member-names)))
            (every? github-token-provider-result-collision-free? (vals value))))
 
     (coll? value)
@@ -1095,9 +1096,14 @@
 
 (defn- github-token-provider-result-token-type?
   [result]
-  (or (= :cancelled (:kind result))
-      (not (contains? result :token-type))
-      (s/valid? ::non-blank-string (:token-type result))))
+  (let [token-type-entry
+        (some (fn [[key value]]
+                (when (= "tokenType" (wire-json-member-name key))
+                  [key value]))
+              result)]
+    (or (= :cancelled (:kind result))
+        (nil? token-type-entry)
+        (s/valid? ::non-blank-string (second token-type-entry)))))
 
 (def ^:private github-token-provider-result-constraints
   [[:result-must-be-map
@@ -1802,13 +1808,9 @@
 
 (s/def ::detached-from-spawning-parent-session-id string?)
 ;; upstream schema 1.0.83-1: `autoTier` echoes the auto-routing preference
-;; active at session start/resume. This is a wire enum string round-tripped
-;; verbatim by wire->clj (matches the ::session-idle-mode precedent below),
-;; distinct in domain and value-shape from the client-facing ::auto-tier
-;; keyword-set spec used by ::capi options, so it needs its own name and a
-;; custom predicate (s/keys :opt-un always maps to the unqualified `:auto-tier`
-;; key regardless of which spec validates it).
-(s/def ::session-auto-tier #{"balance" "intelligence" "efficiency"})
+;; active at session start/resume. The coercion layer converts the wire enum
+;; string to the same idiomatic keyword domain used by ::capi options.
+(s/def ::session-auto-tier ::auto-tier)
 (s/def ::session.start-data
   ;; Note: ::version is intentionally omitted from this hand-written spec.
   ;; The upstream schema types it as `number` while the global `::version`

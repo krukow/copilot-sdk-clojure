@@ -612,12 +612,12 @@
     (when report
       (let [{:keys [public-surface-audit stable-deltas intentional-exclusions
                     source-evidence]} report
-            stable-delta-ids (set (map :id stable-deltas))
+            actual-stable-delta-ids (set (map :id stable-deltas))
             inventory (:symbol-inventory report)]
         (note-upstream-validation-status! "stable-public-surface-and-evidence-are-complete")
-        (is (= expected-stable-delta-ids stable-delta-ids))
-        (is (= stable-delta-ids (:stable-delta-ids report)))
-        (is (= stable-delta-ids
+        (is (= expected-stable-delta-ids actual-stable-delta-ids))
+        (is (= expected-stable-delta-ids (:stable-delta-ids report)))
+        (is (= expected-stable-delta-ids
                (set (:stable-public-deltas public-surface-audit))))
         (let [expected-items (stable-inventory-items inventory)
               traced-items (set (mapcat :inventory-items stable-deltas))]
@@ -923,19 +923,20 @@
 (deftest session-auto-tier-accepted-on-start-and-resume-data
   (testing "session.start autoTier accepts the pinned enum and rejects other values"
     (let [base {:session-id "session-1"}]
-      (doseq [tier ["balance" "intelligence" "efficiency"]]
+      (doseq [tier [:balance :intelligence :efficiency]]
         (is (s/valid? ::specs/session.start-data (assoc base :auto-tier tier))))
       (is (s/valid? ::specs/session.start-data base)
           "auto-tier remains optional")
-      (is (not (s/valid? ::specs/session.start-data (assoc base :auto-tier "turbo"))))
-      (is (not (s/valid? ::specs/session.start-data (assoc base :auto-tier :balance))))))
+      (is (not (s/valid? ::specs/session.start-data (assoc base :auto-tier :turbo))))
+      (is (not (s/valid? ::specs/session.start-data (assoc base :auto-tier "balance"))))))
   (testing "session.resume autoTier accepts the pinned enum and rejects other values"
     (let [base {:event-count 0}]
-      (doseq [tier ["balance" "intelligence" "efficiency"]]
+      (doseq [tier [:balance :intelligence :efficiency]]
         (is (s/valid? ::specs/session.resume-data (assoc base :auto-tier tier))))
       (is (s/valid? ::specs/session.resume-data base)
           "auto-tier remains optional")
-      (is (not (s/valid? ::specs/session.resume-data (assoc base :auto-tier "turbo")))))))
+      (is (not (s/valid? ::specs/session.resume-data (assoc base :auto-tier :turbo))))
+      (is (not (s/valid? ::specs/session.resume-data (assoc base :auto-tier "balance")))))))
 
 (deftest assistant-message-reasoning-blocks-remain-generated-only
   (testing "experimental reasoningBlocks are wire evidence, not a curated idiom spec"

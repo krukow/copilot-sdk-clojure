@@ -162,6 +162,71 @@
         (is (= "Cleanup failed while preserving the primary failure"
                (:message entry)))))))
 
+(deftest cleanup-preserves-preexisting-interrupt-status
+  (let [cleaned? (atom false)
+        thread (Thread/currentThread)]
+    (.interrupt thread)
+    (try
+      (let [result (teardown/cleanup-preserving!
+                    nil
+                    #(reset! cleaned? true))
+            interrupted? (.isInterrupted thread)]
+        (Thread/interrupted)
+        (is (true? result))
+        (is interrupted?))
+      (is @cleaned?)
+      (finally
+        (Thread/interrupted)))))
+
+(deftest primary-interruption-remains-primary-and-restores-interrupt-status
+  (let [primary (InterruptedException. "body interrupted")
+        cleaned? (atom false)
+        caught (try
+                 (teardown/call-with-cleanup
+                  #(throw primary)
+                  #(reset! cleaned? true))
+                 nil
+                 (catch Throwable failure
+                   failure))
+        interrupted? (.isInterrupted (Thread/currentThread))]
+    (try
+      (Thread/interrupted)
+      (is (identical? primary caught))
+      (is @cleaned?)
+      (is interrupted?)
+      (finally
+        (Thread/interrupted)))))
+
+(deftest cleanup-interruption-is-suppressed-under-a-primary-failure
+  (let [primary (ex-info "primary" {})
+        cleanup (InterruptedException. "cleanup interrupted")]
+    (try
+      (let [caught (try
+                     (teardown/call-with-cleanup
+                      #(throw primary)
+                      #(throw cleanup))
+                     nil
+                     (catch Throwable failure
+                       failure))
+            interrupted? (.isInterrupted (Thread/currentThread))]
+        (Thread/interrupted)
+        (is (identical? primary caught))
+        (is (= [cleanup] (vec (.getSuppressed primary))))
+        (is interrupted?))
+      (finally
+        (Thread/interrupted)))))
+
+(deftest cleanup-only-failure-is-rethrown
+  (let [cleanup (ex-info "cleanup only" {})
+        caught (try
+                 (teardown/call-with-cleanup
+                  (constantly :ok)
+                  #(throw cleanup))
+                 nil
+                 (catch Throwable failure
+                   failure))]
+    (is (identical? cleanup caught))))
+
 ;; -----------------------------------------------------------------------------
 ;; IDI-002 - expected vs unexpected teardown outcomes
 ;; -----------------------------------------------------------------------------

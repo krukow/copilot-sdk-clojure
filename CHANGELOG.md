@@ -10,9 +10,11 @@ All notable changes to this project will be documented in this file. This change
   Session configuration carries only an opaque registration ID; acquired
   credentials cross the JSON-RPC connection to the CLI. Providers work over
   managed stdio, SDK-managed TCP, and explicit `:cli-url` connections; only the
-  Clojure testing transport with caller-supplied streams is rejected. Each
-  callback has a 120-second deadline and is not retried by the SDK. Provider
-  expiry must be an integer of at least 3,601 seconds.
+  Clojure testing transport with caller-supplied streams is rejected. Explicit
+  `:cli-url` uses raw TCP, so nonlocal connections require a trusted runtime and
+  authenticated, protected transport. Each callback has a 120-second deadline
+  and is not retried by the SDK. Provider expiry must be an integer of at least
+  3,601 seconds.
   ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412))
 - Added stable session options for mode-specific built-in skill allowlisting,
   legacy versus elicitation `ask_user` variants, host-resolved feature flags,

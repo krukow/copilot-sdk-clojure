@@ -1,4 +1,4 @@
-(ns github.copilot-sdk.github-token-provider
+(ns ^:no-doc github.copilot-sdk.github-token-provider
   "Internal ownership of GitHub token provider runtime state."
   (:require [clojure.core.async :as async]))
 
@@ -83,11 +83,9 @@
 (defn purge-all-resources
   "Remove every provider registration and active invocation."
   [state]
-  (update state
-          :github-token-provider-runtime
-          assoc
-          :registrations {}
-          :invocations {}))
+  (-> state
+      (assoc-in registrations-path {})
+      (assoc-in invocations-path {})))
 
 (defn close-removed-invocations!
   "Cancel invocations removed by one atomic client-state transition."

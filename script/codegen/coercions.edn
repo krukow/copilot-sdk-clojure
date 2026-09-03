@@ -13,5 +13,9 @@
 {"assistant.usage"
  {:cache-expires-at [:iso-string :instant]}
 
- "session.start"
- {:start-time [:iso-string :instant]}}
+"session.resume"
+{:auto-tier [:enum-string :keyword]}
+
+"session.start"
+{:auto-tier [:enum-string :keyword]
+ :start-time [:iso-string :instant]}}

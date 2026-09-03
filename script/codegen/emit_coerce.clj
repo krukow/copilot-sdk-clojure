@@ -35,7 +35,8 @@
 (def supported-tag-pairs
   "Static set of [wire idiom] tag pairs we know how to convert.
    Used at codegen time to validate coercions.edn."
-  #{[:iso-string :instant]})
+  #{[:enum-string :keyword]
+    [:iso-string :instant]})
 
 (defn- validate-coercions!
   "Throw ex-info if `coercions` references a tag pair we don't know how to emit."
@@ -107,7 +108,31 @@
       (~'instance? ~'java.time.Instant ~'v) (~'.toString ~'v)
       :else
       (~'throw (~'ex-info "Expected Instant or ISO string"
-                          {:value ~'v :value-class (~'class ~'v)}))))))
+                          {:value ~'v :value-class (~'class ~'v)}))))
+
+   ;; enum-string <-> keyword
+   `(~'defn ~'enum-string->keyword
+     "Convert a wire enum string to a keyword. nil-safe and idempotent."
+     [~'v]
+     (~'cond
+      (~'nil? ~'v)     ~'nil
+      (~'keyword? ~'v) ~'v
+      (~'string? ~'v)  (~'keyword ~'v)
+      :else
+      (~'throw (~'ex-info "Expected enum string or keyword"
+                         {:value ~'v :value-class (~'class ~'v)}))))
+
+   `(~'defn ~'keyword->enum-string
+     "Convert an idiomatic enum keyword to its wire string. nil-safe and
+      idempotent."
+     [~'v]
+     (~'cond
+      (~'nil? ~'v)     ~'nil
+      (~'string? ~'v)  ~'v
+      (~'keyword? ~'v) (~'name ~'v)
+      :else
+      (~'throw (~'ex-info "Expected keyword or enum string"
+                         {:value ~'v :value-class (~'class ~'v)}))))))
 
 (defn- emit-converters-map
   "Emit the static converters map referenced by coerce-data."
@@ -116,7 +141,10 @@
           "Map of [wire-tag idiom-tag] → {:wire->idiom fn :idiom->wire fn}."
           {[:iso-string :instant]
            {:wire->idiom ~'iso-string->instant
-            :idiom->wire ~'instant->iso-string}}))
+            :idiom->wire ~'instant->iso-string}
+           [:enum-string :keyword]
+           {:wire->idiom ~'enum-string->keyword
+            :idiom->wire ~'keyword->enum-string}}))
 
 (defn- emit-field-coercions
   "Emit the field-coercions map: event-type-string → {field-kw [wire idiom]}."

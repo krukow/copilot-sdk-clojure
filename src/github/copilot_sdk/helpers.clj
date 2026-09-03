@@ -27,7 +27,9 @@
    - Different `:client` options trigger client replacement
    - Client is automatically cleaned up on JVM shutdown (no manual cleanup needed)
    - Call `(shutdown!)` for explicit cleanup if desired
-   - Sessions created internally by helpers are disconnected after completion
+   - `query`, `query-chan`, and `with-query-seq` disconnect helper-owned
+     sessions deterministically. `query-seq!` requires natural-end consumption;
+     see its lifecycle warning below.
    
    ## Options
    
@@ -154,13 +156,15 @@
 
 (defn- disconnect-owned-session!
   [{:keys [client session-id] :as owned-session}]
-  (try
-    (copilot/disconnect! owned-session)
-    (catch Throwable failure
-      (teardown/cleanup-preserving!
-       failure
-       #(session/teardown-local! client session-id))
-      (throw failure))))
+  (let [registration-token (session/registration-token owned-session)]
+    (try
+      (copilot/disconnect! owned-session)
+      (catch Throwable failure
+        (teardown/cleanup-preserving!
+         failure
+         #(session/teardown-local!
+           client session-id :all registration-token))
+        (throw failure)))))
 
 (defn- call-with-owned-session
   [client session-config f]
@@ -272,11 +276,6 @@
        #(-> (copilot/send-and-wait! % {:prompt prompt} timeout-ms)
             (get-in [:data :content]))))))
 
-(defn- terminal-query-event?
-  [event]
-  (or (= :copilot/session.error (:type event))
-      (session/terminal-idle-event? event)))
-
 (defn- query-timeout-failure
   [timeout-ms]
   (ex-info
@@ -314,7 +313,7 @@
         (if (request-timeout? failure)
           (throw (query-timeout-failure timeout-ms))
           (throw failure))))
-    (copilot/send! sess {:prompt prompt})))
+    (session/send-with-timeout! sess {:prompt prompt} nil)))
 
 (defn- query-seq-source
   [prompt & {:keys [client session max-events timeout-ms]
@@ -355,7 +354,7 @@
                      (nil? event)
                      (do (finish!) nil)
 
-                     (terminal-query-event? event)
+                     (session/terminal-event? event)
                      (do (finish!) (cons event nil))
 
                      :else
@@ -386,10 +385,12 @@
      :client - Client options map or CopilotClient instance
      :session - Session options map
      :max-events - Maximum number of events to emit (default: 256)
-     :timeout-ms - One fixed deadline for subscribe, send, and event
-                   consumption (default: 60000); starts after session creation;
-                   nil disables it. Expiry throws ExceptionInfo with
-                   `:type :query-timeout` during sequence realization.
+     :timeout-ms - One fixed deadline for subscribe, blocking send
+                   acknowledgement, and event consumption (default: 60000);
+                   starts after session creation; nil disables it. Expiry throws
+                   ExceptionInfo with `:type :query-timeout` before the body
+                   begins if send exhausts the deadline, otherwise during
+                   sequence realization.
 
    Examples:
      (with-query-seq [events \"Tell me a story\"
@@ -439,10 +440,12 @@
      :client - Client options map or CopilotClient instance
      :session - Session options map
      :max-events - Maximum number of events to emit (default: 256)
-     :timeout-ms - One fixed deadline for subscribe, send, and event
-                   consumption (default: 60000); starts after session creation;
-                   nil disables it. Expiry throws ExceptionInfo with
-                   `:type :query-timeout` during sequence realization.
+     :timeout-ms - One fixed deadline for subscribe, blocking send
+                   acknowledgement, and event consumption (default: 60000);
+                   starts after session creation; nil disables it. Expiry throws
+                   ExceptionInfo with `:type :query-timeout` before this
+                   function returns if send exhausts the deadline, otherwise
+                   during sequence realization.
 
    Returns a lazy sequence of at most :max-events events."
   [prompt & {:keys [client session max-events timeout-ms]
@@ -542,7 +545,7 @@
                               (not (true? accepted?)))
                           false
 
-                          (terminal-query-event? event)
+                          (session/terminal-event? event)
                           true
 
                           :else

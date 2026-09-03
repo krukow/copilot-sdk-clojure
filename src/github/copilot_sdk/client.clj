@@ -222,29 +222,31 @@
 (defn- initial-state
   "Create initial client state."
   [port]
-  {:status :disconnected
-   :connection nil           ; protocol state (when connected)
-   :connection-io nil        ; protocol/Connection record (IO resources)
-   :process nil
-   :socket nil
-   :sessions {}              ; session state by session-id
-   :session-io {}
-   :session-setups {}            ; session IO resources by session-id
-   :disconnecting-session-ids #{}
-   :session-disconnects {}    ; session-id -> shared disconnect completion promise
-   :actual-port port
-   :router-ch nil
-   :router-queue nil
-   :router-thread nil
-   :router-running? false
-   :caller-supplied-streams? false
-   :stopping? false
-   :models-cache nil         ; nil, promise, or vector of models (cleared on stop)
-   :lifecycle-handlers {}
-   :github-token-provider-runtime (token-provider/initial-state)
-   :lifecycle-ch nil         ; serial dispatch channel for lifecycle handlers
-   :stderr-buffer nil         ; atom of recent stderr lines (for error context)
-   :negotiated-protocol-version 0})
+  (assoc-in
+   {:status :disconnected
+    :connection nil           ; protocol state (when connected)
+    :connection-io nil        ; protocol/Connection record (IO resources)
+    :process nil
+    :socket nil
+    :sessions {}              ; session state by session-id
+    :session-io {}
+    :session-setups {}            ; session IO resources by session-id
+    :disconnecting-session-ids #{}
+    :session-disconnects {}    ; session-id -> shared disconnect completion promise
+    :actual-port port
+    :router-ch nil
+    :router-queue nil
+    :router-thread nil
+    :router-running? false
+    :caller-supplied-streams? false
+    :stopping? false
+    :models-cache nil         ; nil, promise, or vector of models (cleared on stop)
+    :lifecycle-handlers {}
+    :lifecycle-ch nil         ; serial dispatch channel for lifecycle handlers
+    :stderr-buffer nil         ; atom of recent stderr lines (for error context)
+    :negotiated-protocol-version 0}
+   token-provider/runtime-path
+   (token-provider/initial-state)))
 
 (defn client
   "Create a new CopilotClient.
@@ -1198,12 +1200,12 @@
                                      session-id
                                      registered-session-id)
               args (cond-> {:host host
-                            :reason (case reason
-                                      "initial" :initial
-                                      :initial :initial
-                                      "refresh" :refresh
-                                      :refresh :refresh
-                                      ::invalid-reason)}
+                            :reason (get {"initial" :initial
+                                          :initial :initial
+                                          "refresh" :refresh
+                                          :refresh :refresh}
+                                         reason
+                                         ::invalid-reason)}
                      (or supplied-session-id? registered-session-id)
                      (assoc :session-id effective-session-id))]
           (when-not (s/valid? ::specs/github-token-provider-args args)
@@ -3736,9 +3738,10 @@
                               Only an opaque registration id is sent in session
                               configuration, but acquired credentials cross the
                               JSON-RPC connection to the CLI. Provider work runs
-                              on a bounded client-owned executor. Requires
-                              SDK-owned child-process stdio or TCP; every explicit
-                              external :cli-url is rejected.
+                              on a bounded client-owned executor. Managed stdio,
+                              SDK-managed TCP, and explicit :cli-url connections
+                              are supported. Explicit :cli-url uses raw TCP; use a
+                              trusted runtime and protect nonlocal connections.
    - :on-user-input-request - Handler for ask_user requests (PR #269)
    - :ask-user-variant  - Built-in ask_user shape: :legacy or :elicitation.
    - :on-elicitation-request - Handler for elicitation requests from the agent (upstream PRs #908, #960).

@@ -3,6 +3,7 @@
             [clojure.core.async.impl.protocols :as async-protocols]
             [clojure.test :refer [deftest is testing]]
             [github.copilot-sdk :as sdk]
+            [github.copilot-sdk.github-token-provider :as token-provider]
             [github.copilot-sdk.protocol :as protocol]
             [github.copilot-sdk.session :as session]))
 
@@ -426,6 +427,71 @@
     (is (:closed? (await-port events-ch)))
     (is (empty? (:sessions @(:state client))))
     (is (empty? (:session-io @(:state client))))))
+
+(deftest local-teardown-releases-resources-when-provider-cancellation-fails
+  (let [client (sdk/client {:auto-start? false})
+        copilot-session (session/create-session client "provider-failure" {})
+        session-id (sdk/session-id copilot-session)
+        events-ch (session/subscribe-events copilot-session)
+        send-lock (get-in @(:state client) [:session-io session-id :send-lock])
+        cancelled? (atom false)
+        cancel-ch (async/chan)
+        provider-failure (ex-info "provider cancellation failed" {})]
+    (swap! (:state client)
+           assoc-in
+           [:sessions session-id :factory-executions "run" "execution"]
+           {:cancelled? cancelled?
+            :cancel-chan cancel-ch})
+    (try
+      (let [caught
+            (with-redefs [token-provider/close-removed-invocations!
+                          (fn [& _]
+                            (throw provider-failure))]
+              (try
+                (session/teardown-local! client session-id)
+                nil
+                (catch Throwable failure
+                  failure)))]
+        (is (some? caught))
+        (is (or (identical? provider-failure caught)
+                (identical? provider-failure (ex-cause caught))))
+        (is @cancelled?)
+        (is (:closed? (await-port cancel-ch)))
+        (is (:closed? (await-port events-ch)))
+        (is (async-protocols/closed? send-lock)))
+      (finally
+        (async/close! cancel-ch)
+        (async/close! send-lock)
+        (when-let [event-ch (get-in @(:state client)
+                                    [:session-io session-id :event-chan])]
+          (async/close! event-ch))))))
+
+(deftest failed-session-removal-releases-independent-resources
+  (let [client (sdk/client {:auto-start? false})
+        copilot-session (session/create-session client "failed-removal" {})
+        session-id (sdk/session-id copilot-session)
+        events-ch (session/subscribe-events copilot-session)
+        send-lock (get-in @(:state client) [:session-io session-id :send-lock])
+        cancel-ch (async/chan)]
+    (swap! (:state client)
+           assoc-in
+           [:sessions session-id :factory-executions "run" "execution"]
+           {:cancelled? nil
+            :cancel-chan cancel-ch})
+    (try
+      (let [caught (try
+                     (session/remove-session! client session-id)
+                     nil
+                     (catch Throwable failure
+                       failure))]
+        (is (= :factory-executions (-> caught ex-data :resource)))
+        (is (:closed? (await-port events-ch)))
+        (is (async-protocols/closed? send-lock))
+        (is (not (contains? (:sessions @(:state client)) session-id)))
+        (is (not (contains? (:session-io @(:state client)) session-id))))
+      (finally
+        (async/close! cancel-ch)
+        (async/close! send-lock)))))
 
 (deftest session-state-writers-do-not-resurrect-a-force-stopped-session
   (let [client (sdk/client {:auto-start? false})

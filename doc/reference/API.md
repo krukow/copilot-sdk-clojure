@@ -65,11 +65,13 @@ Use this as the default seq-style streaming helper. Cleanup runs when `body` ret
 | `:client` | map or `CopilotClient` | `nil` | Client options map or caller-owned client |
 | `:max-events` | non-negative integer | `256` | Maximum number of events to emit; `0` disconnects immediately |
 | `:session` | map | `nil` | Session options map |
-| `:timeout-ms` | positive integer or nil | `60000` | Deadline starts after session creation and is observed during event consumption; nonterminal autopilot idle events do not reset it. `nil` disables the deadline. Expiry throws `ExceptionInfo` with `{:type :query-timeout}` during realization |
+| `:timeout-ms` | positive integer or nil | `60000` | One deadline starts after session creation and covers blocking `session.send` acknowledgement plus event consumption; nonterminal autopilot idle events do not reset it. `nil` disables the deadline. Expiry throws `ExceptionInfo` with `{:type :query-timeout}` before `body` begins if send exhausts the deadline, otherwise during realization |
 
 Client startup and session creation are outside the deadline. Synchronous
-subscription and send calls are not preempted; if the deadline elapses during
-either call, the timeout is observed when event consumption begins.
+subscription is not preempted. The blocking `session.send` request receives the
+remaining time. If the deadline is exhausted before or during that request,
+`with-query-seq` throws before entering `body`; once the sequence is bound, the
+same fixed deadline controls event reads.
 
 ```clojure
 (h/with-query-seq [events "Tell me a story"
@@ -98,7 +100,7 @@ Pass a client options map to use the helpers-managed client, or a started
 | `:client` | map or `CopilotClient` | `nil` | Client options map or caller-owned client |
 | `:max-events` | non-negative integer | `256` | Maximum number of events to emit; `0` disconnects immediately |
 | `:session` | map | `nil` | Session options map |
-| `:timeout-ms` | positive integer or nil | `60000` | Deadline starts after session creation and is observed during event consumption; nonterminal autopilot idle events do not reset it. `nil` disables the deadline. Expiry throws `ExceptionInfo` with `{:type :query-timeout}` during realization |
+| `:timeout-ms` | positive integer or nil | `60000` | One deadline starts after session creation and covers blocking `session.send` acknowledgement plus event consumption; nonterminal autopilot idle events do not reset it. `nil` disables the deadline. Expiry throws `ExceptionInfo` with `{:type :query-timeout}` before the function returns if send exhausts the deadline, otherwise during realization |
 
 The deadline has the same scope and observation semantics as
 `with-query-seq`.
@@ -423,7 +425,7 @@ failures.
 | `:infinite-sessions` | map | Infinite session config (see below) |
 | `:reasoning-effort` | string | Reasoning effort level: `"low"`, `"medium"`, `"high"`, `"xhigh"`, or `"max"` ([upstream PR #2228](https://github.com/github/copilot-sdk/pull/2228)) |
 | `:github-token` | string | Static GitHub token for this session. Sent as `gitHubToken`; mutually exclusive with `:github-token-provider`. |
-| `:github-token-provider` | fn | Session-scoped, refreshable GitHub credential callback. Receives `{:host string :session-id string? :reason keyword}` where `:reason` is exactly `:initial` or `:refresh`. Returns `{:kind :token :access-token string :expires-in integer>=3601 :token-type string?}` or `{:kind :cancelled}`, directly or on a core.async channel. Both result variants are open to additional extension fields. Create, resume, and join configuration carries only an opaque registration ID; the callback remains local, while acquired credentials cross the JSON-RPC connection to the CLI when requested. Managed child-process stdio, SDK-managed TCP, and explicit `:cli-url` connections are supported; the Clojure-only caller-supplied testing-stream transport is rejected. Provider work runs on a bounded client-owned executor with a fixed 120-second deadline per callback. Callback failure, an invalid result, or timeout is returned directly to the runtime without an SDK retry. Failed create/resume/join calls roll back provisional registrations; session and client teardown remove committed registrations and cancel in-flight work. Mutually exclusive with `:github-token`. See [Authentication](../auth/index.md#session-scoped-token-provider). ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412)) |
+| `:github-token-provider` | fn | Session-scoped, refreshable GitHub credential callback. Receives `{:host string :session-id string? :reason keyword}` where `:reason` is exactly `:initial` or `:refresh`. Returns `{:kind :token :access-token string :expires-in integer>=3601 :token-type string?}` or `{:kind :cancelled}`, directly or on a core.async channel. Both result variants are open to additional extension fields. Create, resume, and join configuration carries only an opaque registration ID; the callback remains local, while acquired credentials cross the JSON-RPC connection to the CLI when requested. Managed child-process stdio, SDK-managed TCP, and explicit `:cli-url` connections are supported; the Clojure-only caller-supplied testing-stream transport is rejected. Explicit `:cli-url` uses raw TCP even when written with an `http://` or `https://` prefix; use a trusted runtime and an authenticated, protected tunnel for nonlocal connections. Provider work runs on a bounded client-owned executor with a fixed 120-second deadline per callback. Callback failure, an invalid result, or timeout is returned directly to the runtime without an SDK retry. Failed create/resume/join calls roll back provisional registrations; session and client teardown remove committed registrations and cancel in-flight work. Mutually exclusive with `:github-token`. See [Authentication](../auth/index.md#session-scoped-token-provider). ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412)) |
 | `:on-user-input-request` | fn | Handler for `ask_user` requests (see below) |
 | `:ask-user-variant` | keyword | Selects the built-in `ask_user` tool shape: `:legacy` or `:elicitation`. Omission preserves the runtime default; explicit values serialize as `askUserVariant` on create/resume/join. The `:elicitation` variant requires an `:on-elicitation-request` handler when the host must answer requests. ([upstream PR #2432](https://github.com/github/copilot-sdk/pull/2432)) |
 | `:hooks` | map | Lifecycle hooks (see below) |

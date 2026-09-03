@@ -601,7 +601,7 @@
                    "src/github/copilot_sdk/client.clj"
                    "src/github/copilot_sdk/session.clj"]
    :contract
-   {:wire "Create/resume/join sends only an opaque UUID registration ID in session config; reverse RPC invokes the local provider and returns the acquired credential over the JSON-RPC connection to the CLI. Only SDK-owned transports and child-process stdio are supported; every external cli-url is rejected because the SDK cannot authenticate that server before returning credentials. Operation-scoped rollback preserves committed registrations, and teardown removes ownership exactly once."
+   {:wire "Create/resume/join sends only an opaque UUID registration ID in session config; reverse RPC invokes the local provider and returns the acquired credential over the JSON-RPC connection to the CLI. Managed stdio, SDK-owned TCP, and explicit cli-url connections are supported; caller-supplied testing streams are rejected. Because cli-url uses raw TCP, callers must choose a trusted runtime and protect nonlocal connections. Operation-scoped rollback preserves committed registrations, and teardown removes ownership exactly once."
     :tests ["test/github/copilot_sdk/integration/schema_provider_test.clj"]
     :docs ["doc/auth/index.md" "doc/reference/API.md"]}}
   {:id :permissions/managed-bypass-policy
@@ -968,7 +968,7 @@
    :sha256 "11d24b4e8de44590d70e261ebf15be18d91de14d674fdcfb1f2554ad43a48169"}
   :generated-clojure-output
   {:event-specs-sha256 "b3e65ffcce7f48d6a06160e905bb697ec3a96768cca81da3e7430b484f3e833f"
-   :coercions-sha256 "5688dbc7cc1f5cc3ef05eab7ffd3230b516c431e7ed344dad137f45eee359d33"}}
+   :coercions-sha256 "64b21e6cb17202ad18dc98e469f29293a12f7802cbd6ccb708c3d2edfdcf606d"}}
 
  :published-schema-artifact
  {:package "@github/copilot-linux-x64"
