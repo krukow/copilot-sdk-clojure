@@ -24,7 +24,7 @@
    :reason "Advances Java Maven development versions only."
    :changed-path-count 3 :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
   {:commit "ed1c2eaa134ed60faa99acb1870f0477c6943031"
-   :classification :mixed :status :ported
+   :classification :stable-public :status :ported
    :reason "Updates runtime 1.0.81-10 across generated, internal, test, and stable Node public contracts; the stable permission and event deltas are ported."
    :changed-path-count 89 :changed-paths-sha256 "4d81dd85fcff95dc8c9ed9d9115eed6bebbb0d49fe7eac560b4134e97423fc19"}
   {:commit "017c9a3ba1c097dad39200a8409da7ca59b53293"
@@ -40,7 +40,7 @@
    :reason "Adds Java in-process transport test coverage only."
    :changed-path-count 1 :changed-paths-sha256 "1e23b382a2b6e37a5d41a9a8c7c5c44fe8956af51068a1354bd3ec386f9a8196"}
   {:commit "f0a575aaad366e93e93349544d91035d0fb2e511"
-   :classification :test-harness :status :reviewed-no-port
+   :classification :language-specific :status :reviewed-no-port
    :reason "Stabilizes Python and Java E2E harness behavior without changing stable Node contracts."
    :changed-path-count 6 :changed-paths-sha256 "c6724ea8445f8492d9ea74a40af031d6e2731d29e337fb5e1f7414dbe8f566f8"}
   {:commit "83c179a3a82096dc8e0f524c03dfa95140f497c8"
@@ -60,7 +60,7 @@
    :reason "Adds the stable session-scoped GitHub token-provider contract across SDKs."
    :changed-path-count 54 :changed-paths-sha256 "90b77cab980ef147ad8a248ecf5f2c0a19b7641c49164bbc9e609940f54f386c"}
   {:commit "3d630a790e3b1f8c74b4443d144a52429a232b28"
-   :classification :mixed :status :ported
+   :classification :stable-public :status :ported
    :reason "Updates runtime 1.0.81-11 with generated protocol, tests, and stable permission-response and autopilot-idle behavior; stable deltas are ported."
    :changed-path-count 44 :changed-paths-sha256 "3e73eba8c38d0ead30fd170026a71bdd150db99a05a880561b947144bfd346d8"}
   {:commit "521aa26b29e35a25cd483c589b35ee4f0b7b8750"
@@ -160,7 +160,7 @@
    :reason "Adds stable automatic model-routing tier options across SDKs."
    :changed-path-count 26 :changed-paths-sha256 "b6c06c63e75cc603e707e301905df9d421a0186d955cea21f931c011539eed74"}
   {:commit "2980c7828d35754bfc2b334831efec309ab8a2eb"
-   :classification :mixed :status :ported
+   :classification :stable-public :status :ported
    :reason "Pins runtime 1.0.83-1 and refreshes generated stable event, permission, and experimental HydraFusion contracts; stable deltas are ported and generated artifacts regenerated."
    :changed-path-count 39 :changed-paths-sha256 "cc2d7f098d22d38b2df56860eb9366116c36dcdb01ffc176fc2871a7ba1e292c"}]
 
@@ -168,13 +168,11 @@
  {:count 365
   :sha256 "abae40ae39c147606b2f06d64f594a99c6ae592045ba1a5b350e89b77c314fae"
   :classification-counts
-  {:stable-public 10
+  {:stable-public 11
    :experimental 2
    :internal 5
-   :mixed 1
    :generated-only 6
-   :language-specific 291
-   :test-harness 50}
+   :language-specific 341}
   :classification-rules
   [{:classification :language-specific
     :prefixes [".github/" "dotnet/" "go/" "java/" "python/" "rust/"]}
@@ -184,7 +182,7 @@
             "nodejs/package.json"
             "nodejs/src/ffiRuntimeHost.ts"
             "nodejs/src/runtimeArtifacts.ts"]}
-   {:classification :mixed
+   {:classification :stable-public
     :paths ["CHANGELOG.md"]}
    {:classification :stable-public
     :paths ["docs/auth/authenticate.md"
@@ -206,7 +204,7 @@
             "nodejs/src/generated/rpc.ts"
             "nodejs/src/generated/session-events.ts"]
     :prefixes ["scripts/"]}
-   {:classification :test-harness
+   {:classification :language-specific
     :prefixes ["nodejs/test/" "test/"]}]}
 
  :symbol-inventory
@@ -286,7 +284,6 @@
      "FusionPhaseStartedData"
      "FusionPhaseStatus"
      "FusionPhaseUsage"
-     "FusionProjectionMode"
      "FusionResolvedData"
      "FusionResolvedEvent"
      "FusionRouteFailedData"
@@ -294,8 +291,12 @@
      "FusionRouteStartedData"
      "FusionRouteStartedEvent"
      "FusionScores"
-     "FusionStagedTerminal"
-     "FusionTurnKind"}}}
+     "FusionTurnKind"}
+    :internal #{"FusionProjectionMode"
+               "FusionStagedTerminal"}}
+   "nodejs/src/extension.ts"
+   {:experimental #{"FactoryListRunsOptions"
+                   "FactoryRunsPage"}}}
   :session-config-fields
   {"SessionConfigBase"
   #{"askUserVariant"
@@ -342,6 +343,7 @@
                     "SessionConfigBase"}}
   "nodejs/src/generated/session-events.ts"
   {:stable-public #{"AssistantMessageToolRequest"
+                    "AssistantUsageData"
                     "CompactionCompleteData"
                     "HookEndData"
                     "HookStartData"
@@ -352,16 +354,15 @@
                     "SubagentCompletedData"
                     "SubagentFailedData"
                     "SubagentStartedData"
-                    "ToolExecutionCompleteContentShellExit"}
+                    "ToolExecutionCompleteContentShellExit"
+                    "SessionEvent"}
    :experimental #{"AssistantMessageData"
                    "ManagedSettingsEnforcedEscalation"
                    "ManagedSettingsResolvedData"
                    "ManagedSettingsResolvedSource"
                    "ModelCallFailureData"
                    "ToolExecutionCompleteData"
-                   "ToolExecutionStartData"}
-   :mixed #{"AssistantUsageData"
-            "SessionEvent"}}}
+                  "ToolExecutionStartData"}}}
   :internal-methods
   {"nodejs/src/client.ts"
   #{"acquireGitHubToken"
@@ -386,53 +387,227 @@
      "c3f189ded61369e86129dee26d0521b511e2233d2d6e47e2883570e28ec9d90b"}]
    :symbol-count 694
    :symbols-sha256
-   "1d620db83150ca6d9fed79e830a907d299fb986e09956dfdfb28b20174fcba75"}
+   "1d620db83150ca6d9fed79e830a907d299fb986e09956dfdfb28b20174fcba75"
+   :classification-counts
+   {:stable-public 555 :experimental 134 :internal 5}
+   :classification-policy
+   {:default :stable-public
+    :basis
+    {:stable-public "Unannotated package-root exports are stable; inherited exports are anchored to the prior exact-pin oracle."
+     :experimental "Exports whose authoritative declaration or containing public subsystem is marked @experimental upstream."
+     :internal "Exports whose authoritative generated declaration is marked @internal upstream."}
+    :overrides
+    {:experimental
+     #{"AssistantFusionPhaseCompletedEvent"
+       "AssistantFusionPhaseFailedEvent"
+       "AssistantFusionPhaseStartedEvent"
+       "AssistantMessageReasoningBlocks"
+       "AssistantMessageServerTools"
+       "AssistedApprovalJudgeFailureReason"
+       "AssistedApprovalRecommendation"
+       "AutoModeResolvedData"
+       "AutoModeResolvedEvent"
+       "BearerTokenProvider"
+       "BinaryAssetEvent"
+       "BinaryAssetReference"
+       "Canvas"
+       "CanvasAction"
+       "CanvasClosedData"
+       "CanvasClosedEvent"
+       "CanvasDeclaration"
+       "CanvasError"
+       "CanvasHostContext"
+       "CanvasHostContextCapabilities"
+       "CanvasJsonSchema"
+       "CanvasOpenedData"
+       "CanvasOpenedEvent"
+       "CanvasOptions"
+       "CanvasRecordedData"
+       "CanvasRecordedEvent"
+       "CanvasRegistryChangedCanvas"
+       "CanvasRegistryChangedCanvasAction"
+       "CanvasRegistryChangedData"
+       "CanvasRegistryChangedEvent"
+       "CanvasRemovedData"
+       "CanvasRemovedEvent"
+       "CanvasUnavailableData"
+       "CanvasUnavailableEvent"
+       "CitableSource"
+       "CitationLocation"
+       "CitationLocationBlock"
+       "CitationLocationChar"
+       "CitationLocationPage"
+       "CitationProvider"
+       "CitationReference"
+       "CitationSource"
+       "CitationSpan"
+       "Citations"
+       "CopilotRequestContext"
+       "CopilotRequestHandler"
+       "CopilotWebSocketCloseStatus"
+       "CopilotWebSocketForwarder"
+       "CopilotWebSocketHandler"
+       "CurrentToolMetadata"
+       "FactoryAgentOptions"
+       "FactoryAgentSummary"
+       "FactoryContext"
+       "FactoryDefinition"
+       "FactoryHandle"
+       "FactoryJsonSchema"
+       "FactoryLimits"
+       "FactoryListRunsOptions"
+       "FactoryMeta"
+       "FactoryPhaseObservation"
+       "FactoryPhaseStatus"
+       "FactoryPipelineStage"
+       "FactoryProgressLine"
+       "FactoryProgressPage"
+       "FactoryResumeError"
+       "FactoryResumeErrorCode"
+       "FactoryRunDetail"
+       "FactoryRunResult"
+       "FactoryRunSettledData"
+       "FactoryRunSettledEvent"
+       "FactoryRunStartedData"
+       "FactoryRunStartedEvent"
+       "FactoryRunStatus"
+       "FactoryRunSummary"
+       "FactoryRunUpdatedData"
+       "FactoryRunUpdatedEvent"
+       "FactoryRunsPage"
+       "FactoryStepOptions"
+       "FusionAttribution"
+       "FusionCompletedData"
+       "FusionCompletedEvent"
+       "FusionConversationScope"
+       "FusionFollowUpAction"
+       "FusionFollowUpRecommendation"
+       "FusionPattern"
+       "FusionPhaseCompletedData"
+       "FusionPhaseFailedData"
+       "FusionPhaseKind"
+       "FusionPhaseStartedData"
+       "FusionPhaseStatus"
+       "FusionPhaseUsage"
+       "FusionResolvedData"
+       "FusionResolvedEvent"
+       "FusionRouteFailedData"
+       "FusionRouteFailedEvent"
+       "FusionRouteStartedData"
+       "FusionRouteStartedEvent"
+       "FusionScores"
+       "FusionTurnKind"
+       "GitHubTelemetryClientInfo"
+       "GitHubTelemetryEvent"
+       "GitHubTelemetryNotification"
+       "InProcessRuntimeConnection"
+       "ManagedSettingsEnforcedData"
+       "ManagedSettingsEnforcedEvent"
+       "ManagedSettingsResolvedData"
+       "ManagedSettingsResolvedEvent"
+       "ModelBillingTokenPrices"
+       "ModelBillingTokenPricesLongContext"
+       "NamedProviderConfig"
+       "OmittedBinaryResult"
+       "PermissionAssistedApproval"
+       "PermissionDecisionContext"
+       "PermissionDecisionOutcome"
+       "PermissionDecisionSource"
+       "PermissionDecisionSurface"
+       "PermissionMode"
+       "PermissionRecommendation"
+       "PermissionResponseCapability"
+       "PermissionsChangedData"
+       "PermissionsChangedEvent"
+       "PersistedBinaryResult"
+       "ProviderModelConfig"
+       "ProviderTokenArgs"
+       "RemoteSessionMode"
+       "ResumeOptions"
+       "RunOptions"
+       "SessionFactoryApi"
+       "UIEphemeralQueryData"
+       "UIEphemeralQueryEvent"
+       "UIEphemeralQueryPhase"
+       "createCanvas"
+       "defineFactory"
+       "isFactoryRunTerminal"}
+     :internal
+     #{"AssistantUsageQuotaSnapshot"
+       "CompactionCompleteCompactionTokensUsedCopilotUsage"
+       "FusionProjectionMode"
+       "FusionStagedTerminal"
+       "UsageCheckpointModelCacheState"}}
+    :stable-overrides
+    {"GitHubTokenAcquireReason"
+     {:source "nodejs/src/types.ts"
+      :reason "Deliberately wrapped by the stable GitHubTokenProvider contract."}
+     "GitHubTokenAcquireResult"
+     {:source "nodejs/src/types.ts"
+      :reason "Deliberately wrapped by the stable GitHubTokenProvider contract."}
+     "SessionFsSqliteQueryType"
+     {:source "nodejs/src/types.ts"
+      :reason "Deliberately wrapped by the stable SessionFsProvider contract."}
+     "SessionFsSqliteTransactionErrorClass"
+     {:source "nodejs/src/types.ts"
+      :reason "Deliberately wrapped by the stable SessionFsProvider contract."}}}
+   :provenance
+   {:baseline
+    {:resource "resources/stable_upstream_delta_93351c.edn"
+     :target-commit "93351c9217a65960c14a863fc0fa540afd93fa15"
+     :node-tree "b8ba9a1ab52d10865c9ac21fdb242f9e5a02acc6"}
+    :delta-inventory-paths
+    ["nodejs/src/index.ts"
+     "nodejs/src/generated/session-events.ts"]}}
 
   :extension
   {:path "nodejs/src/extension.ts"
-   :symbols
-   #{"Canvas"
-     "CanvasAction"
-     "CanvasDeclaration"
-     "CanvasError"
-     "CanvasHostContext"
-     "CanvasJsonSchema"
-     "CanvasOptions"
-     "ExtensionInfo"
-     "FactoryAgentOptions"
-     "FactoryAgentSummary"
-     "FactoryContext"
-     "FactoryDefinition"
-     "FactoryHandle"
-     "FactoryJsonSchema"
-     "FactoryLimits"
-     "FactoryListRunsOptions"
-     "FactoryMeta"
-     "FactoryPhaseObservation"
-     "FactoryPhaseStatus"
-     "FactoryPipelineStage"
-     "FactoryProgressLine"
-     "FactoryProgressPage"
-     "FactoryResumeError"
-     "FactoryResumeErrorCode"
-     "FactoryRunDetail"
-     "FactoryRunResult"
-     "FactoryRunStatus"
-     "FactoryRunSummary"
-     "FactoryRunsPage"
-     "FactoryStepOptions"
-     "JoinSessionConfig"
-     "JsonValue"
-     "ResumeOptions"
-     "RunOptions"
-     "SessionFactoryApi"
-     "createCanvas"
-     "defineFactory"
-     "isFactoryRunTerminal"
-     "joinSession"}
    :symbol-count 39
    :symbols-sha256
-   "13316e0859171d9c8be79a0bdbe2626b9c21a1947dae04a24fc51ddede17b52c"}
+   "13316e0859171d9c8be79a0bdbe2626b9c21a1947dae04a24fc51ddede17b52c"
+   :classification-counts {:stable-public 4 :experimental 35}
+   :classification-policy
+   {:default :stable-public
+    :basis
+    {:stable-public "Unannotated extension entry points and support types are stable."
+     :experimental "Canvas and Agent Factory exports remain explicitly experimental upstream."}
+    :overrides
+    {:experimental
+     #{"Canvas"
+       "CanvasAction"
+       "CanvasDeclaration"
+       "CanvasError"
+       "CanvasHostContext"
+       "CanvasJsonSchema"
+       "CanvasOptions"
+       "FactoryAgentOptions"
+       "FactoryAgentSummary"
+       "FactoryContext"
+       "FactoryDefinition"
+       "FactoryHandle"
+       "FactoryJsonSchema"
+       "FactoryLimits"
+       "FactoryListRunsOptions"
+       "FactoryMeta"
+       "FactoryPhaseObservation"
+       "FactoryPhaseStatus"
+       "FactoryPipelineStage"
+       "FactoryProgressLine"
+       "FactoryProgressPage"
+       "FactoryResumeError"
+       "FactoryResumeErrorCode"
+       "FactoryRunDetail"
+       "FactoryRunResult"
+       "FactoryRunStatus"
+       "FactoryRunSummary"
+       "FactoryRunsPage"
+       "FactoryStepOptions"
+       "ResumeOptions"
+       "RunOptions"
+       "SessionFactoryApi"
+       "createCanvas"
+       "defineFactory"
+       "isFactoryRunTerminal"}}}}
 
   :classes
   {:client
@@ -772,6 +947,8 @@
     [:event-interface-field "ToolExecutionCompleteContentShellExit"
      "outputFilePath"]
     [:changed-declaration "nodejs/src/generated/session-events.ts"
+     "AssistantUsageData"]
+    [:changed-declaration "nodejs/src/generated/session-events.ts"
      "CompactionCompleteData"]
     [:changed-declaration "nodejs/src/generated/session-events.ts"
      "HookEndData"]
@@ -786,7 +963,9 @@
     [:changed-declaration "nodejs/src/generated/session-events.ts"
      "SubagentStartedData"]
     [:changed-declaration "nodejs/src/generated/session-events.ts"
-     "ToolExecutionCompleteContentShellExit"]]
+     "ToolExecutionCompleteContentShellExit"]
+    [:changed-declaration "nodejs/src/generated/session-events.ts"
+     "SessionEvent"]]
    :clojure-paths ["src/github/copilot_sdk/generated/event_specs.clj"
                    "src/github/copilot_sdk/specs.clj"]
    :contract
@@ -794,31 +973,44 @@
     :tests ["test/github/copilot_sdk/integration/stable_sync_2980c78_test.clj"]
     :docs ["doc/reference/API.md"]}}]
 
+ :decision-authorities
+ {:stable-only-sync
+  {:kind :maintainer-request
+   :request "/update-upstream"
+   :scope :stable-public-recertification
+   :policy ".github/skills/update-upstream/references/PROJECT.md"}}
+
  :intentional-exclusions
  [{:id :factory/pagination-and-completion
    :classification :experimental
+   :decision :exclude :status :approved :authority :stable-only-sync
    :evidence [:factory-list-runs-options]
    :reason "Factory pagination, completion notification, and phase logging remain part of the explicitly experimental Agent Factories surface."}
   {:id :permissions/response-capability
    :classification :experimental
+   :decision :exclude :status :approved :authority :stable-only-sync
    :evidence [:permission-response-capability-export]
    :reason "PermissionResponseCapability and its containing PermissionDecisionContext are explicitly experimental upstream. The Clojure SDK preserves wire compatibility without certifying the contract as stable public API."}
  {:id :permissions/decision-surface-acp
   :classification :experimental
+  :decision :exclude :status :approved :authority :stable-only-sync
   :evidence [:permission-decision-surface-acp]
   :reason "PermissionDecisionSurface is an explicitly experimental generated RPC enum. The 2980c78 range adds the \"acp\" (Agent Client Protocol host) member; the Clojure SDK preserves it as generated wire evidence without certifying the enum as stable public API."}
  {:id :events/assistant-message-reasoning-blocks
   :classification :experimental
+  :decision :exclude :status :approved :authority :stable-only-sync
   :evidence [:assistant-message-reasoning-blocks]
   :reason "AssistantMessageReasoningBlocks is explicitly experimental and remains generated wire evidence rather than a curated public idiom shape."}
  {:id :events/hydra-fusion-internal
    :classification :internal
+   :decision :exclude :status :approved :authority :stable-only-sync
    :event-types #{"session.fusion_handoff"
                   "session.fusion_commit_started"}
    :evidence [:hydra-fusion-internal-event]
    :reason "The published schema marks HydraFusion handoff and commit-started events as both internal and experimental, so they remain generated wire evidence rather than curated public idiom events."}
   {:id :events/hydra-fusion-experimental
    :classification :experimental
+   :decision :exclude :status :approved :authority :stable-only-sync
    :event-types #{"session.fusion_route_started"
                   "session.fusion_route_failed"
                   "session.fusion_resolved"
@@ -830,18 +1022,22 @@
    :reason "HydraFusion routing and phase events are explicitly experimental transient signals and remain generated wire evidence rather than curated public idiom events."}
   {:id :runtime/rust-wrapper
    :classification :internal
+   :decision :exclude :status :approved :authority :stable-only-sync
    :evidence [:runtime-artifact-materializer]
    :reason "Node runtime artifact materialization and in-process Rust FFI launching are private implementation details, not stable SDK contracts."}
   {:id :generated-rpc-only
    :classification :generated-only
+   :decision :exclude :status :approved :authority :stable-only-sync
    :evidence [:generated-factory-list-request]
    :reason "Generated RPC additions are wire evidence only unless the stable Node package root, client, or session API deliberately exposes them."}
   {:id :language-specific-implementations
    :classification :language-specific
+   :decision :exclude :status :approved :authority :stable-only-sync
    :evidence [:python-client-implementation]
    :reason "Go, Java, Python, Rust, and .NET implementation, packaging, examples, and CI changes do not independently define Clojure parity."}
   {:id :release-and-test-harness
-   :classification :test-harness
+   :classification :language-specific
+   :decision :exclude :status :approved :authority :stable-only-sync
    :evidence [:java-release-workflow :cross-language-e2e-harness]
    :reason "Upstream release automation, repository metadata, documentation navigation, and cross-language test harness maintenance have no Clojure runtime equivalent."}]
 
@@ -967,7 +1163,7 @@
   {:source "@github/copilot-linux-x64@1.0.83-1/schemas/session-events.schema.json"
    :sha256 "11d24b4e8de44590d70e261ebf15be18d91de14d674fdcfb1f2554ad43a48169"}
   :generated-clojure-output
-  {:event-specs-sha256 "b3e65ffcce7f48d6a06160e905bb697ec3a96768cca81da3e7430b484f3e833f"
+  {:event-specs-sha256 "d78da4885f607eaee39b80d28103cea78d6f948ae47e84f32139272763fe593a"
    :coercions-sha256 "64b21e6cb17202ad18dc98e469f29293a12f7802cbd6ccb708c3d2edfdcf606d"}}
 
  :published-schema-artifact

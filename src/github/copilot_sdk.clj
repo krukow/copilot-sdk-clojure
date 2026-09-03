@@ -409,9 +409,8 @@
   [[client-sym & [opts]] & body]
   `(let [~client-sym ~(if opts `(client ~opts) `(client))]
      (start! ~client-sym)
-     (teardown/call-with-cleanup
-      (fn [] ~@body)
-      #(stop! ~client-sym))))
+     (teardown/with-cleanup #(stop! ~client-sym)
+       ~@body)))
 
 (defn notifications
   "Get the channel that receives non-session notifications.
@@ -627,9 +626,8 @@
      ...)"
   [[session-sym client config] & body]
   `(let [~session-sym (create-session ~client ~config)]
-     (teardown/call-with-cleanup
-      (fn [] ~@body)
-      #(disconnect! ~session-sym))))
+     (teardown/with-cleanup #(disconnect! ~session-sym)
+       ~@body)))
 
 (defmacro with-client-session
   "Create a client + session and ensure cleanup on exit.

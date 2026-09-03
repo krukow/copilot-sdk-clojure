@@ -978,7 +978,6 @@
     :github.copilot-sdk.specs/servers
     :github.copilot-sdk.specs/service-request-id
     :github.copilot-sdk.specs/session
-    :github.copilot-sdk.specs/session-auto-tier
     :github.copilot-sdk.specs/session-capabilities
     :github.copilot-sdk.specs/session-config
     :github.copilot-sdk.specs/session-context

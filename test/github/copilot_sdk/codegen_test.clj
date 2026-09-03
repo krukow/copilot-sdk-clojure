@@ -102,6 +102,10 @@
     (is (seq names))
     (is (= (sort names) names))))
 
+(deftest generated-source-omits-reader-position-metadata
+  (let [source (slurp "src/github/copilot_sdk/generated/event_specs.clj")]
+    (is (not (re-find #"\^\{:(?:line|column)\b" source)))))
+
 ;; ---------------------------------------------------------------------------
 ;; Schema introspection helpers — used by the envelope helper to honour
 ;; per-variant `const` properties (e.g. `ephemeral: const true` on

@@ -3,7 +3,7 @@ All notable changes to this project will be documented in this file. This change
 
 ## [Unreleased]
 
-### Added (stable 2980c78 sync)
+### Added (post-v1.0.13-preview.4 sync)
 - Added session-scoped `:github-token-provider` authentication for create,
   resume, and join, with initial and refresh callbacks, core.async results,
   atomic replacement on resume, and deterministic rollback and teardown.
@@ -44,7 +44,7 @@ All notable changes to this project will be documented in this file. This change
   [upstream PR #2409](https://github.com/github/copilot-sdk/pull/2409),
   [upstream PR #2467](https://github.com/github/copilot-sdk/pull/2467))
 
-### Changed (stable 2980c78 sync)
+### Changed (post-v1.0.13-preview.4 sync)
 - **BREAKING:** Wait and stream APIs now treat `session.idle` events whose wire
   `mode` is the string `"autopilot"` as nonterminal turn boundaries (upstream
   [PR #2157](https://github.com/github/copilot-sdk/pull/2157)).
@@ -56,12 +56,13 @@ All notable changes to this project will be documented in this file. This change
   `:assisted-approval` / `"assisted_approval"`.
   ([upstream PR #2294](https://github.com/github/copilot-sdk/pull/2294))
 - **BREAKING:** `disconnect!` now destroys the runtime session before releasing
-  local resources. Runtime destroy failures are rethrown and leave the local
-  session connected for retry instead of being ignored. Concurrent disconnect
-  callers join the same operation and observe its identical success or failure.
-  Lifecycle macros keep a body failure primary and attach concurrent cleanup
-  failures as suppressed exceptions; client shutdown still force-releases local
-  session resources.
+  local resources. Definite runtime rejection leaves the local session connected
+  for retry. A timeout or interruption is ambiguous, so it is rethrown after
+  local teardown instead of leaving a potentially destroyed runtime session
+  registered locally. Concurrent disconnect callers join the same operation and
+  observe its identical success or failure. Lifecycle macros keep a body failure
+  primary and attach concurrent cleanup failures as suppressed exceptions;
+  client shutdown still force-releases local session resources.
 - Updated the runtime and schema pin to `1.0.83-1` and recertified the complete
   stable Node SDK public surface through upstream commit
   [`2980c7828d35754bfc2b334831efec309ab8a2eb`](https://github.com/github/copilot-sdk/commit/2980c7828d35754bfc2b334831efec309ab8a2eb).
@@ -71,7 +72,7 @@ All notable changes to this project will be documented in this file. This change
   commit-start events remain internal.
   ([upstream PR #2467](https://github.com/github/copilot-sdk/pull/2467))
 
-### Fixed (stable 2980c78 sync)
+### Fixed (post-v1.0.13-preview.4 sync)
 - Generated wire specs now enforce referenced-object requirements, enums, and
   closed-key contracts recursively while preserving open event data maps for
   forward compatibility. Number schemas reject ratios and non-finite values,
@@ -102,16 +103,18 @@ All notable changes to this project will be documented in this file. This change
   bounds correctly.
 
 ### Added (helper lifecycle)
-- `with-query-seq` and `query-seq!` now accept `:timeout-ms`. The option defines
-  one fixed deadline beginning after session creation and observed during
-  sequence realization; expiry throws `ExceptionInfo` with
-  `{:type :query-timeout}`. Client startup and synchronous session creation are
-  outside the timeout budget.
+- **BREAKING:** `with-query-seq` and `query-seq!` now accept `:timeout-ms` and
+  default to a 60-second fixed deadline beginning after session creation. The
+  deadline covers send acknowledgement and sequence realization; expiry throws
+  `ExceptionInfo` with `{:type :query-timeout}`. Pass `:timeout-ms nil` to retain
+  unbounded waiting. Client startup and synchronous session creation are outside
+  the timeout budget.
 
 ### Changed (helper lifecycle)
 - **BREAKING:** `query-chan` now emits hidden-session cleanup failures as tagged
   `:copilot/session.error` maps, with the original failure at `[:data :cause]`,
-  instead of widening its event stream with a bare `Throwable`.
+  instead of silently closing. Consumers must handle the additional tagged event
+  before channel closure.
 
 ### Fixed (helper lifecycle)
 - Blocking, sequence, and channel helpers now deterministically own and release

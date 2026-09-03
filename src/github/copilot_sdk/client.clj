@@ -33,6 +33,11 @@
 (def ^:private github-token-provider-shutdown-timeout-ms 1000)
 (def ^:private github-token-provider-saturation-count-max 1000000)
 (def ^:dynamic ^:private github-token-provider-timeout-ms 120000)
+(def ^:private github-token-provider-reasons
+  {"initial" :initial
+   :initial :initial
+   "refresh" :refresh
+   :refresh :refresh})
 
 (defn- get-trace-context
   "Call the user-provided trace context provider. Returns {} when no provider
@@ -229,8 +234,8 @@
     :process nil
     :socket nil
     :sessions {}              ; session state by session-id
-    :session-io {}
-    :session-setups {}            ; session IO resources by session-id
+    :session-io {}            ; session IO resources by session-id
+    :session-setups {}        ; active setup claim by session-id
     :disconnecting-session-ids #{}
     :session-disconnects {}    ; session-id -> shared disconnect completion promise
     :actual-port port
@@ -1074,7 +1079,9 @@
   [client generation]
   (let [state-atom (:state client)]
     (loop []
-      (let [state @state-atom]
+      (let [state @state-atom
+            ^ThreadPoolExecutor executor
+            (get-in state token-provider/executor-path)]
         (cond
           (not= generation (get-in state token-provider/generation-path))
           (do
@@ -1085,29 +1092,27 @@
               (get-in state token-provider/generation-path)})
             {:status :stale})
 
-          (get-in state token-provider/executor-path)
-          (let [^ThreadPoolExecutor executor
-                (get-in state token-provider/executor-path)]
-            (cond
-              (.isTerminated executor)
-              (do
-                (compare-and-set!
-                 state-atom
-                 state
-                 (assoc-in state
-                           token-provider/executor-path
-                           nil))
-                (recur))
+          executor
+          (cond
+            (.isTerminated executor)
+            (do
+              (compare-and-set!
+               state-atom
+               state
+               (assoc-in state
+                         token-provider/executor-path
+                         nil))
+              (recur))
 
-              (.isShutdown executor)
-              (do
-                (log/warn
-                 "GitHub token provider executor is still terminating"
-                 {:invocation-generation generation})
-                {:status :unavailable})
+            (.isShutdown executor)
+            (do
+              (log/warn
+               "GitHub token provider executor is still terminating"
+               {:invocation-generation generation})
+              {:status :unavailable})
 
-              :else
-              {:status :ready :executor executor}))
+            :else
+            {:status :ready :executor executor})
 
           :else
           (let [executor (create-github-token-provider-executor)
@@ -1177,10 +1182,7 @@
 
 (defn- begin-github-token-provider-invocation!
   [client {:keys [registration-id host session-id reason] :as request}]
-  (let [invocation-id (str (java.util.UUID/randomUUID))
-        cancel-chan (chan)
-        cancelled? (atom false)
-        task (atom nil)]
+  (let [invocation-id (str (java.util.UUID/randomUUID))]
     (loop []
       (let [state-atom (:state client)
             state @state-atom
@@ -1200,10 +1202,7 @@
                                      session-id
                                      registered-session-id)
               args (cond-> {:host host
-                            :reason (get {"initial" :initial
-                                          :initial :initial
-                                          "refresh" :refresh
-                                          :refresh :refresh}
+                            :reason (get github-token-provider-reasons
                                          reason
                                          ::invalid-reason)}
                      (or supplied-session-id? registered-session-id)
@@ -1226,15 +1225,13 @@
                :registration-id registration-id
                :session-id registered-session-id})))
           (let [invocation
-                {:registration-id registration-id
-                 :session-id effective-session-id
-                 :host host
-                 :reason (:reason args)
-                 :generation
-                 (get-in state token-provider/generation-path)
-                 :cancel-chan cancel-chan
-                 :cancelled? cancelled?
-                 :task task}
+                (token-provider/invocation
+                 {:registration-id registration-id
+                  :session-id effective-session-id
+                  :host host
+                  :reason (:reason args)
+                  :generation
+                  (get-in state token-provider/generation-path)})
                 next-state
                 (assoc-in state
                           (token-provider/invocation-path invocation-id)
@@ -1304,13 +1301,9 @@
 
 (defn- cancel-github-token-provider-invocation!
   [client invocation-id]
-  (when-let [{:keys [cancel-chan cancelled? task] :as invocation}
+  (when-let [invocation
              (claim-github-token-provider-invocation! client invocation-id)]
-    (reset! cancelled? true)
-    (close! cancel-chan)
-    (when-let [^java.util.concurrent.Future future @task]
-      (.cancel future true))
-    invocation))
+    (token-provider/cancel-invocation! invocation)))
 
 (defn- invoke-github-token-provider
   [provider args cancel-chan]
@@ -1342,12 +1335,6 @@
   [message]
   {:error {:code -32603
            :message (str "Internal error: " message)}})
-
-(defn- attach-github-token-provider-task!
-  [{:keys [cancelled? task]} future]
-  (reset! task future)
-  (when @cancelled?
-    (.cancel ^java.util.concurrent.Future future true)))
 
 (defn- github-token-provider-outcome-response
   [client invocation-id invocation {:keys [outcome result failure]}]
@@ -1389,6 +1376,10 @@
         (begin-github-token-provider-invocation! client request)
         result-chan (chan 1)
         response-chan (chan 1)
+        respond! (fn [response]
+                   (async/put! response-chan response)
+                   (close! response-chan)
+                   false)
         timeout-chan (async/timeout github-token-provider-timeout-ms)
         {:keys [status executor]}
         (github-token-provider-executor!
@@ -1407,7 +1398,7 @@
                         result-chan
                         (invoke-github-token-provider
                          provider args (:cancel-chan invocation))))))]
-              (attach-github-token-provider-task! invocation future)
+              (token-provider/attach-task! invocation executor future)
               true)
             (catch RejectedExecutionException _
               (let [claimed
@@ -1426,16 +1417,13 @@
                     (github-token-provider-log-metadata invocation)
                     (bounded-executor-facts executor)
                     {:saturation-count saturation-count})))
-                (async/put!
-                 response-chan
+                (respond!
                  (if cancelled?
                    (provider-cancelled-response)
                    {:error
                     {:code -32000
                      :message
-                     "GitHub token provider executor saturated"}}))
-                (close! response-chan)
-                false)))
+                     "GitHub token provider executor saturated"}})))))
 
           :unavailable
           (do
@@ -1443,19 +1431,14 @@
             (log/warn
              "GitHub token provider executor unavailable"
              (github-token-provider-log-metadata invocation))
-            (async/put!
-             response-chan
+            (respond!
              (provider-failure-response
-              "GitHub token provider executor unavailable"))
-            (close! response-chan)
-            false)
+              "GitHub token provider executor unavailable")))
 
           :stale
           (do
             (claim-github-token-provider-invocation! client invocation-id)
-            (async/put! response-chan (provider-cancelled-response))
-            (close! response-chan)
-            false))]
+            (respond! (provider-cancelled-response))))]
     (when await-result?
       (go
         (try
@@ -2143,11 +2126,19 @@
 
   (let [session-ids (keys (:sessions @(:state client)))]
     ;; Release event roots and send locks while their state is still reachable.
-    (doseq [session-id session-ids]
-      (session/teardown-local! client session-id))
-    (swap! (:state client) assoc :sessions {} :session-io {})
+    (let [session-failures
+          (td/collect
+           (for [session-id session-ids]
+             (td/attempt
+              {:operation :teardown
+               :resource :session
+               :session-id session-id}
+              (session/teardown-local! client session-id))))]
+      (swap! (:state client) assoc :sessions {} :session-io {})
 
-    (log-teardown-failures! (release-transport! client {:process :forcible})))
+      (log-teardown-failures!
+       (into session-failures
+             (release-transport! client {:process :forcible})))))
 
   (swap! (:state client) merge
          {:status :disconnected
@@ -2832,7 +2823,9 @@
 (defn- cleanup-failed-session-setup!
   "Release every locally owned resource from a failed session setup.
 
-   `destroy-runtime?` is true only after create/resume has succeeded remotely.
+   `destroy-runtime?` is true only when the failed transaction owns the remote
+   session. A server-accepted cloud ID is not owned when it collides with an
+   existing local registration.
    `provider-registration-ids` contains only committed registrations visible
    when this setup transaction began, so cleanup cannot remove a provider that
    another concurrent transaction committed later. The caller rolls back this
@@ -2860,26 +2853,21 @@
          :registration-id provider-registration-id}
         (rollback-github-token-provider! client provider-registration-id)))
      provider-registration-ids)
-    [(when (and session-id registration-token)
-       (td/attempt
+    (when (and session-id registration-token)
+      [(td/attempt
         {:operation :teardown :resource :failed-session-setup
          :session-id session-id}
         (session/teardown-local!
-         client session-id nil registration-token)))
-     (when (and session-id registration-token)
+         client session-id nil registration-token))
        (td/attempt
         {:operation :remove :resource :failed-session-setup
          :session-id session-id}
         (session/remove-session!
-         client session-id registration-token)))])))
+         client session-id registration-token))]))))
 
 (defn- preserve-setup-failure!
   [^Throwable failure cleanup-failures]
-  (doseq [cleanup-failure cleanup-failures]
-    (td/cleanup-preserving!
-     failure
-     #(throw cleanup-failure)))
-  failure)
+  (td/attach-cleanup-failures! failure cleanup-failures))
 
 (defn- claim-session-setup!
   [client session-id]
@@ -2965,7 +2953,7 @@
                    (update :session-io dissoc session-id))))))))
 
 (defn- fail-session-setup!
-  [client {:keys [session-id provider-registration-id remote-accepted?
+  [client {:keys [session-id provider-registration-id destroy-runtime?
                   snapshot registration-token setup-token]}
    failure]
   (try
@@ -2975,17 +2963,17 @@
             (cleanup-failed-session-setup!
              client
              session-id
-             {:destroy-runtime? remote-accepted?
+             {:destroy-runtime? destroy-runtime?
               :registration-token registration-token
               :provider-registration-ids
-              (when remote-accepted?
+              (when destroy-runtime?
                 (:committed-github-token-provider-registration-ids snapshot))})
             [(td/attempt
               {:operation :rollback :resource :github-token-provider
                :registration-id provider-registration-id}
               (rollback-github-token-provider!
                client provider-registration-id))
-             (when (and (not remote-accepted?) snapshot)
+             (when (and (not destroy-runtime?) snapshot)
                (td/attempt
                 {:operation :restore :resource :session-registration
                  :session-id session-id}
@@ -3475,19 +3463,16 @@
                            "when :session-fs is enabled in client options.")
                       {:config (redact-secrets config)})))))
 
-(defn- prepare-session-fs-handler
-  "Construct the per-session sessionFs handler. Caller is responsible for
-   sessionFs validation (use `ensure-session-fs-handler-factory!` before
-   calling). Returns nil when sessionFs is disabled on the client."
+(defn- install-session-fs-handler!
+  "Construct and install the per-session sessionFs handler when enabled.
+   Caller must first validate the factory with
+   `ensure-session-fs-handler-factory!`."
   [client session config]
   (when (:session-fs client)
-    (when-let [factory (:create-session-fs-handler config)]
-      (session/adapt-session-fs-handler (factory session)))))
-
-(defn- install-session-fs-handler!
-  [client session-id handler]
-  (when (:session-fs client)
-    (session/set-session-fs-handler! client session-id handler)))
+    (let [factory (:create-session-fs-handler config)
+          handler (session/adapt-session-fs-handler (factory session))]
+      (session/set-session-fs-handler!
+       client (:session-id session) handler))))
 
 (defn- prepare-local-session-setup!
   "Prepare every local session resource before issuing a create/resume RPC.
@@ -3528,8 +3513,7 @@
         (try
           (session/register-transform-callbacks!
            client session-id transform-callbacks)
-          (let [fs-handler (prepare-session-fs-handler client session config)]
-            (install-session-fs-handler! client session-id fs-handler))
+          (install-session-fs-handler! client session config)
           (assoc transaction
                  :params params
                  :session session)
@@ -3537,7 +3521,7 @@
             (throw
              (fail-session-setup!
               client
-              (assoc transaction :remote-accepted? false)
+              (assoc transaction :destroy-runtime? false)
               failure)))))
       (catch Throwable failure
         (release-session-setup! client session-id setup-token)
@@ -3616,7 +3600,7 @@
    failure it synchronously retires a partial registration before returning
    control to the reader, then delivers the error to `result-promise`.
 
-   Note: `prepare-session-fs-handler` invokes a user-supplied
+   Note: `install-session-fs-handler!` invokes a user-supplied
    `:create-session-fs-handler` factory. Document and rely on the
    convention that the factory is a fast, non-blocking constructor —
    if it issues another RPC it will deadlock the reader thread.
@@ -3624,7 +3608,18 @@
    missing factory cannot reach the callback."
   [client config transform-callbacks registration-id assigned-session-id
    setup-context result-promise]
-  (let [deliver-error! #(deliver result-promise %)]
+  (let [deliver-error!
+        (fn [failure]
+          (let [cleanup-failures
+                (td/collect
+                 [(td/attempt
+                   {:operation :rollback :resource :github-token-provider
+                    :registration-id registration-id}
+                   (rollback-github-token-provider!
+                    client registration-id))])]
+            (deliver
+             result-promise
+             (preserve-setup-failure! failure cleanup-failures))))]
     (fn [result]
       (try
         (let [assigned-id (:session-id result)]
@@ -3647,12 +3642,14 @@
                    (ex-info "Cloud session ID is already registered locally"
                             {:type :session-id-collision
                              :session-id assigned-id})))
-                (let [session (pre-register-session client assigned-id config)
+                (let [owned-context (assoc base-context :destroy-runtime? true)
+                      _ (reset! setup-context owned-context)
+                      session (pre-register-session client assigned-id config)
                       registration-token
                       (get-in @(:state client)
                               [:sessions assigned-id :registration-token])
                       transaction
-                      (assoc base-context
+                      (assoc owned-context
                              :registration-token registration-token)]
                   (reset! setup-context transaction)
                   (try
@@ -3660,9 +3657,7 @@
                      client registration-id assigned-id)
                     (session/register-transform-callbacks!
                      client assigned-id transform-callbacks)
-                    (install-session-fs-handler!
-                     client assigned-id
-                     (prepare-session-fs-handler client session config))
+                    (install-session-fs-handler! client session config)
                     (deliver result-promise session)
                     (catch Throwable failure
                       (let [cleanup-failures
@@ -3878,7 +3873,6 @@
              #(merge trace-ctx (build-create-session-params %)))
             assigned-session-id (atom nil)
             setup-context (atom nil)
-            remote-accepted? (atom false)
             session-promise (promise)
             on-inline (make-create-session-inline-callback
                        client config transform-callbacks registration-id
@@ -3886,7 +3880,6 @@
         (try
           (let [result (proto/send-request! connection-io "session.create" params 60000
                                             {:on-response-inline on-inline})
-                _ (reset! remote-accepted? true)
                 registered (deref session-promise 0 :not-delivered)]
             (cond
               (= registered :not-delivered)
@@ -3910,12 +3903,11 @@
             (throw
              (fail-session-setup!
               client
-              (assoc
-               (merge
-                {:session-id @assigned-session-id
-                 :provider-registration-id registration-id}
-                @setup-context)
-               :remote-accepted? @remote-accepted?)
+              (merge
+               {:session-id @assigned-session-id
+                :provider-registration-id registration-id
+                :destroy-runtime? false}
+               @setup-context)
               t)))))
       ;; Standard path: client supplies (or generates) the sessionId up front.
       (let [session-id (or caller-session-id
@@ -3926,10 +3918,10 @@
              #(merge trace-ctx
                      (assoc (build-create-session-params %)
                             :session-id session-id)))
-            remote-accepted? (atom false)]
+            destroy-runtime? (atom false)]
         (try
           (let [result (proto/send-request! connection-io "session.create" params)
-                _ (reset! remote-accepted? true)
+                _ (reset! destroy-runtime? true)
                 returned-id (:session-id result)]
             (when (and (string? returned-id)
                        (not (str/blank? returned-id))
@@ -3947,7 +3939,7 @@
             (throw
              (fail-session-setup!
               client
-              (assoc transaction :remote-accepted? @remote-accepted?)
+              (assoc transaction :destroy-runtime? @destroy-runtime?)
               t))))))))
 
 (defn- resume-session-result*
@@ -3967,11 +3959,11 @@
          client session-id config transform-callbacks
          #(merge trace-ctx
                  (build-resume-session-params session-id %)))
-        remote-accepted? (atom false)]
+        destroy-runtime? (atom false)]
     (try
       (register-mcp-auth-interest! client session-id config)
       (let [result (proto/send-request! connection-io "session.resume" params)
-            _ (reset! remote-accepted? true)]
+            _ (reset! destroy-runtime? true)]
         (session/set-workspace-path! client session-id (:workspace-path result))
         (session/set-capabilities! client session-id (:capabilities result))
         (session/set-open-canvases! client session-id (:open-canvases result))
@@ -3983,7 +3975,7 @@
         (throw
          (fail-session-setup!
           client
-          (assoc transaction :remote-accepted? @remote-accepted?)
+          (assoc transaction :destroy-runtime? @destroy-runtime?)
           t))))))
 
 (defn- resume-session*
@@ -4143,17 +4135,15 @@
              #(merge trace-ctx (build-create-session-params %)))
             assigned-session-id (atom nil)
             setup-context (atom nil)
-            fail-ch (fn [remote-accepted? failure]
+            fail-ch (fn [failure]
                       (fail-session-setup-async
                        client
-                       (assoc
-                        (merge
-                         {:session-id @assigned-session-id
-                          :provider-registration-id registration-id}
-                         @setup-context)
-                        :remote-accepted? remote-accepted?)
+                       (merge
+                        {:session-id @assigned-session-id
+                         :provider-registration-id registration-id
+                         :destroy-runtime? false}
+                        @setup-context)
                        failure))
-            remote-accepted? (atom false)
             session-promise (promise)
             on-inline (make-create-session-inline-callback
                        client config transform-callbacks registration-id
@@ -4166,7 +4156,7 @@
                 (fail-session-setup!
                  client
                  {:provider-registration-id registration-id
-                  :remote-accepted? false}
+                  :destroy-runtime? false}
                  t)))]
         (if (instance? Throwable rpc-ch)
           (delivered-chan rpc-ch)
@@ -4175,29 +4165,28 @@
               (let [response (<! rpc-ch)]
                 (cond
                   (nil? response)
-                  (<! (fail-ch false
-                               (ex-info "Session creation failed: RPC channel closed (cloud)" {})))
+                  (<! (fail-ch
+                       (ex-info "Session creation failed: RPC channel closed (cloud)" {})))
 
                   (:error response)
                   (let [err (:error response)]
                     (log/error "<create-session RPC error: " err)
-                    (<! (fail-ch false
-                                 (ex-info (str "Failed to create session: " (:message err))
-                                          {:error err}))))
+                    (<! (fail-ch
+                         (ex-info (str "Failed to create session: " (:message err))
+                                  {:error err}))))
 
                   :else
                   (do
-                    (reset! remote-accepted? true)
                     (let [registered (deref session-promise 0 :not-delivered)
                           result (:result response)]
                       (cond
                         (= registered :not-delivered)
-                        (<! (fail-ch true
-                                     (ex-info "Internal error: inline-response callback did not run for session.create"
-                                              {:result result})))
+                        (<! (fail-ch
+                             (ex-info "Internal error: inline-response callback did not run for session.create"
+                                      {:result result})))
 
                         (instance? Throwable registered)
-                        (<! (fail-ch true registered))
+                        (<! (fail-ch registered))
 
                         :else
                         (let [session registered
@@ -4210,18 +4199,18 @@
                           (let [reg (<! (<register-mcp-auth-interest!
                                          client session-id config))]
                             (if (instance? Throwable reg)
-                              (<! (fail-ch true reg))
+                              (<! (fail-ch reg))
                               (let [r (<! (<apply-session-options-update!
                                            client session config))]
                                 (if (instance? Throwable r)
-                                  (<! (fail-ch true r))
+                                  (<! (fail-ch r))
                                   (do
                                     (finish-session-setup!
                                      client @setup-context)
                                     (log/info "Session created (async, cloud, server-assigned id): " session-id)
                                     session)))))))))))
               (catch Throwable t
-                (<! (fail-ch @remote-accepted? t)))))))
+                (<! (fail-ch t)))))))
       ;; Standard path: client supplies (or generates) the sessionId up front.
       (let [session-id (or caller-session-id
                            (str (java.util.UUID/randomUUID)))
@@ -4231,12 +4220,12 @@
              #(merge trace-ctx
                      (assoc (build-create-session-params %)
                             :session-id session-id)))
-            fail-ch (fn [remote-accepted? failure]
+            fail-ch (fn [destroy-runtime? failure]
                       (fail-session-setup-async
                        client
-                       (assoc transaction :remote-accepted? remote-accepted?)
+                       (assoc transaction :destroy-runtime? destroy-runtime?)
                        failure))
-            remote-accepted? (atom false)
+            destroy-runtime? (atom false)
             rpc-ch
             (try
               (proto/send-request
@@ -4244,7 +4233,7 @@
               (catch Throwable t
                 (fail-session-setup!
                  client
-                 (assoc transaction :remote-accepted? false)
+                 (assoc transaction :destroy-runtime? false)
                  t)))]
         (if (instance? Throwable rpc-ch)
           (delivered-chan rpc-ch)
@@ -4263,7 +4252,7 @@
                                             {:error err}))))
                     (let [result (:result response)
                           returned-id (:session-id result)]
-                      (reset! remote-accepted? true)
+                      (reset! destroy-runtime? true)
                       (if (and (string? returned-id)
                                (not (str/blank? returned-id))
                                (not= returned-id session-id))
@@ -4291,7 +4280,7 @@
                                     (log/info "Session created (async): " session-id)
                                     session)))))))))))
               (catch Throwable t
-                (<! (fail-ch @remote-accepted? t))))))))))
+                (<! (fail-ch @destroy-runtime? t))))))))))
 
 (defn <resume-session
   "Async version of resume-session. Returns a channel that delivers a CopilotSession.
@@ -4338,11 +4327,11 @@
          client session-id config transform-callbacks
          #(merge trace-ctx
                  (build-resume-session-params session-id %)))
-        remote-accepted? (atom false)
-        fail-ch (fn [remote-accepted? failure]
+        destroy-runtime? (atom false)
+        fail-ch (fn [destroy-runtime? failure]
                   (fail-session-setup-async
                    client
-                   (assoc transaction :remote-accepted? remote-accepted?)
+                   (assoc transaction :destroy-runtime? destroy-runtime?)
                    failure))]
     (go
       (try
@@ -4369,7 +4358,7 @@
                          (ex-info (str "Failed to resume session: " (:message err))
                                   {:error err :session-id session-id}))))
                   (let [result (:result response)]
-                    (reset! remote-accepted? true)
+                    (reset! destroy-runtime? true)
                     (session/set-workspace-path! client session-id (:workspace-path result))
                     (session/set-capabilities! client session-id (:capabilities result))
                     (session/set-open-canvases! client session-id (:open-canvases result))
@@ -4381,7 +4370,7 @@
                           (finish-session-setup! client transaction)
                           session)))))))))
         (catch Throwable t
-          (<! (fail-ch @remote-accepted? t)))))))
+          (<! (fail-ch @destroy-runtime? t)))))))
 
 (defn- project-granted-environment-variables
   [requested-names grants]
@@ -4545,8 +4534,19 @@
     (when-not (:success result)
       (throw (ex-info (str "Failed to delete session: " (:error result))
                       {:session-id session-id :error (:error result)})))
-    (session/teardown-local! client session-id)
-    (session/remove-session! client session-id)
+    (let [cleanup-failures
+          (td/collect
+           [(td/attempt
+             {:operation :teardown :resource :deleted-session
+              :session-id session-id}
+             (session/teardown-local! client session-id))
+            (td/attempt
+             {:operation :remove :resource :deleted-session
+              :session-id session-id}
+             (session/remove-session! client session-id))])]
+      (when-let [primary (first cleanup-failures)]
+        (td/attach-cleanup-failures! primary (rest cleanup-failures))
+        (throw primary)))
     nil))
 
 (defn get-last-session-id

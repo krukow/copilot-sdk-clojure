@@ -1047,11 +1047,13 @@
 
 (defn- github-token-provider-result-kind?
   [result]
-  (#{:token :cancelled} (:kind result)))
+  (and (map? result)
+       (contains? #{:token :cancelled} (:kind result))))
 
 (defn- github-token-provider-result-keys?
   [result]
-  (every? #(or (keyword? %) (string? %)) (keys result)))
+  (and (map? result)
+       (every? #(or (keyword? %) (string? %)) (keys result))))
 
 (defn- wire-json-member-name
   [key]
@@ -1064,9 +1066,11 @@
   [value]
   (cond
     (map? value)
-    (let [member-names (map wire-json-member-name (keys value))]
-      (and (= (count member-names) (count (set member-names)))
-           (every? github-token-provider-result-collision-free? (vals value))))
+    (and
+     (every? #(or (keyword? %) (string? %)) (keys value))
+     (let [member-names (map wire-json-member-name (keys value))]
+       (= (count member-names) (count (set member-names))))
+     (every? github-token-provider-result-collision-free? (vals value)))
 
     (coll? value)
     (every? github-token-provider-result-collision-free? value)
@@ -1076,34 +1080,48 @@
 
 (defn- github-token-provider-result-field-values?
   [result]
-  (every? github-token-provider-field-value?
-          (vals (dissoc result :kind))))
+  (and (map? result)
+       (every? github-token-provider-field-value?
+               (vals (dissoc result :kind)))))
 
 (defn- github-token-provider-result-access-token?
   [result]
-  (or (= :cancelled (:kind result))
-      (s/valid? ::non-blank-string (:access-token result))))
+  (and (map? result)
+       (if (= :token (:kind result))
+         (s/valid? ::non-blank-string (:access-token result))
+         (or (not (contains? result :access-token))
+             (s/valid? ::non-blank-string (:access-token result))))))
 
 (defn- github-token-provider-result-expires-in-integer?
   [result]
-  (or (= :cancelled (:kind result))
-      (integer? (:expires-in result))))
+  (and (map? result)
+       (if (= :token (:kind result))
+         (integer? (:expires-in result))
+         (or (not (contains? result :expires-in))
+             (integer? (:expires-in result))))))
 
 (defn- github-token-provider-result-expires-in-minimum?
   [result]
-  (or (= :cancelled (:kind result))
-      (> (:expires-in result) 3600)))
+  (and (map? result)
+       (let [expires-in (:expires-in result)]
+         (if (and (= :cancelled (:kind result))
+                  (not (contains? result :expires-in)))
+           true
+           (and (integer? expires-in)
+                (> expires-in 3600))))))
 
 (defn- github-token-provider-result-token-type?
   [result]
-  (let [token-type-entry
-        (some (fn [[key value]]
-                (when (= "tokenType" (wire-json-member-name key))
-                  [key value]))
-              result)]
-    (or (= :cancelled (:kind result))
-        (nil? token-type-entry)
-        (s/valid? ::non-blank-string (second token-type-entry)))))
+  (and
+   (map? result)
+   (let [token-type-entry
+         (some (fn [[key value]]
+                 (when (and (or (keyword? key) (string? key))
+                            (= "tokenType" (wire-json-member-name key)))
+                   [key value]))
+               result)]
+     (or (nil? token-type-entry)
+         (s/valid? ::non-blank-string (second token-type-entry))))))
 
 (def ^:private github-token-provider-result-constraints
   [[:result-must-be-map
@@ -1810,30 +1828,24 @@
 ;; upstream schema 1.0.83-1: `autoTier` echoes the auto-routing preference
 ;; active at session start/resume. The coercion layer converts the wire enum
 ;; string to the same idiomatic keyword domain used by ::capi options.
-(s/def ::session-auto-tier ::auto-tier)
 (s/def ::session.start-data
   ;; Note: ::version is intentionally omitted from this hand-written spec.
   ;; The upstream schema types it as `number` while the global `::version`
   ;; spec (used by ::model-info) is `string?`. The generated wire spec
   ;; (github.copilot-sdk.generated.event-specs/session.start-data) is the
   ;; canonical contract for this field.
-  (s/and
-   (s/keys :req-un [::session-id]
-           :opt-un [::producer ::copilot-version ::start-time ::selected-model
-                    ::reasoning-effort ::already-in-use? ::remote-steerable? ::host-type ::head-commit ::base-commit
-                    ::detached-from-spawning-parent-session-id])
-   #(or (not (contains? % :auto-tier))
-        (s/valid? ::session-auto-tier (:auto-tier %)))))
+  (s/keys :req-un [::session-id]
+          :opt-un [::producer ::copilot-version ::start-time ::selected-model
+                   ::reasoning-effort ::already-in-use? ::remote-steerable? ::host-type ::head-commit ::base-commit
+                   ::detached-from-spawning-parent-session-id ::auto-tier]))
 
 (s/def ::event-count nat-int?)
 (s/def ::events-file-size-bytes nat-int?)
 (s/def ::session.resume-data
-  (s/and
-   (s/keys :req-un [::event-count]
-           :opt-un [::selected-model ::reasoning-effort ::already-in-use? ::remote-steerable?
-                    ::host-type ::head-commit ::base-commit ::events-file-size-bytes])
-   #(or (not (contains? % :auto-tier))
-        (s/valid? ::session-auto-tier (:auto-tier %)))))
+  (s/keys :req-un [::event-count]
+          :opt-un [::selected-model ::reasoning-effort ::already-in-use? ::remote-steerable?
+                   ::host-type ::head-commit ::base-commit ::events-file-size-bytes
+                   ::auto-tier]))
 
 (s/def ::status-code integer?)
 (s/def ::provider-call-id string?)
@@ -2229,13 +2241,11 @@
 (s/def ::hook-invocation-id string?)
 (s/def ::hook-type string?)
 (s/def ::hook-end-error
-  (closed-keys
-   (s/and
-    map?
-    #(string? (:message %))
-    #(or (not (contains? % :stack)) (string? (:stack %)))
-    #(or (not (contains? % :source)) (string? (:source %))))
-   #{:message :stack :source}))
+  (s/and
+   map?
+   #(string? (:message %))
+   #(or (not (contains? % :stack)) (string? (:stack %)))
+   #(or (not (contains? % :source)) (string? (:source %)))))
 (s/def ::hook.start-data
   (s/and
    (s/keys :req-un [::hook-invocation-id ::hook-type]

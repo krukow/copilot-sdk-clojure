@@ -333,38 +333,46 @@
         deadline-nanos
         (when timeout-ms
           (+ (monotonic-nanos) (* timeout-ms 1000000)))
-        deadline-ch (when timeout-ms (async/timeout timeout-ms))
         done? (atom false)]
     (letfn [(finish! []
               (when (compare-and-set! done? false true)
-                (disconnect-owned-session! sess)))
-            (event-seq [events-ch remaining]
-              (lazy-seq
-               (when (pos? remaining)
-                 (let [[event port]
-                       (if deadline-ch
-                         (async/alts!! [deadline-ch events-ch] :priority true)
-                         [(async/<!! events-ch) events-ch])]
-                   (cond
-                     (identical? port deadline-ch)
-                     (let [failure (query-timeout-failure timeout-ms)]
-                       (teardown/cleanup-preserving! failure finish!)
-                       (throw failure))
-
-                     (nil? event)
-                     (do (finish!) nil)
-
-                     (session/terminal-event? event)
-                     (do (finish!) (cons event nil))
-
-                     :else
-                     (cons event (event-seq events-ch (dec remaining))))))))]
+                (disconnect-owned-session! sess)))]
       (try
         (let [events-ch (copilot/subscribe-events sess)]
           (send-query! sess prompt deadline-nanos timeout-ms)
-          (let [events (event-seq events-ch max-events)]
-            (when (zero? max-events) (finish!))
-            [events finish!]))
+          (let [deadline-ch
+                (when deadline-nanos
+                  (async/timeout
+                   (remaining-timeout-ms deadline-nanos timeout-ms)))]
+            (letfn [(event-seq [remaining]
+                      (lazy-seq
+                       (when (pos? remaining)
+                         (let [[event port]
+                               (if deadline-ch
+                                 (async/alts!!
+                                  [deadline-ch events-ch]
+                                  :priority true)
+                                 [(async/<!! events-ch) events-ch])]
+                           (cond
+                             (identical? port deadline-ch)
+                             (let [failure
+                                   (query-timeout-failure timeout-ms)]
+                               (teardown/cleanup-preserving!
+                                failure finish!)
+                               (throw failure))
+
+                             (nil? event)
+                             (do (finish!) nil)
+
+                             (session/terminal-event? event)
+                             (do (finish!) (cons event nil))
+
+                             :else
+                             (cons event (event-seq
+                                          (dec remaining))))))))]
+              (let [events (event-seq max-events)]
+                (when (zero? max-events) (finish!))
+                [events finish!]))))
         (catch Throwable t
           (teardown/cleanup-preserving! t finish!)
           (throw t))))))
@@ -407,9 +415,8 @@
         query-args (rest bindings)
         finish-sym (gensym "finish!")]
     `(let [[~events-sym ~finish-sym] (#'query-seq-source ~@query-args)]
-       (teardown/call-with-cleanup
-        (fn [] ~@body)
-        ~finish-sym))))
+       (teardown/with-cleanup ~finish-sym
+         ~@body))))
 
 (defn query-seq!
   "Execute a query and return a bounded lazy sequence of events.
@@ -481,10 +488,10 @@
 
    Returns a channel that yields event maps. The channel closes when the
    session ordinarily becomes idle or errors. If disconnecting the hidden
-   session then fails, the channel yields a tagged `:copilot/session.error`
-   map after the terminal event and closes. The original failure is available
-   at `[:data :cause]`. An idle event whose wire `:mode` is the string
-   `\"autopilot\"` is emitted without closing the channel. Consumer
+   session fails after a terminal event or source closure, the channel yields
+   a tagged `:copilot/session.error` map and closes. The original failure is
+   available at `[:data :cause]`. An idle event whose wire `:mode` is the
+   string `\"autopilot\"` is emitted without closing the channel. Consumer
    cancellation still releases the hidden session locally; a runtime cleanup
    failure is logged because the output channel is already closed.
 

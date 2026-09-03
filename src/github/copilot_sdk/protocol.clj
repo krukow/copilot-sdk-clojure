@@ -464,68 +464,63 @@
    source-defined / opaque fields verbatim onto the converted shape so
    kebab-casing doesn't mangle user-supplied keys. Applies the per-event-type
    rules used by `normalize-incoming` for live notifications, so live and
-   historical events share the same shape."
+    historical events share the same shape."
   [raw-event converted-event]
-  (case (:type raw-event)
-    "external_tool.requested"
-    (cond-> converted-event
-      (and (map? (:data raw-event))
-           (contains? (:data raw-event) :arguments))
-      (assoc-in [:data :arguments] (get-in raw-event [:data :arguments])))
+  (let [raw-data (when (map? (:data raw-event))
+                   (:data raw-event))]
+    (case (:type raw-event)
+      "external_tool.requested"
+      (cond-> converted-event
+        (contains? raw-data :arguments)
+        (assoc-in [:data :arguments] (:arguments raw-data)))
 
-    "session.custom_notification"
-    (cond-> converted-event
-      (and (map? (:data raw-event))
-           (contains? (:data raw-event) :subject))
-      (assoc-in [:data :subject] (get-in raw-event [:data :subject]))
-      (and (map? (:data raw-event))
-           (contains? (:data raw-event) :payload))
-      (assoc-in [:data :payload] (get-in raw-event [:data :payload])))
+      "session.custom_notification"
+      (cond-> converted-event
+        (contains? raw-data :subject)
+        (assoc-in [:data :subject] (:subject raw-data))
+        (contains? raw-data :payload)
+        (assoc-in [:data :payload] (:payload raw-data)))
 
-    "assistant.message"
-    (cond-> converted-event
-      (and (map? (:data raw-event))
-           (contains? (:data raw-event) :reasoningBlocks))
-      (assoc-in [:data :reasoning-blocks]
-                (get-in raw-event [:data :reasoningBlocks])))
+      "assistant.message"
+      (cond-> converted-event
+        (contains? raw-data :reasoningBlocks)
+        (assoc-in [:data :reasoning-blocks]
+                  (:reasoningBlocks raw-data)))
 
-    ;; Upstream schema 1.0.52-4 (SEP-1865): MCP App invoked a tool on an MCP
-    ;; server. Both the supplied `:arguments` map and the returned `:result`
-    ;; (standard MCP CallToolResult) are source-defined opaque payloads —
-    ;; preserve their raw keys so consumers can forward them verbatim.
-    "mcp_app.tool_call_complete"
-    (cond-> converted-event
-      (and (map? (:data raw-event))
-           (contains? (:data raw-event) :arguments))
-      (assoc-in [:data :arguments] (get-in raw-event [:data :arguments]))
-      (and (map? (:data raw-event))
-           (contains? (:data raw-event) :result))
-      (assoc-in [:data :result] (get-in raw-event [:data :result])))
+       ;; Upstream schema 1.0.52-4 (SEP-1865): MCP App invoked a tool on an MCP
+       ;; server. Both the supplied `:arguments` map and the returned `:result`
+       ;; (standard MCP CallToolResult) are source-defined opaque payloads —
+       ;; preserve their raw keys so consumers can forward them verbatim.
+      "mcp_app.tool_call_complete"
+      (cond-> converted-event
+        (contains? raw-data :arguments)
+        (assoc-in [:data :arguments] (:arguments raw-data))
+        (contains? raw-data :result)
+        (assoc-in [:data :result] (:result raw-data)))
 
-    ;; Upstream schema 1.0.57: `extension_context` attachments carry an opaque
-    ;; caller-supplied `:payload`. These appear on `user.message` attachments
-    ;; (reachable via `session.getMessages`) and on the ephemeral
-    ;; `session.extensions.attachments_pushed` event. Restore each payload so
-    ;; its source-defined keys aren't kebab-cased.
-    ("user.message" "session.extensions.attachments_pushed")
-    (cond-> converted-event
-      (seq (get-in raw-event [:data :attachments]))
-      (assoc-in [:data :attachments]
-                (restore-extension-context-payloads
-                 (get-in raw-event [:data :attachments])
-                 (get-in converted-event [:data :attachments]))))
+       ;; Upstream schema 1.0.57: `extension_context` attachments carry an opaque
+       ;; caller-supplied `:payload`. These appear on `user.message` attachments
+       ;; (reachable via `session.getMessages`) and on the ephemeral
+       ;; `session.extensions.attachments_pushed` event. Restore each payload so
+       ;; its source-defined keys aren't kebab-cased.
+      ("user.message" "session.extensions.attachments_pushed")
+      (cond-> converted-event
+        (seq (:attachments raw-data))
+        (assoc-in [:data :attachments]
+                  (restore-extension-context-payloads
+                   (:attachments raw-data)
+                   (get-in converted-event [:data :attachments]))))
 
-    ;; Upstream PR #1604 (schema 1.0.58+): `session.canvas.opened` carries an
-    ;; opaque caller-supplied `:input` map (`{ [k: string]: unknown }`).
-    ;; Preserve raw keys so consumers can forward them verbatim — same
-    ;; convention used for `external_tool.requested` `:arguments` etc.
-    "session.canvas.opened"
-    (cond-> converted-event
-      (and (map? (:data raw-event))
-           (contains? (:data raw-event) :input))
-      (assoc-in [:data :input] (get-in raw-event [:data :input])))
+       ;; Upstream PR #1604 (schema 1.0.58+): `session.canvas.opened` carries an
+       ;; opaque caller-supplied `:input` map (`{ [k: string]: unknown }`).
+       ;; Preserve raw keys so consumers can forward them verbatim — same
+       ;; convention used for `external_tool.requested` `:arguments` etc.
+      "session.canvas.opened"
+      (cond-> converted-event
+        (contains? raw-data :input)
+        (assoc-in [:data :input] (:input raw-data)))
 
-    converted-event))
+      converted-event)))
 
 (defn- normalize-incoming
   "Convert wire-format keys to Clojure keys, preserving opaque user data.

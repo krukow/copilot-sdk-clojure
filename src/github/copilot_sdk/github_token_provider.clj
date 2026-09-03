@@ -28,6 +28,16 @@
    :generation 0
    :saturation-count 0})
 
+(defn invocation
+  "Create one immutable provider invocation identity and its mutable
+   cancellation handles."
+  [attributes]
+  (merge attributes
+         {:cancel-chan (async/chan)
+          :cancelled? (atom false)
+          :task (atom nil)
+          :executor (atom nil)}))
+
 (defn registration-path
   [registration-id]
   (conj registrations-path registration-id))
@@ -87,16 +97,37 @@
       (assoc-in registrations-path {})
       (assoc-in invocations-path {})))
 
+(defn cancel-invocation!
+  "Cancel one invocation and reclaim its executor queue slot when it has not
+   started running."
+  [{:keys [cancel-chan cancelled? task executor] :as invocation}]
+  (reset! cancelled? true)
+  (async/close! cancel-chan)
+  (when-let [^java.util.concurrent.Future future @task]
+    (.cancel future true)
+    (when-let [^java.util.concurrent.ThreadPoolExecutor owner @executor]
+      (.remove owner ^Runnable future)))
+  invocation)
+
+(defn attach-task!
+  "Attach a submitted task to its invocation, closing the cancellation race
+   between registration and executor submission."
+  [invocation executor future]
+  (reset! (:executor invocation) executor)
+  (reset! (:task invocation) future)
+  (when @(:cancelled? invocation)
+    (cancel-invocation! invocation))
+  invocation)
+
 (defn close-removed-invocations!
-  "Cancel invocations removed by one atomic client-state transition."
+  "Cancel invocations removed or identity-replaced by one atomic client-state
+   transition. Invocation entries are immutable identities; mutable task and
+   cancellation handles live in the atoms created by `invocation`."
   [old-state new-state]
-  (doseq [[invocation-id {:keys [cancel-chan cancelled? task] :as invocation}]
+  (doseq [[invocation-id invocation]
           (get-in old-state invocations-path)
           :when (not (identical?
                       invocation
                       (get-in new-state
                               (conj invocations-path invocation-id))))]
-    (reset! cancelled? true)
-    (async/close! cancel-chan)
-    (when-let [^java.util.concurrent.Future future @task]
-      (.cancel future true))))
+    (cancel-invocation! invocation)))

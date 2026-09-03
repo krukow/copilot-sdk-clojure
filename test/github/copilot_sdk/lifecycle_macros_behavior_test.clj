@@ -1,6 +1,75 @@
 (ns github.copilot-sdk.lifecycle-macros-behavior-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [github.copilot-sdk :as sdk]))
+  (:require [clojure.core.async :as async]
+            [clojure.test :refer [deftest is testing]]
+            [github.copilot-sdk :as sdk]
+            [github.copilot-sdk.helpers :as helpers]))
+
+(defn- with-client-in-go
+  [value-ch]
+  (async/go
+    (sdk/with-client [client]
+      [client (async/<! value-ch)])))
+
+(defn- with-session-in-go
+  [value-ch]
+  (async/go
+    (sdk/with-session [session ::client {}]
+      [session (async/<! value-ch)])))
+
+(defn- with-client-session-in-go
+  [value-ch]
+  (async/go
+    (sdk/with-client-session [session {}]
+      [session (async/<! value-ch)])))
+
+(defn- with-query-seq-in-go
+  [value-ch]
+  (async/go
+    (helpers/with-query-seq [events "prompt"]
+      [(vec events) (async/<! value-ch)])))
+
+(deftest lifecycle-macros-keep-parking-forms-in-go-context
+  (let [calls (atom [])]
+    (with-redefs-fn
+      {#'sdk/client (fn [& _] ::client)
+       #'sdk/start! (fn [client] (swap! calls conj [:start client]))
+       #'sdk/stop! (fn [client] (swap! calls conj [:stop client]))
+       #'sdk/create-session (fn [client opts]
+                              (swap! calls conj [:create client opts])
+                              ::session)
+       #'sdk/disconnect! (fn [session]
+                           (swap! calls conj [:disconnect session]))}
+      (fn []
+        (is (= [::client ::value]
+               (async/<!! (with-client-in-go (async/to-chan! [::value])))))
+        (is (= [::session ::value]
+               (async/<!! (with-session-in-go (async/to-chan! [::value])))))
+        (is (= [::session ::value]
+               (async/<!! (with-client-session-in-go
+                            (async/to-chan! [::value])))))))
+    (is (= [[:start ::client]
+            [:stop ::client]
+            [:create ::client {}]
+            [:disconnect ::session]
+            [:start ::client]
+            [:create ::client {}]
+            [:disconnect ::session]
+            [:stop ::client]]
+           @calls))))
+
+(deftest with-query-seq-keeps-parking-forms-in-go-context
+  (let [cleaned? (promise)]
+    (with-redefs-fn
+      {(requiring-resolve
+        'github.copilot-sdk.helpers/query-seq-source)
+       (fn [& _]
+         [[::event] #(deliver cleaned? true)])}
+      (fn []
+        (is (= [[::event] ::value]
+               (async/<!!
+                (with-query-seq-in-go
+                  (async/to-chan! [::value])))))))
+    (is (true? (deref cleaned? 500 false)))))
 
 (deftest with-client-and-with-session-own-resources-in-order
   (let [calls (atom [])]

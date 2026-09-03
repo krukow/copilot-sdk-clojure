@@ -8,7 +8,7 @@
             [github.copilot-sdk.specs :as specs]
             [clojure.spec.alpha :as s])
   (:import [java.io ByteArrayInputStream ByteArrayOutputStream InputStream
-            SequenceInputStream]))
+            PipedInputStream PipedOutputStream SequenceInputStream]))
 
 (defn- fake-process
   [alive exit-code]
@@ -95,6 +95,23 @@
         (.close stdout)
         (is (true? (deref closed 500 false)))
         (is (true? (deref finished 500 false)))))))
+
+(deftest wait-for-port-recognizes-a-live-flushed-announcement-without-newline
+  (let [stdout (PipedInputStream.)
+        writer (PipedOutputStream. stdout)
+        process (fake-process (atom true) 0)
+        managed-process (proc/map->ManagedProcess
+                         {:process process
+                          :stdout stdout})
+        outcome (future (proc/wait-for-port managed-process 1000))]
+    (try
+      (.write writer (.getBytes "CLI server listening on port 63234" "UTF-8"))
+      (.flush writer)
+      (is (= 63234 (deref outcome 500 ::timeout)))
+      (finally
+        (.close writer)
+        (.close stdout)
+        (future-cancel outcome)))))
 
 (deftest wait-for-port-reports-stdout-eof
   (let [process (fake-process (atom true) 0)
@@ -220,7 +237,10 @@
     (is (true? (deref finished 500 false)))))
 
 (deftest spawned-process-exit-is-observable-by-multiple-consumers
-  (let [managed-process (proc/spawn-cli {:cli-path "/usr/bin/true"})
+  (let [java-command
+        (.orElse (.command (.info (java.lang.ProcessHandle/current))) "java")
+        managed-process (proc/spawn-cli {:cli-path java-command
+                                         :cli-args ["-version"]})
         first-result (future (async/<!! (:exit-chan managed-process)))
         second-result (future (async/<!! (:exit-chan managed-process)))]
     (is (= {:exit-code 0} (deref first-result 1000 ::timeout)))

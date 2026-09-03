@@ -5,7 +5,7 @@
             [github.copilot-sdk.logging :as log]
             [github.copilot-sdk.teardown :as td])
   (:import [java.lang ProcessBuilder ProcessBuilder$Redirect]
-           [java.io BufferedReader File InputStreamReader]
+           [java.io File InputStreamReader]
            [java.net Socket]
            [java.util.concurrent CountDownLatch LinkedBlockingQueue TimeUnit]))
 
@@ -320,7 +320,8 @@
                 (:completed? outcome)))))))))
 
 (defn- stop-port-reader!
-  [stdout ^CountDownLatch reader-done]
+  [stdout ^Thread reader-thread ^CountDownLatch reader-done]
+  (.interrupt reader-thread)
   (let [close-failure
         (td/attempt {:operation :close :resource :stdout}
                     (.close stdout))
@@ -334,10 +335,10 @@
     (td/collect [close-failure wait-failure])))
 
 (defn- stop-port-reader-and-throw!
-  [failure stdout reader-done]
+  [failure stdout reader-thread reader-done]
   (td/attach-cleanup-failures!
    failure
-   (stop-port-reader! stdout reader-done))
+   (stop-port-reader! stdout reader-thread reader-done))
   (throw failure))
 
 (defn wait-for-port
@@ -349,6 +350,7 @@
   (let [stdout (:stdout mp)
         results (LinkedBlockingQueue. 1)
         reader-done (CountDownLatch. 1)
+        announced? (volatile! false)
         deadline (+ (System/nanoTime) (* timeout-ms 1000000))
         read-result!
         (fn [result]
@@ -356,29 +358,52 @@
             port
             (throw (or (:error result)
                        (ex-info "CLI process exited before announcing port"
-                                {})))))]
-    (async/thread
-      (try
-        (with-open [reader (BufferedReader.
-                            (InputStreamReader. stdout "UTF-8"))]
-          (loop [announced? false]
-            (if-let [line (.readLine reader)]
-              (let [matcher (when-not announced?
-                              (re-find #"listening on port (\d+)"
-                                       (str/lower-case line)))]
-                (when matcher
-                  (.offer results {:port (parse-long (second matcher))}))
-                (recur (or announced? (some? matcher))))
-              (when-not announced?
-                (.offer results
-                        {:error
-                         (ex-info
-                          "CLI stdout closed before announcing port"
-                          {})})))))
-        (catch Exception error
-          (.offer results {:error error}))
-        (finally
-          (.countDown reader-done))))
+                                {})))))
+        reader-thread
+        (Thread.
+         ^Runnable
+         (reify Runnable
+           (run [_]
+             (try
+               (with-open [reader (InputStreamReader. stdout "UTF-8")]
+                 (let [buffer (char-array 1024)]
+                   (loop [tail ""]
+                     (let [read-count
+                           (.read reader buffer 0 (alength buffer))]
+                       (if (neg? read-count)
+                         (when-not @announced?
+                           (.offer
+                            results
+                            {:error
+                             (ex-info
+                              "CLI stdout closed before announcing port"
+                              {})}))
+                         (let [text
+                               (str tail
+                                    (String. buffer 0 read-count))
+                               matcher
+                               (when-not @announced?
+                                 (re-find
+                                  #"listening on port (\d+)"
+                                  (str/lower-case text)))]
+                           (when matcher
+                             (vreset! announced? true)
+                             (.offer
+                              results
+                              {:port (parse-long (second matcher))}))
+                           (recur
+                            (if @announced?
+                              ""
+                              (subs text
+                                    (max 0 (- (count text) 64)))))))))))
+               (catch Exception error
+                 (when-not @announced?
+                   (.offer results {:error error})))
+               (finally
+                 (.countDown reader-done)))))
+         "copilot-port-reader")]
+    (.setDaemon reader-thread true)
+    (.start reader-thread)
     (try
       (loop []
         (if-let [result (.poll results)]
@@ -398,9 +423,11 @@
                   (recur)))))))
       (catch InterruptedException failure
         (.interrupt (Thread/currentThread))
-        (stop-port-reader-and-throw! failure stdout reader-done))
+        (stop-port-reader-and-throw!
+         failure stdout reader-thread reader-done))
       (catch Throwable failure
-        (stop-port-reader-and-throw! failure stdout reader-done)))))
+        (stop-port-reader-and-throw!
+         failure stdout reader-thread reader-done)))))
 
 (defn connect-tcp
   "Connect to a TCP server. Returns a socket."

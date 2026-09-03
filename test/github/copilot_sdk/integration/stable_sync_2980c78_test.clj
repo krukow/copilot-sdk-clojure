@@ -114,8 +114,7 @@
    {:experimental #{"fusion"}}})
 
 (def ^:private allowed-classifications
-  #{:experimental :generated-only :internal :language-specific :mixed
-    :stable-public :test-harness})
+  #{:experimental :generated-only :internal :language-specific :stable-public})
 
 (def ^:private upstream-validation-enabled?
   (= "true" (System/getenv "COPILOT_UPSTREAM_VALIDATION")))
@@ -446,6 +445,27 @@
   (let [symbols (mapcat identity (vals classification))]
     (- (count symbols) (count (set symbols)))))
 
+(defn- complete-classification?
+  [classification symbols]
+  (and (map? classification)
+       (seq classification)
+       (every? allowed-classifications (keys classification))
+       (every? set? (vals classification))
+       (zero? (classification-duplicate-count classification))
+       (= symbols (classified-symbols classification))))
+
+(defn- resolve-classification-policy
+  [{:keys [default overrides]} symbols]
+  (when (and (contains? allowed-classifications default)
+             (map? overrides)
+             (every? allowed-classifications (keys overrides))
+             (not (contains? overrides default))
+             (every? set? (vals overrides))
+             (zero? (classification-duplicate-count overrides)))
+    (assoc overrides
+           default
+           (set/difference symbols (classified-symbols overrides)))))
+
 (defn- added-class-method-symbols
   [upstream base target path]
   (set/difference
@@ -611,7 +631,7 @@
     (is (some? report) "The 2980c78 parity oracle must be committed")
     (when report
       (let [{:keys [public-surface-audit stable-deltas intentional-exclusions
-                    source-evidence]} report
+                    source-evidence decision-authorities]} report
             actual-stable-delta-ids (set (map :id stable-deltas))
             inventory (:symbol-inventory report)]
         (note-upstream-validation-status! "stable-public-surface-and-evidence-are-complete")
@@ -638,6 +658,9 @@
                     stable-deltas))
         (is (every? #(and (contains? allowed-classifications (:classification %))
                           (not= :stable-public (:classification %))
+                          (= :exclude (:decision %))
+                          (= :approved (:status %))
+                          (contains? decision-authorities (:authority %))
                           (seq (:evidence %))
                           (string? (:reason %))
                           (not (str/blank? (:reason %))))
@@ -763,10 +786,44 @@
     (is (some? report) "The 2980c78 parity oracle must be committed")
     (when report
       (note-upstream-validation-status! "exact-target-public-surface-is-certified")
+      (let [{:keys [package-root extension]}
+            (:target-public-surface report)]
+        (doseq [[surface-name {:keys [symbol-count classification-policy
+                                      classification-counts]}]
+                [[:package-root package-root] [:extension extension]]]
+          (let [{:keys [default overrides stable-overrides]}
+                classification-policy
+                override-symbol-count (count (classified-symbols overrides))]
+            (testing (str (name surface-name)
+                          " has a complete committed classification policy")
+              (is (contains? allowed-classifications default))
+              (is (every? allowed-classifications (keys overrides)))
+              (is (not (contains? overrides default)))
+              (is (zero? (classification-duplicate-count overrides)))
+              (is (= override-symbol-count
+                     (reduce + (map count (vals overrides)))))
+              (is (= symbol-count
+                     (+ override-symbol-count
+                        (get classification-counts default))))
+              (doseq [[classification symbols] overrides]
+                (is (= (count symbols)
+                       (get classification-counts classification))))
+              (is (every? #(and (string? (:source %))
+                                (not (str/blank? (:source %)))
+                                (string? (:reason %))
+                                (not (str/blank? (:reason %))))
+                          (vals stable-overrides))))))
+        (is (some-> package-root :provenance :baseline :resource io/resource)
+            "The package-root inventory must link to its prior exact-pin oracle"))
       (when-let [upstream-repo @upstream-repo]
         (let [target-commit (get-in report [:upstream :target-commit])
               {:keys [package-root extension classes]}
               (:target-public-surface report)
+              baseline-report
+              (-> (get-in package-root [:provenance :baseline :resource])
+                  io/resource
+                  slurp
+                  edn/read-string)
               read-source
               (fn [path]
                 (git-output upstream-repo "show"
@@ -789,8 +846,22 @@
               (apply set/union explicit-package-symbols
                      star-export-symbols)
               extension-symbols
-              (exported-symbols (read-source (:path extension)))]
+              (exported-symbols (read-source (:path extension)))
+              package-classifications
+              (resolve-classification-policy
+               (:classification-policy package-root)
+               package-symbols)
+              extension-classifications
+              (resolve-classification-policy
+               (:classification-policy extension)
+               extension-symbols)]
           (testing "package root resolves every star-exported declaration"
+            (is (= (get-in report [:upstream :base-commit])
+                   (get-in package-root [:provenance :baseline :target-commit])
+                   (get-in baseline-report [:upstream :target-commit])))
+            (is (= (get-in package-root [:provenance :baseline :node-tree])
+                   (get-in baseline-report
+                           [:public-surface-audit :target-node-tree])))
             (is (= (set (map :module star-exports))
                    (star-export-modules package-source)))
             (is (= (:explicit-symbol-count package-root)
@@ -800,13 +871,40 @@
             (is (= (:symbol-count package-root)
                    (count package-symbols)))
             (is (= (:symbols-sha256 package-root)
-                   (sha256-lines (sort package-symbols)))))
+                   (sha256-lines (sort package-symbols))))
+            (is (complete-classification?
+                 package-classifications
+                 package-symbols))
+            (is (= (:classification-counts package-root)
+                   (update-vals package-classifications count)))
+            (is (every?
+                 #(contains? (:stable-public package-classifications) %)
+                 (keys (get-in package-root
+                               [:classification-policy :stable-overrides])))))
           (testing "extension module exports remain exact"
-            (is (= (:symbols extension) extension-symbols))
+            (is (complete-classification?
+                 extension-classifications
+                 extension-symbols))
             (is (= (:symbol-count extension)
                    (count extension-symbols)))
             (is (= (:symbols-sha256 extension)
-                   (sha256-lines (sort extension-symbols)))))
+                   (sha256-lines (sort extension-symbols))))
+            (is (= (:classification-counts extension)
+                   (update-vals extension-classifications count))))
+          (let [classifications-by-path
+                {"nodejs/src/index.ts" package-classifications
+                 "nodejs/src/generated/session-events.ts" package-classifications
+                 "nodejs/src/extension.ts" extension-classifications}]
+            (doseq [[path inventory-classifications]
+                    (get-in report [:symbol-inventory :exported-symbols])
+                    :when (contains? classifications-by-path path)
+                    [classification symbols] inventory-classifications
+                    symbol symbols]
+              (is (contains? (get-in classifications-by-path
+                                     [path classification])
+                             symbol)
+                  (str path " delta classification for " symbol
+                       " must match the exact target surface"))))
           (doseq [[surface {:keys [path class-name methods properties
                                    method-count methods-sha256]}]
                   classes
@@ -993,7 +1091,8 @@
       (is (s/valid? ::specs/hook.end-data
                     (assoc base :error {:message "boom"
                                         :source "plugin"
-                                        :stack "trace"})))
+                                        :stack "trace"
+                                        :future-field true})))
       (doseq [output [nil "text" 42 true [1 nil] {:nested ["value"]}]]
         (is (s/valid? ::specs/hook.end-data (assoc base :output output))))
       (is (not (s/valid? ::specs/hook.end-data
@@ -1001,9 +1100,6 @@
       (is (not (s/valid? ::specs/hook.end-data (assoc base :error "boom"))))
       (is (not (s/valid? ::specs/hook.end-data
                          (assoc base :error {:source "plugin"}))))
-      (is (not (s/valid? ::specs/hook.end-data
-                         (assoc base :error
-                                {:message "boom" :extra true}))))
       (is (not (s/valid? ::specs/hook.end-data (dissoc base :success)))))))
 
 (deftest event-fields-with-colliding-names-use-field-specific-contracts

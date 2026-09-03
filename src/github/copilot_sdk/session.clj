@@ -66,12 +66,21 @@
 
 (defrecord CopilotSession
            [session-id
-            client])     ; reference to owning client
+            client       ; reference to owning client
+            ^:no-doc registration-token])
 
 (defn ^:no-doc registration-token
   "Return the immutable token for this session handle's state registration."
   [copilot-session]
-  (::registration-token (meta copilot-session)))
+  (:registration-token copilot-session))
+
+(defn- session-handle
+  [client session-id registration-token]
+  (when-not registration-token
+    (throw (ex-info "Session registration is missing its identity token"
+                    {:type :missing-session-registration-token
+                     :session-id session-id})))
+  (->CopilotSession session-id client registration-token))
 
 ;; -----------------------------------------------------------------------------
 ;; Internal functions
@@ -177,8 +186,7 @@
               nil)))))
     (log/debug "Session created: " session-id)
     ;; Return lightweight handle
-    (with-meta (->CopilotSession session-id client)
-      {::registration-token registration-token})))
+    (session-handle client session-id registration-token)))
 
 (defn set-workspace-path!
   "Update the workspace path in session state. Called after RPC response."
@@ -1040,7 +1048,11 @@
                          result))))))]
     {:run-id run-id
      :args args
-     :session (->CopilotSession session-id client)
+     :session (session-handle
+               client
+               session-id
+               (get-in @(:state client)
+                       [:sessions session-id :registration-token]))
      :cancel-chan (:cancel-chan execution)
      :cancelled? #(deref (:cancelled? execution))
      :agent agent!
@@ -1702,7 +1714,8 @@
        :params params
        :session-id session-id})))
 
-(defn- send-request!
+(defn ^:no-doc send-with-timeout!
+  "Internal bounded send used by helper APIs with an existing deadline."
   [session opts timeout-ms]
   (let [{:keys [connection params session-id]}
         (prepare-send-request session opts)
@@ -1733,12 +1746,7 @@
                        Clojure keywords — they would be camelized by the
                        wire-conversion layer)."
   [session opts]
-  (send-request! session opts 60000))
-
-(defn ^:no-doc send-with-timeout!
-  "Internal bounded send used by helper APIs with an existing deadline."
-  [session opts timeout-ms]
-  (send-request! session opts timeout-ms))
+  (send-with-timeout! session opts 60000))
 
 (def ^:private ^:const default-send-and-wait-timeout-ms
   "Default idle-wait timeout (ms) for the `send-and-wait!` / `send-async`
@@ -2310,6 +2318,142 @@
                            :request-id request-id
                            :result normalized}))))
 
+(defn- claim-session-disconnect!
+  [client session-id expected-registration-token fence-registration?]
+  (let [completion (promise)
+        [old-state new-state]
+        (swap-vals!
+         (:state client)
+         (fn [state]
+           (let [copilot-session (get-in state [:sessions session-id])
+                 matching-registration?
+                 (or (not fence-registration?)
+                     (identical? expected-registration-token
+                                 (:registration-token copilot-session)))]
+             (if (and matching-registration?
+                      (not (contains? (:session-setups state) session-id))
+                      (not (:destroyed? copilot-session))
+                      (not (contains?
+                            (:disconnecting-session-ids state)
+                            session-id)))
+               (-> state
+                   (update :disconnecting-session-ids
+                           (fnil conj #{})
+                           session-id)
+                   (assoc-in [:session-disconnects session-id] completion))
+               state))))
+        copilot-session (get-in old-state [:sessions session-id])
+        matching-registration?
+        (or (not fence-registration?)
+            (identical? expected-registration-token
+                        (:registration-token copilot-session)))
+        shared-completion
+        (when matching-registration?
+          (get-in new-state [:session-disconnects session-id]))]
+    (cond
+      (not matching-registration?)
+      {:status :superseded}
+
+      (contains? (:session-setups old-state) session-id)
+      {:status :setup-in-progress}
+
+      (identical? completion shared-completion)
+      {:status :owner
+       :completion completion
+       :registration-token (:registration-token copilot-session)}
+
+      shared-completion
+      {:status :join
+       :completion shared-completion}
+
+      :else
+      {:status :noop})))
+
+(defn- release-session-disconnect!
+  [client session-id completion]
+  (swap! (:state client)
+         (fn [state]
+           (if (identical?
+                completion
+                (get-in state [:session-disconnects session-id]))
+             (-> state
+                 (update :disconnecting-session-ids disj session-id)
+                 (update :session-disconnects dissoc session-id))
+             state))))
+
+(defn- await-disconnect-completion!
+  [completion]
+  (try
+    @completion
+    (catch InterruptedException error
+      (.interrupt (Thread/currentThread))
+      (throw error))))
+
+(defn- complete-disconnect!
+  [completion outcome]
+  (deliver completion outcome))
+
+(defn- ambiguous-disconnect-failure?
+  [failure]
+  (or (instance? InterruptedException failure)
+      (and (instance? clojure.lang.ExceptionInfo failure)
+           (= "Request timeout" (ex-message failure))
+           (= "session.destroy" (:method (ex-data failure))))))
+
+(defn- disconnect-registration!
+  [client session-id expected-registration-token fence-registration?]
+  (log/debug "Disconnecting session: " session-id)
+  (let [{:keys [status completion registration-token]}
+        (claim-session-disconnect!
+         client session-id expected-registration-token fence-registration?)]
+    (case status
+      (:noop :superseded)
+      nil
+
+      :setup-in-progress
+      (throw
+       (ex-info "Session setup is in progress; cannot disconnect session"
+                {:type :session-setup-in-progress
+                 :session-id session-id}))
+
+      :join
+      (let [{:keys [error]} (await-disconnect-completion! completion)]
+        (when error
+          (throw error)))
+
+      :owner
+      (try
+        (let [conn (or (connection-io client)
+                       (throw
+                        (ex-info
+                         "Cannot disconnect session: client transport is unavailable"
+                         {:type :transport-unavailable
+                          :session-id session-id})))]
+          (proto/send-request! conn
+                               "session.destroy"
+                               {:session-id session-id}
+                               5000)
+          (teardown-local! client session-id :all registration-token))
+        (release-session-disconnect! client session-id completion)
+        (complete-disconnect! completion {:result nil})
+        (log/debug "Session disconnected: " session-id)
+        (catch Throwable error
+          (let [error
+                (if (ambiguous-disconnect-failure? error)
+                  (do
+                    (teardown/cleanup-preserving!
+                     error
+                     #(teardown-local!
+                       client session-id :all registration-token))
+                    error)
+                  error)]
+            (release-session-disconnect! client session-id completion)
+            (complete-disconnect! completion {:error error})
+            (when (instance? InterruptedException error)
+              (.interrupt (Thread/currentThread)))
+            (throw error)))))
+    nil))
+
 (defn disconnect!
   "Disconnects the session and releases in-memory resources (event handlers,
    tool handlers, permission handler). Session data on disk (conversation
@@ -2317,94 +2461,19 @@
    via `resume-session`. To permanently remove all session data, use
    `delete-session!` instead.
 
-   The runtime is destroyed before local resources are released. A destroy
-   failure is rethrown and leaves the session connected so the caller can retry.
-   Can be called with either a CopilotSession handle or (client, session-id)."
+   The runtime is destroyed before local resources are released. A definite
+   destroy failure is rethrown and leaves the session connected so the caller
+   can retry. A timeout or interruption is rethrown after local teardown because
+   the runtime may already have completed the request. Can be called with either
+   a CopilotSession handle or (client, session-id)."
   ([session]
-   (disconnect! (:client session) (:session-id session)))
+   (disconnect-registration!
+    (:client session)
+    (:session-id session)
+    (registration-token session)
+    true))
   ([client session-id]
-   (log/debug "Disconnecting session: " session-id)
-   (let [completion (promise)
-         [old-state new-state]
-         (swap-vals!
-          (:state client)
-          (fn [state]
-            (let [session (get-in state [:sessions session-id])]
-              (if (and (not (contains? (:session-setups state) session-id))
-                       session
-                       (not (:destroyed? session))
-                       (not (contains?
-                             (:disconnecting-session-ids state)
-                             session-id)))
-                (-> state
-                    (update :disconnecting-session-ids
-                            (fnil conj #{})
-                            session-id)
-                    (assoc-in [:session-disconnects session-id] completion))
-                state))))
-         setup-in-progress?
-         (contains? (:session-setups old-state) session-id)
-         shared-completion
-         (get-in new-state [:session-disconnects session-id])
-         claimed? (identical? completion shared-completion)
-         await-completion!
-         (fn []
-           (try
-             (let [{:keys [error]} @shared-completion]
-               (when error
-                 (throw error)))
-             (catch InterruptedException error
-               (.interrupt (Thread/currentThread))
-               (throw error))))
-         release-claim!
-         (fn []
-           (swap! (:state client)
-                  (fn [state]
-                    (if (identical?
-                         completion
-                         (get-in state [:session-disconnects session-id]))
-                      (-> state
-                          (update :disconnecting-session-ids disj session-id)
-                          (update :session-disconnects dissoc session-id))
-                      state))))]
-     (cond
-       setup-in-progress?
-       (throw
-        (ex-info "Session setup is in progress; cannot disconnect session"
-                 {:type :session-setup-in-progress
-                  :session-id session-id}))
-
-       claimed?
-       (try
-         (let [registration-token
-               (get-in old-state [:sessions session-id :registration-token])
-               conn (or (connection-io client)
-                        (throw
-                         (ex-info
-                          "Cannot disconnect session: client transport is unavailable"
-                          {:type :transport-unavailable
-                           :session-id session-id})))]
-           (proto/send-request! conn
-                                "session.destroy"
-                                {:session-id session-id}
-                                5000)
-           (teardown-local! client session-id :all registration-token))
-         (release-claim!)
-         (deliver completion {:result nil})
-         (log/debug "Session disconnected: " session-id)
-         (catch Throwable error
-           (when (instance? InterruptedException error)
-             (.interrupt (Thread/currentThread)))
-           (release-claim!)
-           (deliver completion {:error error})
-           (throw error)))
-
-       shared-completion
-       (await-completion!)
-
-       :else
-       nil))
-   nil))
+   (disconnect-registration! client session-id nil false)))
 
 (defn destroy!
   "Deprecated: Use disconnect! instead. This function will be removed in a future release.

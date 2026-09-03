@@ -836,6 +836,44 @@
                    (ex-data failure)))
             (is (= 1 @disconnects))))))))
 
+(deftest query-seq-event-wait-uses-the-remaining-fixed-deadline
+  (let [events-ch (async/chan)
+        clock (atom [0 40000000 75000000])
+        send-timeout (atom nil)
+        event-timeout (atom nil)
+        disconnects (atom 0)]
+    (call-with-controlled-query
+     {:events-ch events-ch
+      :send-with-timeout-fn
+      (fn [_session _message timeout-ms]
+        (reset! send-timeout timeout-ms)
+        ::message-id)
+      :disconnect-fn (fn [_session] (swap! disconnects inc))}
+     #(with-redefs-fn
+        {(requiring-resolve 'github.copilot-sdk.helpers/monotonic-nanos)
+         (fn []
+           (let [value (first @clock)]
+             (swap! clock subvec 1)
+             value))
+         #'async/timeout
+         (fn [^long timeout-ms]
+           (reset! event-timeout timeout-ms)
+           (async/to-chan! [::deadline]))}
+        (fn []
+          (let [failure
+                (try
+                  (vec (h/query-seq! "fixed event deadline"
+                                     :timeout-ms 100))
+                  nil
+                  (catch Throwable error
+                    error))]
+            (is (= 60 @send-timeout))
+            (is (= 25 @event-timeout))
+            (is (= {:type :query-timeout
+                    :timeout-ms 100}
+                   (ex-data failure)))
+            (is (= 1 @disconnects))))))))
+
 (deftest helper-sends-without-a-deadline-when-timeout-is-nil
   (testing "query-seq! forwards nil instead of falling back to send!'s deadline"
     (let [events-ch (async/chan)

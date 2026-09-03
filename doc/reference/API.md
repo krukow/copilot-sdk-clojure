@@ -163,11 +163,11 @@ in-flight event whose parked put loses to cancellation may be dropped; cancellat
 lossless drain.
 
 On natural completion, `query-chan` disconnects its hidden session before closing. If that
-disconnect fails, the channel yields a tagged `:copilot/session.error` map after the terminal
-event and then closes; the original failure is available at `[:data :cause]`. When a consumer
-explicitly closes the channel, cleanup still runs and logs a cleanup failure because it cannot
-be delivered through the already-closed channel. In both cases, local resources for the hidden
-session are released even when remote disconnect fails.
+disconnect fails after a terminal event or source closure, the channel yields a tagged
+`:copilot/session.error` map and then closes; the original failure is available at
+`[:data :cause]`. When a consumer explicitly closes the channel, cleanup still runs and logs a
+cleanup failure because it cannot be delivered through the already-closed channel. In both
+cases, local resources for the hidden session are released even when remote disconnect fails.
 
 ### `shutdown!`
 

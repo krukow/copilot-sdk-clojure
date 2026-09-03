@@ -98,14 +98,23 @@
         (when interrupted?
           (.interrupt (Thread/currentThread)))))))
 
+(defmacro with-cleanup
+  "Evaluate `body`, then call `cleanup`, preserving a body failure as primary.
+
+   Unlike `call-with-cleanup`, this keeps `body` lexically visible to enclosing
+   macros such as `core.async/go`."
+  [cleanup & body]
+  `(let [primary# (volatile! nil)]
+     (try
+       ~@body
+       (catch Throwable failure#
+         (vreset! primary# failure#)
+         (throw failure#))
+       (finally
+         (cleanup-preserving! @primary# ~cleanup)))))
+
 (defn call-with-cleanup
   "Call `body`, then `cleanup`, preserving a body failure as the primary error."
   [body cleanup]
-  (let [primary (volatile! nil)]
-    (try
-      (body)
-      (catch Throwable failure
-        (vreset! primary failure)
-        (throw failure))
-      (finally
-        (cleanup-preserving! @primary cleanup)))))
+  (with-cleanup cleanup
+    (body)))

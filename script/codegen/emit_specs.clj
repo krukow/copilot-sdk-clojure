@@ -41,7 +41,8 @@
    `util/wire->clj` before reaching specs, all keys are kebab-case at this
    point."
   (:require [codegen.core :as cc]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [clojure.walk :as walk]))
 
 (def ^:private ns-name "github.copilot-sdk.generated.event-specs")
 
@@ -119,34 +120,47 @@
         (~'instance? Float ~'n) (Float/isFinite ~'n)
         :else true)))))
 
+(defn- strip-positional-metadata
+  [form]
+  (walk/postwalk
+   (fn [value]
+     (if (instance? clojure.lang.IObj value)
+       (with-meta value
+         (not-empty
+          (apply dissoc (meta value)
+                 [:line :column :end-line :end-column])))
+       value))
+   form))
+
 (def ^:private opaque-json-predicate
-  '(fn [root]
-     (loop [pending [root]]
-       (if (empty? pending)
-         true
-         (let [value (peek pending)
-              remaining (pop pending)]
-           (cond
-            (or (nil? value)
-                (string? value)
-                (and (number? value)
-                     (not (ratio? value))
-                     (cond
-                       (instance? Double value) (Double/isFinite value)
-                       (instance? Float value) (Float/isFinite value)
-                       :else true))
-                (boolean? value))
-            (recur remaining)
+  (strip-positional-metadata
+   '(fn [root]
+      (loop [pending [root]]
+        (if (empty? pending)
+          true
+          (let [value (peek pending)
+                remaining (pop pending)]
+            (cond
+              (or (nil? value)
+                  (string? value)
+                  (and (number? value)
+                       (not (ratio? value))
+                       (cond
+                         (instance? Double value) (Double/isFinite value)
+                         (instance? Float value) (Float/isFinite value)
+                         :else true))
+                  (boolean? value))
+              (recur remaining)
 
-            (vector? value)
-            (recur (into remaining value))
+              (vector? value)
+              (recur (into remaining value))
 
-            (map? value)
-            (and (every? #(or (keyword? %) (string? %)) (keys value))
-                 (recur (into remaining (vals value))))
+              (map? value)
+              (and (every? #(or (keyword? %) (string? %)) (keys value))
+                   (recur (into remaining (vals value))))
 
-            :else
-            false))))))
+              :else
+              false)))))))
 
 (defn- emit-array [root node]
   (let [items (:items node)]
