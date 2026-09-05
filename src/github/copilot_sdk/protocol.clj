@@ -15,6 +15,7 @@
             [clojure.core.async :as async :refer [go-loop <! >!! <!! chan close! put!]]
             [clojure.core.async.impl.protocols :as async-protocols]
             [clojure.string :as str]
+            [github.copilot-sdk.generated.event-metadata :as event-metadata]
             [github.copilot-sdk.logging :as log]
             [github.copilot-sdk.teardown :as td]
             [github.copilot-sdk.util :as util])
@@ -444,75 +445,51 @@
       (catch RejectedExecutionException _
         (reject-request! executor (:rejected-requests conn) outgoing-ch method id)))))
 
-(defn- restore-extension-context-payloads
-  "Restore the opaque `:payload` of each `extension_context` attachment from
-   the raw (pre-`wire->clj`) attachments onto the converted attachments, so
-   source-defined payload keys aren't kebab-cased. Raw and converted
-   attachment vectors are positionally aligned (conversion preserves order
-   and count)."
-  [raw-atts conv-atts]
-  (mapv (fn [raw conv]
-          (if (and (= "extension_context" (:type raw))
-                   (contains? raw :payload))
-            (assoc conv :payload (:payload raw))
-            conv))
-        raw-atts
-        conv-atts))
+(defn- restore-opaque-path
+  [raw converted wire-path idiom-path]
+  (if (empty? wire-path)
+    raw
+    (let [wire-key (first wire-path)
+          idiom-key (first idiom-path)
+          remaining-wire (next wire-path)
+          remaining-idiom (next idiom-path)]
+      (if (= :* wire-key)
+        (if (and (sequential? raw) (sequential? converted))
+          (mapv (fn [raw-value converted-value]
+                  (restore-opaque-path raw-value converted-value
+                                       remaining-wire remaining-idiom))
+                raw
+                converted)
+          converted)
+        (if (and (map? raw)
+                 (map? converted)
+                 (contains? raw wire-key)
+                 (contains? converted idiom-key))
+          (assoc converted idiom-key
+                 (restore-opaque-path (get raw wire-key)
+                                      (get converted idiom-key)
+                                      remaining-wire remaining-idiom))
+          converted)))))
 
 (defn- preserve-event-opaque-fields
   "Given a raw wire event (pre-`wire->clj`) and a converted event, restore
    source-defined / opaque fields verbatim onto the converted shape so
    kebab-casing doesn't mangle user-supplied keys. Applies the per-event-type
    rules used by `normalize-incoming` for live notifications, so live and
-   historical events share the same shape."
+    historical events share the same shape."
   [raw-event converted-event]
-  (case (:type raw-event)
-    "external_tool.requested"
-    (cond-> converted-event
-      (contains? (:data raw-event) :arguments)
-      (assoc-in [:data :arguments] (get-in raw-event [:data :arguments])))
-
-    "session.custom_notification"
-    (cond-> converted-event
-      (contains? (:data raw-event) :subject)
-      (assoc-in [:data :subject] (get-in raw-event [:data :subject]))
-      (contains? (:data raw-event) :payload)
-      (assoc-in [:data :payload] (get-in raw-event [:data :payload])))
-
-    ;; Upstream schema 1.0.52-4 (SEP-1865): MCP App invoked a tool on an MCP
-    ;; server. Both the supplied `:arguments` map and the returned `:result`
-    ;; (standard MCP CallToolResult) are source-defined opaque payloads —
-    ;; preserve their raw keys so consumers can forward them verbatim.
-    "mcp_app.tool_call_complete"
-    (cond-> converted-event
-      (contains? (:data raw-event) :arguments)
-      (assoc-in [:data :arguments] (get-in raw-event [:data :arguments]))
-      (contains? (:data raw-event) :result)
-      (assoc-in [:data :result] (get-in raw-event [:data :result])))
-
-    ;; Upstream schema 1.0.57: `extension_context` attachments carry an opaque
-    ;; caller-supplied `:payload`. These appear on `user.message` attachments
-    ;; (reachable via `session.getMessages`) and on the ephemeral
-    ;; `session.extensions.attachments_pushed` event. Restore each payload so
-    ;; its source-defined keys aren't kebab-cased.
-    ("user.message" "session.extensions.attachments_pushed")
-    (cond-> converted-event
-      (seq (get-in raw-event [:data :attachments]))
-      (assoc-in [:data :attachments]
-                (restore-extension-context-payloads
-                 (get-in raw-event [:data :attachments])
-                 (get-in converted-event [:data :attachments]))))
-
-    ;; Upstream PR #1604 (schema 1.0.58+): `session.canvas.opened` carries an
-    ;; opaque caller-supplied `:input` map (`{ [k: string]: unknown }`).
-    ;; Preserve raw keys so consumers can forward them verbatim — same
-    ;; convention used for `external_tool.requested` `:arguments` etc.
-    "session.canvas.opened"
-    (cond-> converted-event
-      (contains? (:data raw-event) :input)
-      (assoc-in [:data :input] (get-in raw-event [:data :input])))
-
-    converted-event))
+  (let [restored
+        (reduce
+         (fn [converted {:keys [wire idiom]}]
+           (restore-opaque-path raw-event converted wire idiom))
+         converted-event
+         (get event-metadata/opaque-json-paths (:type raw-event)))]
+    (if (and (= "session.custom_notification" (:type raw-event))
+             (map? (:data raw-event))
+             (map? (:data restored))
+             (contains? (:data raw-event) :subject))
+      (assoc-in restored [:data :subject] (get-in raw-event [:data :subject]))
+      restored)))
 
 (defn- normalize-incoming
   "Convert wire-format keys to Clojure keys, preserving opaque user data.
@@ -521,11 +498,11 @@
    kept in their original wire format so user-defined tool handlers receive
    the keys the server sent. For v3 `session.custom_notification` events,
    the source-defined `:subject` and opaque `:payload` are also preserved
-   verbatim. For v3 `mcp_app.tool_call_complete` events (schema 1.0.52-4,
-   SEP-1865), the `:arguments` and `:result` payloads are similarly
-   preserved. The same preservation applies to historical events returned
-   in `session.getMessages` responses so live and historical event shapes
-   agree."
+   verbatim. Assistant `:reasoning-blocks` retain provider-defined key
+   spelling. For v3 `mcp_app.tool_call_complete` events (schema 1.0.52-4,
+   SEP-1865), the `:arguments` and `:result` payloads are similarly preserved.
+   The same preservation applies to historical events returned in
+   `session.getMessages` responses so live and historical event shapes agree."
   [msg]
   (let [method (:method msg)
         params (:params msg)
@@ -703,7 +680,12 @@
                                                       (str "Connection error: " (ex-message e)))}))))
          (catch Exception e
            (when (:running? (conn-state state-atom))
-             (log/error "Read loop exception: " (ex-message e))))
+             (log/error "Read loop exception: " (ex-message e))
+             (update-conn! state-atom assoc :running? false)
+             (drain-pending! state-atom
+                             {:code -32000
+                              :message (str "Connection error: "
+                                            (ex-message e))})))
          (finally
            (log/debug "Read loop ending")
            (close! (:incoming-ch conn))))))))
@@ -995,23 +977,23 @@
    (send-request-with-timeout conn method params timeout-ms {}))
   ([conn method params timeout-ms opts]
    (let [state-atom (:state-atom conn)
-        response-ch (send-request conn method params opts)
-        result-ch (chan 1)
-        timeout-ch (async/timeout timeout-ms)]
+         response-ch (send-request conn method params opts)
+         result-ch (chan 1)
+         timeout-ch (async/timeout timeout-ms)]
      (async/go
        (let [[result port] (async/alts! [response-ch timeout-ch])]
-        (if (= port timeout-ch)
-          (do
-            (remove-pending-by-chan! state-atom response-ch)
-            (close! response-ch)
-            (async/>! result-ch
-                      {:error
-                       {:code -32000
-                        :message "Request timeout"
-                        :data {:method method :timeout-ms timeout-ms}}}))
-          (when (some? result)
-            (async/>! result-ch result)))
-        (close! result-ch)))
+         (if (= port timeout-ch)
+           (do
+             (remove-pending-by-chan! state-atom response-ch)
+             (close! response-ch)
+             (async/>! result-ch
+                       {:error
+                        {:code -32000
+                         :message "Request timeout"
+                         :data {:method method :timeout-ms timeout-ms}}}))
+           (when (some? result)
+             (async/>! result-ch result)))
+         (close! result-ch)))
      result-ch)))
 
 (defn send-request!
@@ -1028,10 +1010,11 @@
   ([conn method params timeout-ms opts]
    (let [state-atom (:state-atom conn)
          response-ch (send-request conn method params opts)
-         timeout-ch (async/timeout timeout-ms)
-         [result port] (async/alts!! [response-ch timeout-ch])]
+         timeout-ch (when timeout-ms (async/timeout timeout-ms))
+         [result port] (async/alts!! (cond-> [response-ch]
+                                       timeout-ch (conj timeout-ch)))]
      (cond
-       (= port timeout-ch)
+       (and timeout-ch (= port timeout-ch))
        (do
          (remove-pending-by-chan! state-atom response-ch)
          (close! response-ch)

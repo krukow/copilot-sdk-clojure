@@ -28,6 +28,7 @@
 /checkouts
 /classes
 /target
+/.upstream/
 /benchmarks/results/
 .clj-kondo/
 prompt.md

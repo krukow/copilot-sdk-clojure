@@ -9,7 +9,7 @@ Clojure SDK for programmatic control of the GitHub Copilot CLI via JSON-RPC.
 
 ## Guides
 
-- [Authentication](auth/index.md) — GitHub auth, OAuth, environment variables, priority order
+- [Authentication](auth/index.md) — Session-scoped token providers, GitHub auth, OAuth, environment variables, priority order
 - [BYOK Providers](auth/byok.md) — Bring Your Own Key for OpenAI, Azure, Anthropic, Ollama
 - [Azure Managed Identity](auth/azure-managed-identity.md) — Azure BYOK with Managed Identity (no API keys)
 - [MCP Servers](mcp/overview.md) — Model Context Protocol server integration

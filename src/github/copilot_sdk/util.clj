@@ -3,6 +3,12 @@
   (:require [camel-snake-kebab.core :as csk]
             [camel-snake-kebab.extras :as cske]))
 
+(defn ^:no-doc github-token-auth-conflict?
+  [config]
+  (and (map? config)
+       (contains? config :github-token)
+       (contains? config :github-token-provider)))
+
 ;; -----------------------------------------------------------------------------
 ;; Key conversion utilities
 ;; Convert between wire format (camelCase) and Clojure idiom (kebab-case)

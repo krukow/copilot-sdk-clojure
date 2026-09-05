@@ -16,7 +16,8 @@
             [github.copilot-sdk.logging :as log]
             [github.copilot-sdk.mock-server :as mock]
             [github.copilot-sdk.process :as proc]
-            [github.copilot-sdk.protocol :as protocol])
+            [github.copilot-sdk.protocol :as protocol]
+            [github.copilot-sdk.teardown :as teardown])
   (:import [java.io IOException]
            [java.nio.channels ClosedChannelException ReadableByteChannel WritableByteChannel]))
 
@@ -145,6 +146,86 @@
           (is (= "cleanup failed" (:message entry)))
           (is (= (find-ns 'github.copilot-sdk.teardown-test) (:logger-ns entry)))))
       (is (= 1 @calls) "the Throwable argument must be evaluated once"))))
+
+(deftest cleanup-failure-is-suppressed-and-logged
+  (let [primary (ex-info "primary failure" {:phase :body})
+        cleanup (ex-info "cleanup failure" {:phase :cleanup})]
+    (log-test/with-log
+      (is (identical?
+           primary
+           (teardown/cleanup-preserving!
+            primary
+            #(throw cleanup))))
+      (is (= [cleanup] (vec (.getSuppressed primary))))
+      (let [entry (first (log-test/the-log))]
+        (is (identical? cleanup (:throwable entry)))
+        (is (= "Cleanup failed while preserving the primary failure"
+               (:message entry)))))))
+
+(deftest cleanup-preserves-preexisting-interrupt-status
+  (let [cleaned? (atom false)
+        thread (Thread/currentThread)]
+    (.interrupt thread)
+    (try
+      (let [result (teardown/cleanup-preserving!
+                    nil
+                    #(reset! cleaned? true))
+            interrupted? (.isInterrupted thread)]
+        (Thread/interrupted)
+        (is (true? result))
+        (is interrupted?))
+      (is @cleaned?)
+      (finally
+        (Thread/interrupted)))))
+
+(deftest primary-interruption-remains-primary-and-restores-interrupt-status
+  (let [primary (InterruptedException. "body interrupted")
+        cleaned? (atom false)
+        caught (try
+                 (teardown/call-with-cleanup
+                  #(throw primary)
+                  #(reset! cleaned? true))
+                 nil
+                 (catch Throwable failure
+                   failure))
+        interrupted? (.isInterrupted (Thread/currentThread))]
+    (try
+      (Thread/interrupted)
+      (is (identical? primary caught))
+      (is @cleaned?)
+      (is interrupted?)
+      (finally
+        (Thread/interrupted)))))
+
+(deftest cleanup-interruption-is-suppressed-under-a-primary-failure
+  (let [primary (ex-info "primary" {})
+        cleanup (InterruptedException. "cleanup interrupted")]
+    (try
+      (let [caught (try
+                     (teardown/call-with-cleanup
+                      #(throw primary)
+                      #(throw cleanup))
+                     nil
+                     (catch Throwable failure
+                       failure))
+            interrupted? (.isInterrupted (Thread/currentThread))]
+        (Thread/interrupted)
+        (is (identical? primary caught))
+        (is (= [cleanup] (vec (.getSuppressed primary))))
+        (is interrupted?))
+      (finally
+        (Thread/interrupted)))))
+
+(deftest cleanup-only-failure-is-rethrown
+  (let [cleanup (ex-info "cleanup only" {})
+        caught (try
+                 (teardown/call-with-cleanup
+                  (constantly :ok)
+                  #(throw cleanup))
+                 nil
+                 (catch Throwable failure
+                   failure))]
+    (is (identical? cleanup caught))))
 
 ;; -----------------------------------------------------------------------------
 ;; IDI-002 - expected vs unexpected teardown outcomes

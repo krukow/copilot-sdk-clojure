@@ -6,7 +6,8 @@
             [github.copilot-sdk :as sdk]
             [github.copilot-sdk.client :as client]
             [github.copilot-sdk.helpers :as h]
-            [github.copilot-sdk.mock-server :as mock]))
+            [github.copilot-sdk.mock-server :as mock]
+            [github.copilot-sdk.session :as session]))
 
 (def ^:dynamic *mock-server* nil)
 
@@ -33,6 +34,21 @@
         (not= port ch) false
         (nil? value) true
         :else (recur)))))
+
+(def ^:private read-timeout-ms
+  "Bound for any single blocking channel read in these tests, so a stalled
+  producer or a broken close/terminal invariant surfaces as a normal test
+  failure instead of hanging the test process."
+  1000)
+
+(defn- read-within
+  "Reads one value from `ch`, bounded by `read-timeout-ms`. Returns `::timeout`
+  instead of blocking forever when nothing (not even a close) arrives in time."
+  [ch]
+  (let [[value port] (async/alts!! [ch (async/timeout read-timeout-ms)])]
+    (if (identical? port ch)
+      value
+      ::timeout)))
 
 (defn- cleaned-up?
   [copilot-client]
@@ -99,20 +115,35 @@
       (async-protocols/closed? ch))))
 
 (defn- call-with-controlled-query
-  [{:keys [events-ch disconnect-fn subscribe-fn send-fn chan-fn]} test-fn]
-  (with-redefs-fn
-    (cond-> {(requiring-resolve 'github.copilot-sdk.helpers/ensure-client!)
-             (fn [_client-opts] ::client)
-             #'sdk/create-session
-             (fn [_client _session-config] ::session)
-             #'sdk/subscribe-events
-             (or subscribe-fn (fn [_session] events-ch))
-             #'sdk/send!
-             (or send-fn (fn [_session _message] ::message-id))
-             #'sdk/disconnect!
-             (or disconnect-fn (fn [_session] nil))}
-      chan-fn (assoc #'async/chan chan-fn))
-    test-fn))
+  [{:keys [events-ch disconnect-fn local-teardown-fn subscribe-fn send-fn
+           send-with-timeout-fn chan-fn]}
+   test-fn]
+  (let [send-fn (or send-fn (fn [_session _message] ::message-id))]
+    (with-redefs-fn
+      (cond-> {(requiring-resolve 'github.copilot-sdk.helpers/ensure-client!)
+               (fn [_client-opts] ::client)
+               #'sdk/create-session
+               (fn [_client _session-config] ::session)
+               #'sdk/subscribe-events
+               (or subscribe-fn (fn [_session] events-ch))
+               #'sdk/send!
+               send-fn
+               #'session/send-with-timeout!
+               (or send-with-timeout-fn
+                   (fn [copilot-session message _timeout-ms]
+                     (send-fn copilot-session message)))
+               #'sdk/disconnect!
+               (or disconnect-fn (fn [_session] nil))
+               #'session/teardown-local!
+               (or local-teardown-fn
+                   (fn
+                     ([_client _session-id] :claimed)
+                     ([_client _session-id _provider-scope] :claimed)
+                     ([_client _session-id _provider-scope
+                       _expected-registration-token]
+                      :claimed)))}
+        chan-fn (assoc #'async/chan chan-fn))
+      test-fn)))
 
 (deftest query-chan-close-releases-a-put-parked-on-a-full-buffer
   (let [events-ch (async/chan 3)
@@ -183,6 +214,122 @@
          (is (= terminal-event (async/<!! query-ch)))
          (is (nil? (async/<!! query-ch)))
          (is (= 1 @disconnects)))))))
+
+(deftest query-stream-helpers-remain-open-across-autopilot-idle
+  (let [autopilot-idle {:type :copilot/session.idle
+                        :data {:mode "autopilot"}}
+        terminal-idle {:type :copilot/session.idle
+                       :data {}}]
+    (testing "query-chan forwards autopilot idle and closes after terminal idle"
+      (let [events-ch (async/chan 2)
+            disconnects (atom 0)]
+        (call-with-controlled-query
+         {:events-ch events-ch
+          :disconnect-fn (fn [_session] (swap! disconnects inc))}
+         (fn []
+           (let [query-ch (h/query-chan "autopilot channel" :buffer 2)]
+             (is (true? (async/>!! events-ch autopilot-idle)))
+             (is (true? (async/>!! events-ch terminal-idle)))
+             (is (= autopilot-idle (read-within query-ch)))
+             (is (= terminal-idle (read-within query-ch)))
+             (is (nil? (read-within query-ch)))
+             (is (= 1 @disconnects)))))))
+
+    (testing "query-seq! includes autopilot idle and realizes through terminal idle"
+      (let [events-ch (async/chan 2)
+            disconnects (atom 0)]
+        (is (true? (async/>!! events-ch autopilot-idle)))
+        (is (true? (async/>!! events-ch terminal-idle)))
+        (call-with-controlled-query
+         {:events-ch events-ch
+          :disconnect-fn (fn [_session] (swap! disconnects inc))}
+         (fn []
+           (let [realized (deref (future (doall (h/query-seq! "autopilot sequence")))
+                                 read-timeout-ms
+                                 ::timeout)]
+             (is (= [autopilot-idle terminal-idle] realized))
+             (is (= 1 @disconnects)))))))))
+
+(deftest query-seq-retains-one-deadline-across-autopilot-idle
+  (let [events-ch (async/chan 1)
+        deadline-ch (async/chan)
+        timeout-calls (atom [])
+        disconnects (atom 0)
+        local-teardowns (atom [])
+        cleanup-error (ex-info "disconnect failed" {:phase :cleanup})
+        autopilot-idle {:type :copilot/session.idle
+                        :data {:mode "autopilot"}}]
+    (is (true? (async/>!! events-ch autopilot-idle)))
+    (call-with-controlled-query
+     {:events-ch events-ch
+      :disconnect-fn (fn [_session]
+                       (swap! disconnects inc)
+                       (throw cleanup-error))
+      :local-teardown-fn
+      (fn [client session-id _provider-scope _registration-token]
+        (swap! local-teardowns conj [client session-id])
+        :claimed)}
+     #(with-redefs-fn
+        {(requiring-resolve 'github.copilot-sdk.helpers/monotonic-nanos)
+         (constantly 0)
+         #'async/timeout
+         (fn [^long timeout-ms]
+           (swap! timeout-calls conj timeout-ms)
+           deadline-ch)}
+        (fn []
+          (let [events (h/query-seq! "fixed deadline" :timeout-ms 1234)]
+            (is (= autopilot-idle (first events)))
+            (async/close! deadline-ch)
+            (let [caught (try
+                           (second events)
+                           ::no-error
+                           (catch Throwable error
+                             error))]
+              (is (instance? clojure.lang.ExceptionInfo caught))
+              (is (= :query-timeout (:type (ex-data caught))))
+              (is (= 1234 (:timeout-ms (ex-data caught))))
+              (is (= [cleanup-error]
+                     (vec (.getSuppressed ^Throwable caught)))))))))
+    (is (= [1234] @timeout-calls))
+    (is (= 1 @disconnects))
+    (is (= [[nil nil]] @local-teardowns))
+    (async/close! events-ch)))
+
+(deftest query-seq-validates-and-disables-event-deadline
+  (testing "invalid values are rejected before setup"
+    (let [setup-called? (atom false)]
+      (with-redefs-fn
+        {(requiring-resolve 'github.copilot-sdk.helpers/ensure-client!)
+         (fn [_client-opts]
+           (reset! setup-called? true)
+           (throw (ex-info "setup should not run" {})))}
+        (fn []
+          (doseq [timeout-ms [0 -1 1.5 "1000"]]
+            (is (thrown-with-msg?
+                 clojure.lang.ExceptionInfo
+                 #":timeout-ms must be a positive integer or nil"
+                 (h/with-query-seq [events "invalid timeout"
+                                    :timeout-ms timeout-ms]
+                   (doall events)))))))
+      (is (false? @setup-called?))))
+
+  (testing "nil omits the event-consumption deadline"
+    (let [events-ch (async/chan 1)
+          terminal-event {:type :copilot/session.idle}
+          timeout-calls (atom 0)]
+      (is (true? (async/>!! events-ch terminal-event)))
+      (call-with-controlled-query
+       {:events-ch events-ch}
+       (fn []
+         (with-redefs [async/timeout
+                       (fn [_timeout-ms]
+                         (swap! timeout-calls inc)
+                         (throw (ex-info "deadline should be disabled" {})))]
+           (is (= [terminal-event]
+                  (doall
+                   (h/query-seq! "no deadline" :timeout-ms nil)))))))
+      (is (zero? @timeout-calls))
+      (async/close! events-ch))))
 
 (deftest query-chan-source-close-disconnects-once
   (let [events-ch (async/chan)
@@ -345,23 +492,108 @@
   (testing "consumer cancellation"
     (let [events-ch (async/chan)
           disconnect-entered (promise)
+          disconnect-finished (promise)
+          cleanup-error (ex-info "disconnect failed" {})
           disconnects (atom 0)]
       (call-with-controlled-query
        {:events-ch events-ch
         :disconnect-fn (fn [_session]
                          (swap! disconnects inc)
                          (deliver disconnect-entered true)
-                         (throw (ex-info "disconnect failed" {})))}
+                         (try
+                           (throw cleanup-error)
+                           (finally
+                             (deliver disconnect-finished true))))}
        (fn []
          (let [query-ch (h/query-chan "cancel and disconnect failure")
                close-result (future (async/close! query-ch))]
            (try
              (is (nil? (deref close-result 1000 ::timeout)))
              (is (true? (deref disconnect-entered 1000 false)))
+             (is (true? (deref disconnect-finished 1000 false)))
              (is (= 1 @disconnects))
              (is (nil? (async/<!! query-ch)))
              (finally
                (async/close! events-ch)))))))))
+
+(deftest query-chan-surfaces-natural-cleanup-failure-before-closing
+  (let [events-ch (async/chan 1)
+        terminal-event {:type :copilot/session.idle}
+        cleanup-error (ex-info "disconnect failed" {:phase :cleanup})
+        disconnects (atom 0)]
+    (call-with-controlled-query
+     {:events-ch events-ch
+      :disconnect-fn (fn [_session]
+                       (swap! disconnects inc)
+                       (throw cleanup-error))}
+     (fn []
+       (let [query-ch (h/query-chan "natural cleanup failure" :buffer 2)]
+         (is (true? (async/>!! events-ch terminal-event)))
+         (is (= terminal-event (read-within query-ch)))
+         (let [cleanup-event (read-within query-ch)]
+           (is (= :copilot/session.error (:type cleanup-event)))
+           (is (= "Failed to disconnect helper-owned query session"
+                  (get-in cleanup-event [:data :message])))
+           (is (identical? cleanup-error
+                           (get-in cleanup-event [:data :cause]))))
+         (is (nil? (read-within query-ch)))
+         (is (= 1 @disconnects)))))))
+
+(deftest query-preserves-body-and-owned-session-cleanup-failures
+  (let [owned-session {:client ::client :session-id "owned-query"}
+        body-error (ex-info "send failed" {:phase :body})
+        cleanup-error (ex-info "disconnect failed" {:phase :cleanup})
+        local-teardowns (atom [])]
+    (with-redefs-fn
+      {(requiring-resolve 'github.copilot-sdk.helpers/ensure-client!)
+       (fn [_client-opts] ::client)
+       #'sdk/create-session
+       (fn [_client _session-config] owned-session)
+       #'sdk/send-and-wait!
+       (fn [_session _message _timeout-ms] (throw body-error))
+       #'sdk/disconnect!
+       (fn [_session] (throw cleanup-error))
+       #'session/teardown-local!
+       (fn [client session-id _provider-scope _registration-token]
+         (swap! local-teardowns conj [client session-id])
+         :claimed)}
+      (fn []
+        (let [caught (try
+                       (h/query "body and cleanup fail")
+                       ::no-error
+                       (catch Throwable failure
+                         failure))]
+          (is (identical? body-error caught))
+          (is (= [cleanup-error]
+                 (vec (.getSuppressed ^Throwable caught)))))))
+    (is (= [[::client "owned-query"]] @local-teardowns))))
+
+(deftest query-surfaces-owned-session-cleanup-failure
+  (let [owned-session {:client ::client :session-id "owned-query"}
+        cleanup-error (ex-info "disconnect failed" {:phase :cleanup})
+        local-teardowns (atom [])]
+    (with-redefs-fn
+      {(requiring-resolve 'github.copilot-sdk.helpers/ensure-client!)
+       (fn [_client-opts] ::client)
+       #'sdk/create-session
+       (fn [_client _session-config] owned-session)
+       #'sdk/send-and-wait!
+       (fn [_session _message _timeout-ms]
+         {:data {:content "response"}})
+       #'sdk/disconnect!
+       (fn [_session] (throw cleanup-error))
+       #'session/teardown-local!
+       (fn [client session-id _provider-scope _registration-token]
+         (swap! local-teardowns conj [client session-id])
+         :claimed)}
+      #(is (identical?
+            cleanup-error
+            (try
+              (h/query "cleanup fails")
+              ::no-error
+              (catch Throwable failure
+                failure)))))
+    (is (= [[::client "owned-query"]] @local-teardowns))))
 
 (deftest query-chan-remains-a-core-async-channel
   (let [events-ch (async/chan)
@@ -560,8 +792,8 @@
 (deftest query-seq-setup-failure-disconnects-created-session-once
   (with-single-helper-client [copilot-client]
     (let [disconnects (atom [])]
-      (with-redefs [sdk/send!
-                    (fn [_session _opts]
+      (with-redefs [session/send-with-timeout!
+                    (fn [_session _opts _timeout-ms]
                       (throw (ex-info "send failed" {})))
                     sdk/disconnect!
                     (fn [session-or-client & maybe-session-id]
@@ -572,6 +804,140 @@
              #"send failed"
              (h/query-seq! "setup failure")))
         (is (= 1 (count @disconnects)))))))
+
+(deftest query-defaults-to-a-60000-ms-deadline
+  (let [observed-timeout (atom nil)]
+    (call-with-controlled-query
+     {:events-ch (async/chan)
+      :disconnect-fn (fn [_session] nil)}
+     #(with-redefs [sdk/send-and-wait!
+                    (fn [_session _message timeout-ms]
+                      (reset! observed-timeout timeout-ms)
+                      {:data {:content "response"}})]
+        (is (= "response" (h/query "default deadline")))
+        (is (= 60000 @observed-timeout))))))
+
+(deftest query-seq-send-uses-the-remaining-fixed-deadline
+  (let [events-ch (async/chan)
+        clock (atom [0 40000000])
+        send-timeout (atom nil)
+        disconnects (atom 0)]
+    (call-with-controlled-query
+     {:events-ch events-ch
+      :send-with-timeout-fn
+      (fn [_session _message timeout-ms]
+        (reset! send-timeout timeout-ms)
+        (throw
+         (ex-info "session.send timed out"
+                  {:method "session.send"
+                   :timeout-ms timeout-ms})))
+      :disconnect-fn (fn [_session] (swap! disconnects inc))}
+     #(with-redefs-fn
+        {(requiring-resolve 'github.copilot-sdk.helpers/monotonic-nanos)
+         (fn []
+           (let [value (first @clock)]
+             (swap! clock subvec 1)
+             value))}
+        (fn []
+          (let [failure
+                (try
+                  (h/query-seq! "fixed deadline" :timeout-ms 100)
+                  nil
+                  (catch Throwable error
+                    error))]
+            (is (= 60 @send-timeout))
+            (is (= {:type :query-timeout
+                    :timeout-ms 100}
+                   (ex-data failure)))
+            (is (= 1 @disconnects))))))))
+
+(deftest query-seq-event-wait-uses-the-remaining-fixed-deadline
+  (let [events-ch (async/chan)
+        clock (atom [0 40000000 75000000])
+        send-timeout (atom nil)
+        event-timeout (atom nil)
+        disconnects (atom 0)]
+    (call-with-controlled-query
+     {:events-ch events-ch
+      :send-with-timeout-fn
+      (fn [_session _message timeout-ms]
+        (reset! send-timeout timeout-ms)
+        ::message-id)
+      :disconnect-fn (fn [_session] (swap! disconnects inc))}
+     #(with-redefs-fn
+        {(requiring-resolve 'github.copilot-sdk.helpers/monotonic-nanos)
+         (fn []
+           (let [value (first @clock)]
+             (swap! clock subvec 1)
+             value))
+         #'async/timeout
+         (fn [^long timeout-ms]
+           (reset! event-timeout timeout-ms)
+           (async/to-chan! [::deadline]))}
+        (fn []
+          (let [failure
+                (try
+                  (vec (h/query-seq! "fixed event deadline"
+                                     :timeout-ms 100))
+                  nil
+                  (catch Throwable error
+                    error))]
+            (is (= 60 @send-timeout))
+            (is (= 25 @event-timeout))
+            (is (= {:type :query-timeout
+                    :timeout-ms 100}
+                   (ex-data failure)))
+            (is (= 1 @disconnects))))))))
+
+(deftest helper-sends-without-a-deadline-when-timeout-is-nil
+  (testing "query-seq! forwards nil instead of falling back to send!'s deadline"
+    (let [events-ch (async/chan)
+          observed-timeout (atom ::unset)]
+      (call-with-controlled-query
+       {:events-ch events-ch
+        :send-fn (fn [& _]
+                   (throw (ex-info "public send! must not be used" {})))
+        :send-with-timeout-fn
+        (fn [_session _message timeout-ms]
+          (reset! observed-timeout timeout-ms)
+          ::message-id)}
+       #(do
+          (is (= [] (vec (h/query-seq! "unbounded"
+                                       :timeout-ms nil
+                                       :max-events 0))))
+          (is (nil? @observed-timeout)))))))
+
+(deftest failed-helper-disconnect-cannot-tear-down-a-replacement-registration
+  (let [copilot-client (sdk/client {:auto-start? false})
+        session-id "reused-helper-session"
+        owned-session (session/create-session copilot-client session-id {})
+        owned-token (get-in @(:state copilot-client)
+                            [:sessions session-id :registration-token])
+        replacement (atom nil)
+        primary (ex-info "runtime disconnect failed" {})]
+    (try
+      (with-redefs [sdk/disconnect!
+                    (fn [_session]
+                      (session/remove-session-registration!
+                       copilot-client session-id owned-token)
+                      (reset! replacement
+                              (session/create-session
+                               copilot-client session-id {}))
+                      (throw primary))]
+        (let [caught
+              (try
+                ((requiring-resolve
+                  'github.copilot-sdk.helpers/disconnect-owned-session!)
+                 owned-session)
+                nil
+                (catch Throwable failure
+                  failure))]
+          (is (identical? primary caught))
+          (is (false? (get-in @(:state copilot-client)
+                              [:sessions session-id :destroyed?])))))
+      (finally
+        (when @replacement
+          (session/teardown-local! copilot-client session-id))))))
 
 (deftest query-seq-source-rejects-invalid-max-events-before-setup
   (let [setup-called? (atom false)]

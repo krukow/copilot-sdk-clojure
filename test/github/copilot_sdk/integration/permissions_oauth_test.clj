@@ -111,6 +111,35 @@
         (is (= {:result :no-result} response))
         (is (true? (:managed-settings-enabled? (deref invocation 1000 nil))))))))
 
+(deftest test-managed-bypass-permission-policies
+  (testing "arbitrary string policies and simple keywords preserve their wire values"
+    (doseq [[policy expected] [["disable" "disable"]
+                               ["allow-auto-only" "allow-auto-only"]
+                               ["future-fail-closed-policy" "future-fail-closed-policy"]
+                               ["managed/future-policy" "managed/future-policy"]
+                               ["" ""]
+                               [" " " "]
+                               [:disable "disable"]
+                               [:future-policy "future-policy"]]]
+      (let [seen (atom nil)
+            _ (mock/set-request-hook! *mock-server*
+                                      (fn [method params]
+                                        (when (= "session.create" method)
+                                          (reset! seen params))))
+            _ (sdk/create-session
+               *test-client*
+               {:on-permission-request sdk/approve-all
+                :managed-settings
+                {:permissions
+                 {:disable-bypass-permissions-mode policy}}})]
+        (is (= expected
+               (get-in @seen
+                       [:managedSettings
+                        :permissions
+                        :disableBypassPermissionsMode])))))
+    (doseq [policy [:managed/disable nil 42]]
+      (is (not (s/valid? ::specs/disable-bypass-permissions-mode policy))))))
+
 (deftest test-factory-permission-request-spec
   (let [request {:permission-kind :factory
                  :operation "run"

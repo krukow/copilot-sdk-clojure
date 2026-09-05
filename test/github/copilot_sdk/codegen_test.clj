@@ -35,15 +35,95 @@
    regression coverage for the codegen pipeline."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.data.json :as json]
+            [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.java.shell :as sh]
             [clojure.set]
             [clojure.spec.alpha :as s]
             [clojure.string :as str]
             [github.copilot-sdk.generated.coerce :as coerce]
+            [github.copilot-sdk.generated.event-metadata :as event-metadata]
             [github.copilot-sdk.generated.event-specs :as gen]
             [github.copilot-sdk :as sdk]
-            [github.copilot-sdk.specs])
+            [github.copilot-sdk.specs :as specs])
   (:import [java.time Instant]))
+
+(def ^:private codegen-probe
+  (delay
+    (let [{:keys [exit out err]}
+          (sh/sh
+           "bb" "-cp" "script" "-e"
+           (str
+            "(require '[clojure.spec.alpha :as s] "
+            "         '[codegen.core :as core] '[codegen.emit-specs :as emit]) "
+            "(let [bounded-spec (eval (emit/emit-type {:type \"integer\" :minimum 2 :maximum 4} "
+            "                                          {:type \"integer\" :minimum 2 :maximum 4})) "
+            "      exclusive-spec (eval (emit/emit-type {:type \"number\" :exclusiveMinimum 1 :exclusiveMaximum 2} "
+            "                                            {:type \"number\" :exclusiveMinimum 1 :exclusiveMaximum 2})) "
+            "      nullable-spec (eval (emit/emit-type {:type [\"string\" \"null\"]} "
+            "                                           {:type [\"string\" \"null\"]})) "
+            "      closed-object-form "
+            "      (pr-str (emit/emit-type {:type \"object\"} "
+            "                              {:type \"object\" "
+            "                               :properties {:z {:type \"string\"} "
+            "                                            :a {:type \"string\"} "
+            "                                            :m {:type \"string\"}} "
+            "                               :additionalProperties false}))] "
+            "  (prn {:keys (mapv core/wire-key->kebab "
+            "                    [\"_meta\" \"sessionId\" \"tool_efficiency\" "
+            "                     \"URLValue\" \"someURLValue\" \"__foo_bar\"]) "
+            "        :bounded (mapv #(s/valid? bounded-spec %) [1 2 2.5 4 5]) "
+            "        :exclusive (mapv #(s/valid? exclusive-spec %) [1 1.5 2]) "
+            "        :nullable (mapv #(s/valid? nullable-spec %) [\"value\" nil 1]) "
+            "        :closed-object-form closed-object-form}))"))]
+      (when-not (zero? exit)
+        (throw (ex-info "Codegen probe failed" {:exit exit :stderr err})))
+      (edn/read-string out))))
+
+(deftest codegen-wire-key-normalization-matches-runtime
+  (is (= ["meta" "session-id" "tool-efficiency"
+          "url-value" "some-url-value" "foo-bar"]
+         (:keys @codegen-probe))))
+
+(deftest codegen-emits-json-schema-numeric-bounds
+  (is (= [false true false true false] (:bounded @codegen-probe)))
+  (is (= [false true false] (:exclusive @codegen-probe)))
+  (is (= [true true false] (:nullable @codegen-probe))))
+
+(deftest codegen-emits-canonical-closed-object-key-order
+  (is (str/includes? (:closed-object-form @codegen-probe) "#{:a :m :z}")))
+
+(deftest generated-object-shape-definitions-are-canonical
+  (let [source    (slurp "src/github/copilot_sdk/generated/event_specs.clj")
+        all-names (map second
+                       (re-seq
+                        #"\(s/def :github\.copilot-sdk\.generated\.event-specs/([^ \n]+) "
+                        source))
+        names     (vec (take-while #(str/ends-with? % "-shape") all-names))]
+    (is (seq names))
+    (is (= (sort names) names))))
+
+(deftest generated-source-omits-reader-position-metadata
+  (let [source (slurp "src/github/copilot_sdk/generated/event_specs.clj")]
+    (is (not (re-find #"\^\{:(?:line|column)\b" source)))))
+
+(deftest generated-opaque-json-paths-cover-nested-event-payloads
+  (doseq [[event-type expected-path]
+          [["assistant.message"
+            {:wire [:data :toolRequests :* :arguments]
+             :idiom [:data :tool-requests :* :arguments]}]
+           ["session.fusion_handoff"
+            {:wire [:data :message]
+             :idiom [:data :message]}]
+           ["assistant.fusion_phase_completed"
+            {:wire [:data :projectionMessage]
+             :idiom [:data :projection-message]}]
+           ["assistant.fusion_phase_completed"
+            {:wire [:data :stagedTerminal :assistantMessage]
+             :idiom [:data :staged-terminal :assistant-message]}]]]
+    (is (contains? (set (get event-metadata/opaque-json-paths event-type))
+                   expected-path)
+        (str event-type " should preserve " (:wire expected-path)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Schema introspection helpers — used by the envelope helper to honour
@@ -104,8 +184,15 @@
   (event-types-with-schema-marker :stability "experimental"))
 
 (def ^:private intentionally-excluded-experimental-event-types
-  #{"factory.run_settled"
+  #{"assistant.fusion_phase_completed"
+    "assistant.fusion_phase_failed"
+    "assistant.fusion_phase_started"
+    "factory.run_settled"
     "factory.run_started"
+    "session.fusion_completed"
+    "session.fusion_resolved"
+    "session.fusion_route_failed"
+    "session.fusion_route_started"
     "ui.ephemeral_query"})
 
 ;; ---------------------------------------------------------------------------
@@ -120,10 +207,12 @@
     :version 1                                 ;; number per schema
     :producer "test"
     :copilot-version "1.0.0"
+    :auto-tier "balance"
     :start-time "2024-01-01T00:00:00Z"}        ;; ISO string per schema
 
    "session.resume"
    {:resume-time "2024-01-01T00:00:00Z"
+    :auto-tier "efficiency"
     :event-count 0}
 
    "session.error"
@@ -131,7 +220,8 @@
     :message "boom"}
 
    "session.idle"
-   {}
+   {:aborted false
+    :mode "autopilot"}
 
    "session.info"
    {:info-type "general"
@@ -142,7 +232,8 @@
     :total-premium-requests 0
     :total-api-duration-ms 0
     :session-start-time 1700000000
-    :code-changes {}
+    ;; ShutdownCodeChanges requires all three fields (additionalProperties false).
+    :code-changes {:lines-added 0 :lines-removed 0 :files-modified []}
     :model-metrics {}}
 
    "session.model_change"
@@ -176,7 +267,15 @@
 
    "assistant.message"
    {:message-id "m-1"
-    :content "hi"}
+    :content "hi"
+    :tool-requests
+    [{:tool-call-id "tc-1"
+      :name "read_file"
+      :arguments {:filePath "README.md"}
+      :type "function"
+      :intention-summary "Read the project overview"
+      :caller {:caller-id "program-1"
+               :type "program"}}]}
 
    "assistant.message_delta"
    {:message-id "m-1"
@@ -214,6 +313,10 @@
     :agent-display-name "SubAgent"
     :agent-description "does things"}
 
+   "subagent.configured"
+   {:model "gpt-5.4"
+    :multi-turn true}
+
    "subagent.completed"
    {:tool-call-id "tc-1"
     :agent-name "subagent"
@@ -248,6 +351,10 @@
    "session.mode_changed"
    {:previous-mode "interactive"
     :new-mode "plan"}
+
+   "session.mode_notice_delivered"
+   {:mode "plan"
+    :content "Plan mode is active"}
 
    "session.plan_changed"
    {:operation "create"}
@@ -319,6 +426,12 @@
    {:source "top_level"
     :interaction-type "conversation-agent"}
 
+   "model.call_finished"
+   {:turn-id "t-1"
+    :dispatch-duration-ms 10
+    :outcome "success"
+    :edit-classifier-version 1}
+
    "system.notification"
    {:content "worker finished"
     :kind {:type "agent_completed"
@@ -347,6 +460,16 @@
 
    "hook.progress"
    {:message "extracting..."}
+
+   ;; Stable 2980c78 sync (pinned schema 1.0.83-1): net-new hook.start/hook.end.
+   "hook.start"
+   {:hook-invocation-id "h-1"
+    :hook-type "pre-tool-use"}
+
+   "hook.end"
+   {:hook-invocation-id "h-1"
+    :hook-type "pre-tool-use"
+    :success true}
 
    ;; v1.0.1 sync: session.canvas.closed (upstream PR #1604).
    "session.canvas.closed"
@@ -387,6 +510,48 @@
     (doseq [event-type (keys fixtures)]
       (is (contains? gen/event-types event-type)
           (str event-type " missing from gen/event-types — schema may have moved")))))
+
+(deftest assistant-message-tool-request-caller-idiom-contract
+  (let [request (-> fixtures
+                    (get "assistant.message")
+                    :tool-requests
+                    first)]
+    (is (s/valid? ::specs/assistant-message-tool-request request))
+    (is (s/valid? ::specs/assistant-message-tool-request-caller
+                  (:caller request)))
+    (is (s/valid? ::specs/assistant-message-tool-request
+                  (assoc request :future-tool-field {:enabled true})))
+    (is (s/valid? ::specs/assistant-message-tool-request-caller
+                  (assoc (:caller request) :future-caller-field "value")))
+    (is (not (s/valid? ::specs/assistant-message-tool-request
+                       (assoc-in request [:caller :type] "assistant"))))
+    (is (not (s/valid? ::specs/assistant-message-tool-request
+                       (update request :caller dissoc :caller-id))))))
+
+(deftest session-idle-idiom-contract-is-forward-compatible
+  (is (s/valid? ::specs/session.idle-data
+                {:aborted false
+                 :mode "autopilot"
+                 :future-idle-field {:enabled true}}))
+  (is (not (s/valid? ::specs/session.idle-data
+                     {:mode :autopilot
+                      :future-idle-field true}))))
+
+(deftest hook-start-envelope-is-closed-but-data-is-forward-compatible
+  (let [data (get fixtures "hook.start")
+        valid-envelope (envelope "hook.start" data)]
+    (testing "hook.start data stays open — event data carries future fields"
+      (is (s/valid? ::gen/hook.start-data
+                    (assoc data :future-hook-field {:enabled true}))))
+    (testing "hook.start envelope accepts exactly its declared keys"
+      (is (s/valid? ::gen/hook.start valid-envelope)))
+    (testing "hook.start envelope rejects undeclared envelope-level keys"
+      (is (not (s/valid? ::gen/hook.start
+                         (assoc valid-envelope :future-envelope-field true)))
+          "schema-closed envelopes must reject fields outside the declared envelope keys"))
+    (testing "closing the envelope does not close the nested data payload"
+      (is (s/valid? ::gen/hook.start
+                    (envelope "hook.start" (assoc data :future-hook-field {:enabled true})))))))
 
 (deftest public-event-types-match-generated-schema-set
   (testing "the public curated `event-types` set covers exactly the schema's public event types
@@ -432,6 +597,90 @@
       (is (s/valid? retry-spec {:turn-id "turn-1"
                                 :reason "arbitrary_reason"})
           "assistant.turn_retry reason must remain an open string"))))
+
+;; ---------------------------------------------------------------------------
+;; Recursive nested-object emission — generated specs for `$ref`'d object
+;; properties (e.g. AssistantMessageToolRequestCaller nested inside
+;; AssistantMessageToolRequest) must enforce required keys, per-property
+;; recursive validity, and `additionalProperties: false`, not degrade to a
+;; bare `map?`. See `script/codegen/emit_specs.clj`'s `emit-object`.
+;; ---------------------------------------------------------------------------
+
+(deftest generated-nested-object-specs-enforce-structure
+  (let [spec-kw       :github.copilot-sdk.generated.event-specs/tool-requests
+        valid-request (-> fixtures (get "assistant.message") :tool-requests first)]
+    (testing "accepts the canonical, fully-valid fixture"
+      (is (s/valid? spec-kw [valid-request])
+          (s/explain-str spec-kw [valid-request])))
+    (testing "rejects a caller missing required :caller-id"
+      (is (not (s/valid? spec-kw [(update valid-request :caller dissoc :caller-id)]))))
+    (testing "rejects a caller whose :type is not the single enum value \"program\""
+      (is (not (s/valid? spec-kw [(assoc-in valid-request [:caller :type] "assistant")]))))
+    (testing "rejects a caller with an unknown key (additionalProperties: false)"
+      (is (not (s/valid? spec-kw [(assoc-in valid-request [:caller :bogus-field] "x")]))))
+    (testing "rejects a tool-request itself missing a required key (:name)"
+      (is (not (s/valid? spec-kw [(dissoc valid-request :name)]))))
+    (testing "rejects a tool-request with an unknown top-level key (additionalProperties: false)"
+      (is (not (s/valid? spec-kw [(assoc valid-request :bogus-top-level "x")]))))))
+
+(deftest generated-number-specs-require-json-numbers
+  (testing "schema number types reject non-finite values and Clojure ratios"
+    (doseq [value [Double/NaN
+                   Double/POSITIVE_INFINITY
+                   Double/NEGATIVE_INFINITY
+                   1/2]]
+      (is (not (s/valid? ::gen/dispatch-duration-ms value))
+          (pr-str value)))
+    (doseq [value [0 0.5 42]]
+      (is (s/valid? ::gen/dispatch-duration-ms value)
+          (pr-str value)))))
+
+(deftest generated-opaque-json-specs-require-recursive-json-values
+  (let [valid-blocks [{:signatureId "sig-1"
+                       :content ["text" true 42 nil]}]]
+    (is (s/valid? ::gen/assistant-message-reasoning-blocks-shape
+                  {:provider "anthropic"
+                   :blocks valid-blocks}))
+    (doseq [invalid [(Object.)
+                     {:nested (Object.)}
+                     {:nested #{1 2}}
+                     {:nested 1/2}
+                     {:nested Double/POSITIVE_INFINITY}]]
+      (is (not (s/valid? ::gen/assistant-message-reasoning-blocks-shape
+                         {:provider "anthropic"
+                          :blocks [invalid]}))
+          (pr-str invalid)))))
+
+(deftest opaque-json-specs-are-stack-safe
+  (let [depth 20000
+        nested-json (reduce (fn [value _] [value]) nil (range depth))
+        nested-invalid (reduce (fn [value _] [value]) (Object.) (range depth))
+        hook-start {:hook-invocation-id "hook-1"
+                    :hook-type "pre-tool-use"}]
+    (is (s/valid? ::gen/hook.start-data
+                  (assoc hook-start :input nested-json)))
+    (is (s/valid? ::specs/hook.start-data
+                  (assoc hook-start :input nested-json)))
+    (is (not (s/valid? ::gen/hook.start-data
+                       (assoc hook-start :input nested-invalid))))
+    (is (not (s/valid? ::specs/hook.start-data
+                       (assoc hook-start :input nested-invalid))))))
+
+(deftest generated-event-data-remains-open-at-the-top-level
+  (testing "future event fields pass standalone and through envelope specs"
+    (let [data {:hook-invocation-id "hook-1"
+                :hook-type "pre-tool-use"
+                :future-field {:nested ["value"]}}
+          event (envelope "hook.start" data)]
+      (is (s/valid? ::gen/hook.start-data data))
+      (is (s/valid? ::gen/hook.start event))
+      (is (s/valid? ::gen/event event))))
+  (testing "nested schema objects stay closed"
+    (is (not (s/valid?
+              ::gen/assistant-message-tool-request-caller-shape
+              {:caller-id "caller-1"
+               :type "program"
+               :future-field true})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Envelope discrimination — type and data binding must be tight.
@@ -526,6 +775,27 @@
             (is (= orig-v rt-v)
                 (str "round-trip lost equality for "
                      event-type "/" field))))))))
+
+(deftest enum-coercion-rejects-values-outside-the-idiom-domain
+  (doseq [[direction value]
+          [[:wire->idiom "efficiencyPlus"]
+           [:wire->idiom :efficiencyPlus]
+           [:idiom->wire "efficiencyPlus"]
+           [:idiom->wire :efficiencyPlus]]]
+    (testing (str (name direction) " rejects " (pr-str value))
+      (let [failure
+            (try
+              (coerce/coerce-data
+               "session.start" {:auto-tier value} direction)
+              nil
+              (catch clojure.lang.ExceptionInfo error error))]
+        (is (some? failure))
+        (is (= {:event-type "session.start"
+                :field :auto-tier
+                :direction direction
+                :value value}
+               (select-keys (ex-data failure)
+                            [:event-type :field :direction :value])))))))
 
 (deftest coerced-data-satisfies-hand-spec
   (testing "after wire->idiom, hand-written spec accepts the data"
@@ -628,3 +898,81 @@
              "would silently skip them): " (sort missing) ". Either add a "
              "minimal valid fixture in `fixtures`, or remove the hand spec "
              "from `github.copilot-sdk.specs`."))))
+
+;; ---------------------------------------------------------------------------
+;; Generated top-level form size — JVM `Method code too large!` regression
+;; guard
+;;
+;; `emit-envelope-spec` previously re-emitted the ENTIRE global non-conforming
+;; union for the "type"/"data" kebabs (each a cross-schema union spanning
+;; ~135/~133 distinct schemas) as a `strict-pred` INSIDE every one of the
+;; ~135 event variants' envelope `s/and` forms — even though each variant
+;; already has a strictly stronger dedicated check elsewhere (`const-preds`
+;; for `:type`, the trailing `data-kw` predicate for `:data`). That produced
+;; many top-level forms in the ~26KB-source-char class, and `event_specs.clj`
+;; as a whole ballooned to ~3.85MB. At least one such form was large enough to
+;; overflow the JVM's 64KB-per-method bytecode limit at compile time
+;; (`Method code too large!`).
+;;
+;; The fix (see `emit-envelope-spec` in `script/codegen/emit_specs.clj`)
+;; excludes const-covered properties and the `"data"` kebab from the
+;; redundant per-variant envelope re-check, so each such global union is now
+;; emitted exactly ONCE as a load-bearing leaf spec (`::type`, `::data`),
+;; consumed by every `s/keys` site via clojure.spec's implicit unqualified-key
+;; -> fully-qualified-keyword spec lookup — not duplicated per variant.
+;;
+;; This test reads the actual generated SOURCE TEXT (not the loaded/expanded
+;; namespace) via the plain data reader, so it exercises exactly what
+;; `write-clj!` wrote and what the JVM must compile. The 32000-char and
+;; 8000-char thresholds are reasoned estimates (not a precisely derived exact
+;; safety margin): the current known-good maximum is the single ::data leaf
+;; spec at ~19,185 chars, comfortably under both; a recurrence of the fixed
+;; bug would produce MANY forms at or above the ~26,058-char class this test
+;; guards against.
+;; ---------------------------------------------------------------------------
+
+(def ^:private generated-event-specs-forms
+  "All top-level forms in the generated event-specs source file, excluding
+   the leading `ns` form. Read with the plain data reader (`*read-eval*`
+   disabled) rather than `require`d/macroexpanded, so measurements reflect
+   the literal written source text — what the JVM actually has to compile."
+  (let [path (io/file "src/github/copilot_sdk/generated/event_specs.clj")]
+    (binding [*read-eval* false]
+      (with-open [r (java.io.PushbackReader. (io/reader path))]
+        (->> (repeatedly #(read {:eof ::eof} r))
+             (take-while #(not= % ::eof))
+             (remove #(and (seq? %) (= 'ns (first %))))
+             doall)))))
+
+(deftest generated-clojure-files-end-with-one-newline
+  (doseq [path ["src/github/copilot_sdk/generated/coerce.clj"
+                "src/github/copilot_sdk/generated/event_metadata.clj"
+                "src/github/copilot_sdk/generated/event_specs.clj"]]
+    (testing path
+      (let [source (slurp path)]
+        (is (str/ends-with? source "\n"))
+        (is (not (str/ends-with? source "\n\n")))))))
+
+(deftest generated-top-level-forms-stay-well-under-jvm-method-size-limit
+  (let [sized (map (fn [form] {:form form :len (count (pr-str form))})
+                   generated-event-specs-forms)
+        max-entry (apply max-key :len sized)]
+    (testing "no single generated top-level form approaches the 64KB JVM per-method bytecode limit"
+      (is (<= (:len max-entry) 32000)
+          (str "Largest generated top-level form is " (:len max-entry)
+               " chars (def name: " (pr-str (second (:form max-entry))) "). "
+               "This class of bloat previously caused `Method code too "
+               "large!` at JVM compile time — see `emit-envelope-spec` in "
+               "`script/codegen/emit_specs.clj`.")))
+    (testing "only the known load-bearing global-union leaf spec (`::data`) is large"
+      (let [large (->> sized (filter #(> (:len %) 8000)))]
+        (is (<= (count large) 1)
+            (str "Expected at most one generated top-level form over 8000 "
+                 "chars (the load-bearing `::data` global-union leaf spec, "
+                 "consumed via `s/keys`'s implicit key-spec lookup in "
+                 "`emit-envelope-spec`/`emit-data-spec`). Found "
+                 (count large) ": "
+                 (pr-str (map (comp second :form) large))
+                 ". A jump here likely means the redundant per-variant "
+                 "envelope strict-pred bug has recurred — see "
+                 "`emit-envelope-spec` in `script/codegen/emit_specs.clj`."))))))

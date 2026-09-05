@@ -3,9 +3,304 @@
    that compute the env-var contract for the spawned CLI process. We test
    the helper directly rather than spawning a real process."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.core.async :as async]
             [github.copilot-sdk.process :as proc]
             [github.copilot-sdk.specs :as specs]
-            [clojure.spec.alpha :as s]))
+            [clojure.spec.alpha :as s])
+  (:import [java.io ByteArrayInputStream ByteArrayOutputStream InputStream
+            PipedInputStream PipedOutputStream SequenceInputStream]))
+
+(defn- fake-process
+  [alive exit-code]
+  (proxy [Process] []
+    (isAlive [] @alive)
+    (exitValue [] exit-code)
+    (waitFor
+      ([] exit-code)
+      ([_timeout _unit] (not @alive)))
+    (destroy [])
+    (destroyForcibly [] this)
+    (getOutputStream [] (ByteArrayOutputStream.))
+    (getInputStream [] (ByteArrayInputStream. (byte-array 0)))
+    (getErrorStream [] (ByteArrayInputStream. (byte-array 0)))))
+
+(defn- blocking-input-stream
+  []
+  (let [started (promise)
+        closed (promise)
+        finished (promise)
+        close-count (atom 0)
+        read! (fn []
+                (deliver started true)
+                (try
+                  @closed
+                  -1
+                  (finally
+                    (deliver finished true))))
+        stream
+        (proxy [InputStream] []
+          (read
+            ([] (read!))
+            ([_buffer] (read!))
+            ([_buffer _offset _length] (read!)))
+          (close []
+            (swap! close-count inc)
+            (deliver closed true)))]
+    {:stream stream
+     :started started
+     :closed closed
+     :finished finished
+     :close-count close-count}))
+
+(defn- exploding-input-stream
+  [failure closed]
+  (let [read! #(throw failure)]
+    (proxy [InputStream] []
+      (read
+        ([] (read!))
+        ([_buffer] (read!))
+        ([_buffer _offset _length] (read!)))
+      (close []
+        (deliver closed true)))))
+
+(defn- split-input-stream
+  [prefix suffix]
+  (let [chunks (mapv #(.getBytes ^String % "UTF-8") [prefix suffix])
+        next-chunk (atom 0)
+        waiting-for-suffix (promise)
+        release-suffix (promise)
+        stream
+        (proxy [InputStream] []
+          (available [] 0)
+          (close []
+            (deliver release-suffix true))
+          (read
+            ([]
+             (let [buffer (byte-array 1)
+                   read-count (.read ^InputStream this buffer 0 1)]
+               (if (neg? read-count)
+                 -1
+                 (bit-and 0xff (aget buffer 0)))))
+            ([buffer]
+             (.read ^InputStream this buffer 0 (alength buffer)))
+            ([buffer buffer-offset length]
+             (let [index @next-chunk]
+               (if (< index (count chunks))
+                 (do
+                   (when (= index 1)
+                     (deliver waiting-for-suffix true)
+                     @release-suffix)
+                   (let [chunk (nth chunks index)
+                         chunk-length (alength chunk)]
+                     (assert (<= chunk-length length))
+                     (System/arraycopy
+                      chunk 0 buffer buffer-offset chunk-length)
+                     (swap! next-chunk inc)
+                     chunk-length))
+                 -1)))))]
+    {:stream stream
+     :waiting-for-suffix waiting-for-suffix
+     :release-suffix release-suffix}))
+
+(deftest wait-for-port-reads-the-complete-announced-port
+  (doseq [announcement ["CLI server listening on port 63234\n"
+                        "CLI server listening on port 63234\r"
+                        "CLI server listening on port 63234\r\n"
+                        "CLI server listening on port 63234"
+                        "CLI server listening on port 63234 (localhost only)\n"
+                        "CLI server listening on port 63234\u001b[0m\n"]]
+    (let [process (proxy [Process] []
+                    (isAlive [] true))
+          managed-process
+          (proc/map->ManagedProcess
+           {:process process
+            :stdout (ByteArrayInputStream. (.getBytes announcement "UTF-8"))})]
+      (is (= 63234 (proc/wait-for-port managed-process 1000))
+          announcement))))
+
+(deftest wait-for-port-does-not-accept-a-digit-prefix-at-a-read-boundary
+  (let [{:keys [stream waiting-for-suffix release-suffix]}
+        (split-input-stream "CLI server listening on port 63" "234")
+        process (fake-process (atom true) 0)
+        managed-process (proc/map->ManagedProcess
+                         {:process process
+                          :stdout stream})
+        outcome (future (proc/wait-for-port managed-process 1000))]
+    (try
+      (is (true? (deref waiting-for-suffix 500 false)))
+      (deliver release-suffix true)
+      (is (= 63234 (deref outcome 500 ::timeout)))
+      (finally
+        (deliver release-suffix true)
+        (.close stream)
+        (future-cancel outcome)))))
+
+(deftest wait-for-port-keeps-draining-stdout-after-announcement
+  (let [{:keys [stream started closed finished]} (blocking-input-stream)
+        announcement (ByteArrayInputStream.
+                      (.getBytes "CLI server listening on port 63234\n" "UTF-8"))
+        stdout (SequenceInputStream. announcement stream)
+        process (fake-process (atom true) 0)
+        managed-process (proc/map->ManagedProcess
+                         {:process process
+                          :stdout stdout})]
+    (try
+      (is (= 63234 (proc/wait-for-port managed-process 1000)))
+      (is (true? (deref started 500 false)))
+      (finally
+        (.close stdout)
+        (is (true? (deref closed 500 false)))
+        (is (true? (deref finished 500 false)))))))
+
+(deftest wait-for-port-recognizes-a-live-flushed-announcement-without-newline
+  (let [stdout (PipedInputStream.)
+        writer (PipedOutputStream. stdout)
+        process (fake-process (atom true) 0)
+        managed-process (proc/map->ManagedProcess
+                         {:process process
+                          :stdout stdout})
+        outcome (future (proc/wait-for-port managed-process 1000))]
+    (try
+      (.write writer (.getBytes "CLI server listening on port 63234" "UTF-8"))
+      (.flush writer)
+      (is (= 63234 (deref outcome 500 ::timeout)))
+      (finally
+        (.close writer)
+        (.close stdout)
+        (future-cancel outcome)))))
+
+(deftest wait-for-port-reports-stdout-eof
+  (let [process (fake-process (atom true) 0)
+        managed-process (proc/map->ManagedProcess
+                         {:process process
+                          :stdout (ByteArrayInputStream. (byte-array 0))})
+        caught (try
+                 (proc/wait-for-port managed-process 1000)
+                 nil
+                 (catch Throwable failure
+                   failure))]
+    (is (= "CLI stdout closed before announcing port"
+           (ex-message caught)))))
+
+(deftest wait-for-port-propagates-reader-exceptions
+  (let [failure (java.io.IOException. "reader failed")
+        closed (promise)
+        process (fake-process (atom true) 0)
+        managed-process
+        (proc/map->ManagedProcess
+         {:process process
+          :stdout (exploding-input-stream failure closed)})
+        caught (try
+                 (proc/wait-for-port managed-process 1000)
+                 nil
+                 (catch Throwable error
+                   error))]
+    (is (identical? failure caught))
+    (is (true? (deref closed 500 false)))))
+
+(deftest wait-for-port-timeout-stops-its-reader
+  (let [{:keys [stream started closed finished close-count]}
+        (blocking-input-stream)
+        process (fake-process (atom true) 0)
+        managed-process (proc/map->ManagedProcess
+                         {:process process
+                          :stdout stream})
+        caught (try
+                 (proc/wait-for-port managed-process 25)
+                 nil
+                 (catch Throwable failure
+                   failure))]
+    (is (= "Timeout waiting for CLI server to start"
+           (ex-message caught)))
+    (is (= {:timeout-ms 25} (ex-data caught)))
+    (is (true? (deref started 500 false)))
+    (is (true? (deref closed 500 false)))
+    (is (true? (deref finished 500 false)))
+    (is (pos? @close-count))))
+
+(deftest wait-for-port-observes-process-exit-while-stdout-is-open
+  (let [{:keys [stream started closed finished]} (blocking-input-stream)
+        alive (atom true)
+        exit-ch (async/promise-chan)
+        process (fake-process alive 23)
+        managed-process (proc/map->ManagedProcess
+                         {:process process
+                          :stdout stream
+                          :exit-chan exit-ch})
+        outcome (future
+                  (try
+                    (proc/wait-for-port managed-process 5000)
+                    nil
+                    (catch Throwable failure
+                      failure)))]
+    (is (true? (deref started 500 false)))
+    (reset! alive false)
+    (async/>!! exit-ch {:exit-code 23})
+    (async/close! exit-ch)
+    (let [caught (deref outcome 1000 ::timeout)]
+      (is (not= ::timeout caught))
+      (is (= "CLI process exited before announcing port"
+             (ex-message caught)))
+      (is (= 23 (:exit-code (ex-data caught)))))
+    (is (true? (deref closed 500 false)))
+    (is (true? (deref finished 500 false)))))
+
+(deftest wait-for-port-reports-an-already-dead-process-immediately
+  (let [process (fake-process (atom false) 17)
+        managed-process (proc/map->ManagedProcess
+                         {:process process
+                          :stdout (ByteArrayInputStream. (byte-array 0))})
+        caught (try
+                 (proc/wait-for-port managed-process 5000)
+                 nil
+                 (catch Throwable failure
+                   failure))]
+    (is (= "CLI process exited before announcing port"
+           (ex-message caught)))
+    (is (= 17 (:exit-code (ex-data caught))))))
+
+(deftest wait-for-port-interruption-stops-its-reader
+  (let [{:keys [stream started closed finished]} (blocking-input-stream)
+        process (fake-process (atom true) 0)
+        managed-process (proc/map->ManagedProcess
+                         {:process process
+                          :stdout stream})
+        outcome (promise)
+        waiter (Thread.
+                ^Runnable
+                (reify Runnable
+                  (run [_]
+                    (try
+                      (proc/wait-for-port managed-process 60000)
+                      (deliver outcome {:returned? true})
+                      (catch Throwable failure
+                        (deliver outcome
+                                 {:failure failure
+                                  :interrupted?
+                                  (.isInterrupted
+                                   (Thread/currentThread))}))))))]
+    (.start waiter)
+    (is (true? (deref started 500 false)))
+    (.interrupt waiter)
+    (.join waiter 1000)
+    (let [{:keys [failure interrupted? returned?]}
+          (deref outcome 1000 {})]
+      (is (not returned?))
+      (is (instance? InterruptedException failure))
+      (is interrupted?))
+    (is (false? (.isAlive waiter)))
+    (is (true? (deref closed 500 false)))
+    (is (true? (deref finished 500 false)))))
+
+(deftest spawned-process-exit-is-observable-by-multiple-consumers
+  (let [java-command
+        (.orElse (.command (.info (java.lang.ProcessHandle/current))) "java")
+        managed-process (proc/spawn-cli {:cli-path java-command
+                                         :cli-args ["-version"]})
+        first-result (future (async/<!! (:exit-chan managed-process)))
+        second-result (future (async/<!! (:exit-chan managed-process)))]
+    (is (= {:exit-code 0} (deref first-result 1000 ::timeout)))
+    (is (= {:exit-code 0} (deref second-result 1000 ::timeout)))))
 
 (deftest cli-env-overrides-defaults
   (testing "by default only NODE_DEBUG is in :defaults (removed; user :env can re-add)"

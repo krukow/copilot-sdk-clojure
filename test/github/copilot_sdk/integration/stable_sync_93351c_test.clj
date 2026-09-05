@@ -135,7 +135,7 @@
                                        "--no-commit-id" "--name-only" "-r"
                                        commit))))))))))))
 
-(deftest stable-node-surface-and-runtime-are-unchanged
+(deftest stable-node-surface-and-runtime-were-unchanged
   (let [report (read-report)]
     (is (some? report) "The post-cc0438d parity oracle must be committed")
     (when report
@@ -158,13 +158,10 @@
                  :event-specs-changed? false
                  :coercion-source-changed? false}}
                schema))
-        (is (= "1.0.81-6" (str/trim (slurp ".copilot-schema-version"))))
         (is (= {:sdk "1.0.11.0"
                 :changed? false
                 :release-required? false}
                version))
-        (is (str/includes? (slurp "build.clj")
-                           "(def version \"1.0.11.0\")"))
         (when-let [upstream-repo @upstream-repo]
           (is (empty? (git-lines upstream-repo "diff" "--name-only"
                                  (str base ".." target) "--" "nodejs")))

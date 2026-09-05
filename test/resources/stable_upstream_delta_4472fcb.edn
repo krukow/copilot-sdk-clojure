@@ -72,6 +72,15 @@
              :legacy-omission :absent
              :no-result :suppress-rpc}}]
 
+ :historical-contracts
+ {:permission-decision-context
+  {:outcomes #{:auto-approved :autopilot-denied :prompted-user}
+   :sources #{:judge-recommendation
+             :human-response
+             :host-policy
+             :unattended-fallback}
+   :surfaces #{:tui :prompt-mode :copilot-app :sdk}}}
+
  :commit-classifications
  [{:commit "f0c89d176399b24d68d65814009317644d345fca"
    :classification :generated-only

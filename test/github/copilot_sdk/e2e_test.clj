@@ -6,9 +6,12 @@
    - COPILOT_E2E_TESTS: Set to 'true' to enable these tests
    
    Run with: COPILOT_E2E_TESTS=true COPILOT_CLI_PATH=/path/to/copilot clojure -M:test"
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
-            [clojure.core.async :refer [alts!! timeout]]
-            [github.copilot-sdk :as sdk]))
+  (:require [clojure.core.async :refer [alts!! timeout]]
+            [clojure.java.io :as io]
+            [clojure.test :refer [deftest testing is use-fixtures]]
+            [github.copilot-sdk :as sdk]
+            [github.copilot-sdk.teardown :as teardown])
+  (:import [java.nio.file Files]))
 
 ;; Check if E2E tests are enabled
 (def e2e-enabled?
@@ -60,19 +63,71 @@
 ;; Dynamic var for test client
 (def ^:dynamic *e2e-client* nil)
 
+(defn- delete-tree!
+  [root]
+  (when (.exists root)
+    (doseq [file (reverse (file-seq root))]
+      (io/delete-file file))))
+
+(defn- stop-client-failures
+  [resource copilot-client]
+  (teardown/attempt-collecting
+   {:operation :stop :resource resource}
+   (sdk/stop! copilot-client)))
+
+(defn- delete-tree-failures
+  [resource root]
+  (teardown/collect
+   [(teardown/attempt
+     {:operation :delete :resource resource}
+     (delete-tree! root))]))
+
+(defn- disconnect-session-failures
+  [resource copilot-session]
+  (teardown/collect
+   [(teardown/attempt
+     {:operation :disconnect :resource resource}
+     (sdk/disconnect! copilot-session))]))
+
+(defn- throw-cleanup-failures!
+  [message failures]
+  (when (seq failures)
+    (let [aggregate (ex-info message
+                             {:cleanup-failures failures}
+                             (first failures))]
+      (doseq [failure (rest failures)]
+        (.addSuppressed aggregate failure))
+      (throw aggregate))))
+
 (defn with-e2e-client
   "Fixture that creates a real client for E2E tests."
   [test-fn]
   (if e2e-enabled?
-    (let [client (sdk/client {:cli-path cli-path
-                              :use-stdio? true
-                              :auto-start? true})]
-      (try
-        (sdk/start! client)
-        (binding [*e2e-client* client]
-          (test-fn))
-        (finally
-          (try (sdk/stop! client) (catch Exception _)))))
+    (let [home (.toFile
+                (Files/createTempDirectory
+                 "copilot-sdk-clojure-e2e-"
+                 (make-array java.nio.file.attribute.FileAttribute 0)))
+          home-path (.getCanonicalPath home)
+          client (atom nil)]
+      (teardown/call-with-cleanup
+       #(let [copilot-client
+              (sdk/client {:cli-path cli-path
+                           :use-stdio? true
+                           :auto-start? true
+                           :copilot-home home-path})]
+          (reset! client copilot-client)
+          (sdk/start! copilot-client)
+          (binding [*e2e-client* copilot-client]
+            (test-fn)))
+       #(let [failures
+              (into []
+                    cat
+                    [(when-let [copilot-client @client]
+                       (stop-client-failures :e2e-client copilot-client))
+                     (delete-tree-failures :e2e-home home)])]
+          (throw-cleanup-failures!
+           "Failed to clean up the E2E fixture"
+           failures))))
     ;; E2E disabled - still run the tests but they will skip
     (test-fn)))
 
@@ -219,21 +274,77 @@
 
 (deftest ^:e2e test-e2e-resume-session
   (when-e2e
-   (testing "Resume existing session"
-     (let [session1 (sdk/create-session *e2e-client* {:on-permission-request sdk/approve-all})
-           session-id (sdk/session-id session1)
-           _ (sdk/send-and-wait! session1 {:prompt "Remember the word: APPLE"} 30000)
-            ;; Resume the session
-           session2 (sdk/resume-session *e2e-client* session-id {:on-permission-request sdk/approve-all})]
-       (is (= session-id (sdk/session-id session2)))
-        ;; Should have conversation context
-       (let [result (sdk/send-and-wait! session2
-                                        {:prompt "What word did I ask you to remember?"}
-                                        30000)]
-         (is (some? result))
-          ;; The model should remember APPLE
-         (is (string? (get-in result [:data :content]))))
-       (sdk/destroy! session2)))))
+   (testing "Resume an active session through a second TCP client"
+     (let [home (.toFile
+                 (Files/createTempDirectory
+                  "copilot-sdk-clojure-resume-e2e-"
+                  (make-array java.nio.file.attribute.FileAttribute 0)))
+           home-path (.getCanonicalPath home)
+           connection-token (str (java.util.UUID/randomUUID))
+           owner-client (atom nil)
+           resume-client (atom nil)
+           sessions (atom [])]
+       (teardown/call-with-cleanup
+        #(let [client1
+               (sdk/client {:cli-path cli-path
+                            :use-stdio? false
+                            :port 0
+                            :tcp-connection-token connection-token
+                            :auto-start? false
+                            :copilot-home home-path})]
+           (reset! owner-client client1)
+           (sdk/start! client1)
+           (let [session1 (sdk/create-session client1 {})
+                 _registered-session1 (swap! sessions conj session1)
+                 session-id (sdk/session-id session1)
+                 first-response
+                 (sdk/send-and-wait!
+                  session1
+                  {:prompt "What is 1 + 1? Reply with just the number."}
+                  60000)
+                 first-content (get-in first-response [:data :content])
+                 port (:actual-port @(:state client1))
+                 client2 (sdk/client {:cli-url (str "localhost:" port)
+                                      :tcp-connection-token connection-token
+                                      :auto-start? false})]
+             (is (and (string? first-content)
+                      (re-find #"\b2\b" first-content))
+                 "the original session should produce the expected response")
+             (reset! resume-client client2)
+             (sdk/start! client2)
+             (let [session2 (sdk/resume-session client2 session-id {})
+                   _registered-session2 (swap! sessions conj session2)
+                   history-types (set (map :type (sdk/get-messages session2)))
+                   second-response
+                   (sdk/send-and-wait!
+                    session2
+                    {:prompt "Add 2 to your previous answer. Reply with just the number."}
+                    60000)
+                   second-content (get-in second-response [:data :content])]
+               (is (contains? history-types :copilot/user.message)
+                   "resumed history should include the original user message")
+               (is (contains? history-types :copilot/session.resume)
+                   "resumed history should record the resume event")
+               (is (and (string? second-content)
+                        (re-find #"\b4\b" second-content))
+                   "the resumed client should continue the conversation"))))
+        #(let [failures
+               (into []
+                     cat
+                     [(into []
+                            (mapcat (fn [session]
+                                      (disconnect-session-failures
+                                       :resumed-session
+                                       session)))
+                            (reverse @sessions))
+                      (when-let [client2 @resume-client]
+                        (stop-client-failures :resume-client client2))
+                      (when-let [client1 @owner-client]
+                        (stop-client-failures :owner-client client1))
+                      (delete-tree-failures :resume-home home)])]
+           (throw-cleanup-failures!
+            "Failed to clean up the TCP resume E2E resources"
+            failures)))))))
 
 (deftest ^:e2e test-e2e-multiple-sessions
   (when-e2e

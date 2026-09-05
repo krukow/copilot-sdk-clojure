@@ -3,6 +3,132 @@ All notable changes to this project will be documented in this file. This change
 
 ## [Unreleased]
 
+### Added (post-v1.0.13-preview.4 sync)
+- Added session-scoped `:github-token-provider` authentication for create,
+  resume, and join, with initial and refresh callbacks, core.async results,
+  atomic replacement on resume, and deterministic rollback and teardown.
+  Session configuration carries only an opaque registration ID; acquired
+  credentials cross the JSON-RPC connection to the CLI. Providers work over
+  managed stdio, SDK-managed TCP, and explicit `:cli-url` connections; only the
+  Clojure testing transport with caller-supplied streams is rejected. Explicit
+  `:cli-url` uses raw TCP, so nonlocal connections require a trusted runtime and
+  authenticated, protected transport. Each callback has a 120-second deadline
+  and is not retried by the SDK. Provider expiry must be an integer of at least
+  3,601 seconds.
+  ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412))
+- Added stable session options for mode-specific built-in skill allowlisting,
+  legacy versus elicitation `ask_user` variants, host-resolved feature flags,
+  and efficiency/balance/intelligence CAPI auto-routing tiers. Omitted optional
+  fields remain omitted, while explicit empty collections are preserved where
+  the Node SDK distinguishes them.
+  ([upstream PR #2410](https://github.com/github/copilot-sdk/pull/2410),
+  [upstream PR #2432](https://github.com/github/copilot-sdk/pull/2432),
+  [upstream PR #2437](https://github.com/github/copilot-sdk/pull/2437),
+  [upstream PR #2451](https://github.com/github/copilot-sdk/pull/2451))
+- Added managed bypass-policy values, experimental permission attribution
+  helpers and `:response-capability` forwarding, and curated the stable
+  `session.mode_notice_delivered`,
+  `model.call_finished`, and `subagent.configured` events with open idiomatic
+  payload specs. Assistant tool requests now expose hosted-program caller
+  attribution while preserving opaque argument keys. The experimental
+  response-capability field is excluded from stable parity certification.
+  ([upstream PR #2401](https://github.com/github/copilot-sdk/pull/2401),
+  [upstream PR #2409](https://github.com/github/copilot-sdk/pull/2409),
+  [upstream PR #2467](https://github.com/github/copilot-sdk/pull/2467))
+- Added stable event fields for output-token latency, compaction models, hook
+  parent tool calls, MCP server-wide approval capability, subagent execution and
+  model provenance, and shell-exit output paths. Experimental assistant
+  reasoning blocks remain generated wire evidence rather than a curated public
+  idiom field.
+  ([upstream PR #2401](https://github.com/github/copilot-sdk/pull/2401),
+  [upstream PR #2409](https://github.com/github/copilot-sdk/pull/2409),
+  [upstream PR #2467](https://github.com/github/copilot-sdk/pull/2467))
+
+### Changed (post-v1.0.13-preview.4 sync)
+- **BREAKING:** Wait and stream APIs now treat `session.idle` events whose wire
+  `mode` is the string `"autopilot"` as nonterminal turn boundaries (upstream
+  [PR #2409](https://github.com/github/copilot-sdk/pull/2409), commit
+  [`3d630a790`](https://github.com/github/copilot-sdk/commit/3d630a790)).
+- **BREAKING:** `:empty` client mode now disables runtime-bundled skills unless
+  explicitly allowlisted with `:included-builtin-skills`, matching upstream safe
+  defaults ([upstream PR #2410](https://github.com/github/copilot-sdk/pull/2410)).
+- **BREAKING (experimental):** Corrected permission decision source
+  `:judge-recommendation` / `"judge_recommendation"` to the pinned public schema's
+  `:assisted-approval` / `"assisted_approval"`.
+  ([upstream PR #2294](https://github.com/github/copilot-sdk/pull/2294))
+- **BREAKING:** `disconnect!` now destroys the runtime session before releasing
+  local resources. Definite runtime rejection leaves the local session connected
+  for retry. A timeout or interruption is ambiguous, so it is rethrown after
+  local teardown instead of leaving a potentially destroyed runtime session
+  registered locally. Concurrent disconnect callers join the same operation and
+  observe its identical success or failure. Lifecycle macros keep a body failure
+  primary and attach concurrent cleanup failures as suppressed exceptions;
+  client shutdown still force-releases local session resources.
+- Updated the runtime and schema pin to `1.0.83-1` and recertified the complete
+  stable Node SDK public surface through upstream commit
+  [`2980c7828d35754bfc2b334831efec309ab8a2eb`](https://github.com/github/copilot-sdk/commit/2980c7828d35754bfc2b334831efec309ab8a2eb).
+  Experimental Agent Factory additions and HydraFusion routing/phase events,
+  private runtime launch internals, generated-only RPCs, and language-specific
+  changes remain intentionally excluded. Stable HydraFusion handoff and
+  commit-start events remain internal.
+  ([upstream PR #2467](https://github.com/github/copilot-sdk/pull/2467))
+
+### Fixed (post-v1.0.13-preview.4 sync)
+- Generated wire specs now enforce referenced-object requirements, enums, and
+  closed-key contracts recursively while preserving open event data maps for
+  forward compatibility. Number schemas reject ratios and non-finite values,
+  and code generation remains within JVM method-size limits.
+- Curated idiom specs now validate recursive opaque JSON values, strict
+  `hook.end` errors, and finite non-negative timing fields. Empty tool-call IDs
+  remain valid where permitted by the pinned schema.
+- `::github-token-provider-result` now validates the token-provider result
+  discriminator and known payload fields while preserving extension fields on
+  both token and cancelled variants. `:expires-in` remains a strict integer
+  greater than `3600`.
+- Token-provider executor generations now fence teardown and reconnect races so
+  stale work cannot recreate a retired executor. Malformed results, callback
+  failures, and executor saturation emit only bounded, sanitized diagnostic
+  metadata.
+- Explicit `:cli-url` connections now reject `https://` rather than silently
+  downgrading the address to the SDK's plaintext TCP transport.
+- Create/resume setup now prepares locally owned resources transactionally.
+  Async local filesystem factory failures throw before a result channel is
+  returned when the session ID is known before the RPC; cloud create with a
+  server-assigned ID delivers a later factory failure through that channel.
+  Failed resumes restore the exact prior local registration, and cleanup
+  failures remain observable without replacing the primary failure.
+- TCP startup now waits for the complete server announcement, terminated by a
+  newline or stream exhaustion, before parsing its port, preventing multi-digit
+  ports from being truncated.
+- The commands example now avoids the runtime-reserved `/help` command.
+- Generated wire-key normalization now matches runtime normalization for
+  acronyms, separators, and leading underscores. Numeric schemas preserve
+  integer versus general-number predicates and emit inclusive and exclusive
+  bounds correctly.
+
+### Added (helper lifecycle)
+- **BREAKING:** `with-query-seq` and `query-seq!` now accept `:timeout-ms` and
+  default to a 60-second fixed deadline beginning after session creation. The
+  deadline covers send acknowledgement and sequence realization; expiry throws
+  `ExceptionInfo` with `{:type :query-timeout}`. Pass `:timeout-ms nil` to retain
+  unbounded waiting. Client startup and synchronous session creation are outside
+  the timeout budget.
+
+### Changed (helper lifecycle)
+- **BREAKING:** `query-chan` now emits hidden-session cleanup failures as tagged
+  `:copilot/session.error` maps, with the original failure at `[:data :cause]`,
+  instead of silently closing. Consumers must handle the additional tagged event
+  before channel closure.
+
+### Fixed (helper lifecycle)
+- Blocking, sequence, and channel helpers now deterministically own and release
+  only the sessions they create. Remote disconnect failures remain observable
+  while local resources for hidden sessions are still released.
+- Blocking `helpers/query` preserves its primary send failure and attaches a
+  concurrent hidden-session disconnect failure as suppressed. `query-chan`
+  logs cleanup failures when consumer cancellation has already closed its event
+  channel.
+
 ### Changed (upstream parity)
 - Recertified the complete stable Node SDK public surface through upstream
   commit

@@ -198,11 +198,11 @@
         (is (= "max" (:reasoningEffort wire)))
         (is (false? (:customAgentsLocalOnly wire)))))
 
-    (testing "invalid enum values fail closed"
+    (testing "invalid managed-policy and effort values fail closed"
       (is (not (s/valid? ::specs/session-config
                          (assoc-in config
                                    [:managed-settings :permissions :disable-bypass-permissions-mode]
-                                   :enabled))))
+                                   :policy/enabled))))
       (is (not (s/valid? ::specs/session-config
                          (assoc config :reasoning-effort "ultra")))))
 

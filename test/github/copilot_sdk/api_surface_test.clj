@@ -47,7 +47,16 @@
                                'github.copilot-sdk.client
                                :vars
                                'list-tools
-                               :experimental]))))
+                               :experimental])))
+      (doseq [namespace ['github.copilot-sdk
+                         'github.copilot-sdk.client]
+              helper ['attributed-permission-result?
+                      'attributed-permission-result]]
+        (is (true? (get-in live [:namespaces namespace :vars helper :experimental]))
+            (str namespace "/" helper " must remain experimental"))
+        (is (contains? (get-in live [:namespaces namespace :fdefs])
+                       (symbol (str namespace) (str helper)))
+            (str namespace "/" helper " must remain instrumented"))))
     (testing "no-doc vars remain outside the supported contract"
       (is (not (contains? (get-in live [:namespaces
                                         'github.copilot-sdk.factory
@@ -171,6 +180,32 @@
             {'present "Compiler-generated test artifact."})))
       (finally
         (remove-ns probe-ns-name)))))
+
+(deftest curated-spec-exclusions-fail-closed-when-stale
+  (testing "a missing spec key is stale"
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo
+         #"Stale spec key exclusion"
+         (#'surface/validate-named-spec-exclusions!
+          #{:github.copilot-sdk.specs/permission-response-capability}
+          {:github.copilot-sdk.specs/no-such-spec "Experimental placeholder."}))))
+  (testing "a blank reason is rejected"
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo
+         #"Spec key exclusion requires a reason"
+         (#'surface/validate-named-spec-exclusions!
+          #{:github.copilot-sdk.specs/permission-response-capability}
+          {:github.copilot-sdk.specs/permission-response-capability "   "}))))
+  (testing "a present, reasoned exclusion passes and is returned"
+    (let [exclusions {:github.copilot-sdk.specs/permission-response-capability
+                      "Experimental placeholder."}]
+      (is (= exclusions
+             (#'surface/validate-named-spec-exclusions!
+              #{:github.copilot-sdk.specs/permission-response-capability}
+              exclusions)))))
+  (testing "the excluded experimental key is absent from the live surface"
+    (is (not (contains? (set (#'surface/spec-keys))
+                        :github.copilot-sdk.specs/permission-response-capability)))))
 
 (deftest controlled-fdef-loading-restores-instrumentation-state
   (let [before (#'surface/instrumentation-state)]

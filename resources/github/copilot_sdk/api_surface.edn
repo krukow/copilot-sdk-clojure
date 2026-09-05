@@ -11,7 +11,7 @@
     <get-factory-run {:kind :fn, :arglists ([session run-id]), :experimental true}
     <get-factory-run-detail {:kind :fn, :arglists ([session run-id]), :experimental true}
     <get-factory-run-progress {:kind :fn, :arglists ([session run-id] [session run-id options]), :experimental true}
-    <handle-pending-permission-request! {:kind :fn, :arglists ([session opts])}
+    <handle-pending-permission-request! {:kind :fn, :arglists ([session opts]), :experimental true}
     <handle-pending-tool-call! {:kind :fn, :arglists ([session opts])}
     <list-factory-runs {:kind :fn, :arglists ([session]), :experimental true}
     <resume-factory! {:kind :fn, :arglists ([session run-id] [session run-id options]), :experimental true}
@@ -23,8 +23,8 @@
     abort! {:kind :fn, :arglists ([session])}
     approve-all {:kind :fn, :arglists ([request ctx])}
     assistant-events {:kind :value}
-    attributed-permission-result {:kind :fn, :arglists ([result decision-context])}
-    attributed-permission-result? {:kind :fn, :arglists ([result])}
+    attributed-permission-result {:kind :fn, :arglists ([result decision-context]), :experimental true}
+    attributed-permission-result? {:kind :fn, :arglists ([result]), :experimental true}
     cancel-factory-run! {:kind :fn, :arglists ([session run-id]), :experimental true}
     capabilities {:kind :fn, :arglists ([session])}
     client {:kind :fn, :arglists ([] [opts])}
@@ -57,7 +57,7 @@
     get-quota {:kind :fn, :arglists ([client]), :experimental true}
     get-session-metadata {:kind :fn, :arglists ([client session-id])}
     get-status {:kind :fn, :arglists ([client])}
-    handle-pending-permission-request! {:kind :fn, :arglists ([session opts])}
+    handle-pending-permission-request! {:kind :fn, :arglists ([session opts]), :experimental true}
     handle-pending-tool-call! {:kind :fn, :arglists ([session opts])}
     history-clear-context! {:kind :fn, :arglists ([session prompt]), :experimental true}
     input! {:kind :fn, :arglists ([session message] [session message opts])}
@@ -117,8 +117,8 @@
    {<create-session {:kind :fn, :arglists ([client config])}
     <resume-session {:kind :fn, :arglists ([client session-id config])}
     approve-all {:kind :fn, :arglists ([request ctx])}
-    attributed-permission-result {:kind :fn, :arglists ([result decision-context])}
-    attributed-permission-result? {:kind :fn, :arglists ([result])}
+    attributed-permission-result {:kind :fn, :arglists ([result decision-context]), :experimental true}
+    attributed-permission-result? {:kind :fn, :arglists ([result]), :experimental true}
     client {:kind :fn, :arglists ([] [opts])}
     connect-with-streams! {:kind :fn, :arglists ([client in out])}
     create-session {:kind :fn, :arglists ([client config])}
@@ -229,7 +229,7 @@
    {client-info {:kind :fn, :arglists ([])}
     query {:kind :fn, :arglists ([prompt & {:keys [client session timeout-ms], :or {timeout-ms 60000}}])}
     query-chan {:kind :fn, :arglists ([prompt & {:keys [client session buffer], :or {buffer 256}}])}
-    query-seq! {:kind :fn, :arglists ([prompt & {:keys [client session max-events], :or {max-events 256}}])}
+    query-seq! {:kind :fn, :arglists ([prompt & {:keys [client session max-events timeout-ms], :or {max-events 256, timeout-ms 60000}}])}
     shutdown! {:kind :fn, :arglists ([])}
     with-query-seq {:kind :macro, :arglists ([bindings & body])}}
    :fdefs
@@ -255,7 +255,7 @@
    {}}
   github.copilot-sdk.session
   {:vars
-   {<handle-pending-permission-request! {:kind :fn, :arglists ([session opts])}
+   {<handle-pending-permission-request! {:kind :fn, :arglists ([session opts]), :experimental true}
     <handle-pending-tool-call! {:kind :fn, :arglists ([session opts])}
     <send! {:kind :fn, :arglists ([session opts])}
     <send-and-wait! {:kind :fn, :arglists ([session opts])}
@@ -294,7 +294,7 @@
     handle-factory-execute! {:kind :fn, :arglists ([client session-id {:as params, :keys [name run-id execution-token]}])}
     handle-hooks-invoke! {:kind :fn, :arglists ([client session-id hook-type input])}
     handle-mcp-auth-request! {:kind :fn, :arglists ([client session-id request])}
-    handle-pending-permission-request! {:kind :fn, :arglists ([session {:as opts, :keys [request-id result]}])}
+    handle-pending-permission-request! {:kind :fn, :arglists ([session {:as opts, :keys [request-id result]}]), :experimental true}
     handle-pending-tool-call! {:kind :fn, :arglists ([session {:as opts, :keys [request-id result error]}])}
     handle-permission-request! {:kind :fn, :arglists ([client session-id request])}
     handle-provider-token-request! {:kind :fn, :arglists ([client session-id provider-name])}
@@ -467,6 +467,7 @@
     :github.copilot-sdk.specs/agent-skills
     :github.copilot-sdk.specs/agent-tool-names
     :github.copilot-sdk.specs/agent-tools
+    :github.copilot-sdk.specs/agent-type
     :github.copilot-sdk.specs/agents
     :github.copilot-sdk.specs/allow
     :github.copilot-sdk.specs/allowed-tools
@@ -479,6 +480,11 @@
     :github.copilot-sdk.specs/approval-key
     :github.copilot-sdk.specs/approved?
     :github.copilot-sdk.specs/ask
+    :github.copilot-sdk.specs/ask-user-variant
+    :github.copilot-sdk.specs/assistant-message-tool-request
+    :github.copilot-sdk.specs/assistant-message-tool-request-caller
+    :github.copilot-sdk.specs/assistant-message-tool-request-caller-type
+    :github.copilot-sdk.specs/assistant-message-tool-request-type
     :github.copilot-sdk.specs/assistant-usage-transport
     :github.copilot-sdk.specs/assistant.message-data
     :github.copilot-sdk.specs/assistant.message_delta-data
@@ -500,6 +506,7 @@
     :github.copilot-sdk.specs/auto-mode-switch-response
     :github.copilot-sdk.specs/auto-restart?
     :github.copilot-sdk.specs/auto-start?
+    :github.copilot-sdk.specs/auto-tier
     :github.copilot-sdk.specs/available-tools
     :github.copilot-sdk.specs/azure-api-version
     :github.copilot-sdk.specs/azure-options
@@ -510,6 +517,7 @@
     :github.copilot-sdk.specs/batch-size
     :github.copilot-sdk.specs/bearer-token
     :github.copilot-sdk.specs/bearer-token-provider
+    :github.copilot-sdk.specs/behavior-model-id
     :github.copilot-sdk.specs/binary-results-for-llm
     :github.copilot-sdk.specs/blob-attachment
     :github.copilot-sdk.specs/branch
@@ -520,6 +528,8 @@
     :github.copilot-sdk.specs/cache-price
     :github.copilot-sdk.specs/cache-read-tokens
     :github.copilot-sdk.specs/cache-write-tokens
+    :github.copilot-sdk.specs/caller-id
+    :github.copilot-sdk.specs/can-offer-server-wide-approval
     :github.copilot-sdk.specs/can-offer-session-approval
     :github.copilot-sdk.specs/can-persist-approval
     :github.copilot-sdk.specs/cancelled
@@ -549,6 +559,8 @@
     :github.copilot-sdk.specs/commands
     :github.copilot-sdk.specs/config-dir
     :github.copilot-sdk.specs/config-directory
+    :github.copilot-sdk.specs/configured-model-matches-actual
+    :github.copilot-sdk.specs/configured-model-preference
     :github.copilot-sdk.specs/connection-state
     :github.copilot-sdk.specs/content
     :github.copilot-sdk.specs/content-filter-triggered
@@ -640,6 +652,7 @@
     :github.copilot-sdk.specs/events-file-size-bytes
     :github.copilot-sdk.specs/excluded-builtin-agents
     :github.copilot-sdk.specs/excluded-tools
+    :github.copilot-sdk.specs/execution-mode
     :github.copilot-sdk.specs/exists
     :github.copilot-sdk.specs/exit-plan-mode-request
     :github.copilot-sdk.specs/exit-plan-mode-result
@@ -647,6 +660,8 @@
     :github.copilot-sdk.specs/exp-config-entry
     :github.copilot-sdk.specs/exp-flag-value
     :github.copilot-sdk.specs/exp-parameters
+    :github.copilot-sdk.specs/explicit-model-matches-preference
+    :github.copilot-sdk.specs/explicit-model-override
     :github.copilot-sdk.specs/exporter-type
     :github.copilot-sdk.specs/extension-id
     :github.copilot-sdk.specs/extension-identity
@@ -668,11 +683,13 @@
     :github.copilot-sdk.specs/factory-run-status
     :github.copilot-sdk.specs/factory.run_updated-data
     :github.copilot-sdk.specs/family
+    :github.copilot-sdk.specs/feature-flags
     :github.copilot-sdk.specs/features
     :github.copilot-sdk.specs/feedback
     :github.copilot-sdk.specs/file-or-directory-attachment
     :github.copilot-sdk.specs/file-path
     :github.copilot-sdk.specs/finish-reason
+    :github.copilot-sdk.specs/first-dispatched-model
     :github.copilot-sdk.specs/format
     :github.copilot-sdk.specs/git-root
     :github.copilot-sdk.specs/github-mcp-tool-config
@@ -681,11 +698,20 @@
     :github.copilot-sdk.specs/github-telemetry-event
     :github.copilot-sdk.specs/github-telemetry-notification
     :github.copilot-sdk.specs/github-token
+    :github.copilot-sdk.specs/github-token-acquire-reason
+    :github.copilot-sdk.specs/github-token-provider
+    :github.copilot-sdk.specs/github-token-provider-args
+    :github.copilot-sdk.specs/github-token-provider-result
     :github.copilot-sdk.specs/granted-environment-variables
     :github.copilot-sdk.specs/handled?
     :github.copilot-sdk.specs/head-commit
     :github.copilot-sdk.specs/headers
+    :github.copilot-sdk.specs/hook-end-error
+    :github.copilot-sdk.specs/hook-invocation-id
+    :github.copilot-sdk.specs/hook-type
+    :github.copilot-sdk.specs/hook.end-data
     :github.copilot-sdk.specs/hook.progress-data
+    :github.copilot-sdk.specs/hook.start-data
     :github.copilot-sdk.specs/hooks
     :github.copilot-sdk.specs/host
     :github.copilot-sdk.specs/host-type
@@ -694,6 +720,7 @@
     :github.copilot-sdk.specs/inbound-attachment
     :github.copilot-sdk.specs/inbound-attachments
     :github.copilot-sdk.specs/include-sub-agent-streaming-events?
+    :github.copilot-sdk.specs/included-builtin-skills
     :github.copilot-sdk.specs/infinite-sessions
     :github.copilot-sdk.specs/initial-cwd
     :github.copilot-sdk.specs/initial-message
@@ -706,6 +733,7 @@
     :github.copilot-sdk.specs/instant
     :github.copilot-sdk.specs/instruction-directories
     :github.copilot-sdk.specs/instructions
+    :github.copilot-sdk.specs/intention-summary
     :github.copilot-sdk.specs/inter-token-latency-ms
     :github.copilot-sdk.specs/interaction-id
     :github.copilot-sdk.specs/interaction-type
@@ -798,6 +826,7 @@
     :github.copilot-sdk.specs/model-policy
     :github.copilot-sdk.specs/model-supports
     :github.copilot-sdk.specs/model.call_failure-data
+    :github.copilot-sdk.specs/model.call_finished-data
     :github.copilot-sdk.specs/models
     :github.copilot-sdk.specs/modified-time
     :github.copilot-sdk.specs/multiplier
@@ -842,12 +871,14 @@
     :github.copilot-sdk.specs/output-directory
     :github.copilot-sdk.specs/output-price
     :github.copilot-sdk.specs/output-tokens
+    :github.copilot-sdk.specs/output-ttft-ms
     :github.copilot-sdk.specs/overage
     :github.copilot-sdk.specs/overage-allowed-with-exhausted-quota?
     :github.copilot-sdk.specs/overrides-built-in-tool
     :github.copilot-sdk.specs/owner
     :github.copilot-sdk.specs/parameters
     :github.copilot-sdk.specs/parent-id
+    :github.copilot-sdk.specs/parent-tool-call-id
     :github.copilot-sdk.specs/path
     :github.copilot-sdk.specs/payload
     :github.copilot-sdk.specs/permission-decision-context
@@ -925,6 +956,7 @@
     :github.copilot-sdk.specs/resolved-by-hook
     :github.copilot-sdk.specs/restricted
     :github.copilot-sdk.specs/result-type
+    :github.copilot-sdk.specs/resumable
     :github.copilot-sdk.specs/resume-session-config
     :github.copilot-sdk.specs/retry-after-seconds
     :github.copilot-sdk.specs/revision
@@ -956,6 +988,7 @@
     :github.copilot-sdk.specs/session-fs-handler
     :github.copilot-sdk.specs/session-fs-provider
     :github.copilot-sdk.specs/session-id
+    :github.copilot-sdk.specs/session-idle-mode
     :github.copilot-sdk.specs/session-idle-timeout-seconds
     :github.copilot-sdk.specs/session-limits
     :github.copilot-sdk.specs/session-list-filter
@@ -977,6 +1010,7 @@
     :github.copilot-sdk.specs/session.mcp_server_status_changed-data
     :github.copilot-sdk.specs/session.mcp_servers_loaded-data
     :github.copilot-sdk.specs/session.mode_changed-data
+    :github.copilot-sdk.specs/session.mode_notice_delivered-data
     :github.copilot-sdk.specs/session.model_change-data
     :github.copilot-sdk.specs/session.permissions_changed-data
     :github.copilot-sdk.specs/session.plan_changed-data
@@ -1020,7 +1054,9 @@
     :github.copilot-sdk.specs/stop-processing-queue?
     :github.copilot-sdk.specs/storage-mode
     :github.copilot-sdk.specs/streaming?
+    :github.copilot-sdk.specs/subagent-parent-id
     :github.copilot-sdk.specs/subagent.completed-data
+    :github.copilot-sdk.specs/subagent.configured-data
     :github.copilot-sdk.specs/subagent.failed-data
     :github.copilot-sdk.specs/subagent.started-data
     :github.copilot-sdk.specs/subject
@@ -1059,11 +1095,13 @@
     :github.copilot-sdk.specs/tool-name
     :github.copilot-sdk.specs/tool-parameters
     :github.copilot-sdk.specs/tool-references
+    :github.copilot-sdk.specs/tool-requests
     :github.copilot-sdk.specs/tool-result
     :github.copilot-sdk.specs/tool-result-object
     :github.copilot-sdk.specs/tool-search
     :github.copilot-sdk.specs/tool-telemetry
     :github.copilot-sdk.specs/tool-timeout-ms
+    :github.copilot-sdk.specs/tool-title
     :github.copilot-sdk.specs/tool.execution_complete-data
     :github.copilot-sdk.specs/tool.execution_progress-data
     :github.copilot-sdk.specs/tool.execution_start-data

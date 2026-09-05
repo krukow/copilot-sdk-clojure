@@ -621,7 +621,8 @@
   (options-valid? options
                   {:client ::helper-client
                    :session ::specs/session-config
-                   :max-events ::specs/max-events}))
+                   :max-events ::specs/max-events
+                   :timeout-ms ::specs/timeout-ms}))
 
 (defn- query-chan-options?
   [options]

@@ -555,6 +555,7 @@
       (is (= true (:customAgentsLocalOnly p)))
       (is (= false (:coauthorEnabled p)))
       (is (= false (:manageScheduleEnabled p)))
+      (is (= [] (:includedBuiltinSkills p)))
       (is (= [] (:installedPlugins p)))
       (is (string? (:sessionId p)) "session-id must accompany the patch"))))
 
@@ -567,7 +568,14 @@
       (is (= true (:coauthorEnabled p)) "caller true must win over default false")
       (is (= true (:customAgentsLocalOnly p)) "untouched flags keep their defaults")
       (is (= false (:manageScheduleEnabled p)))
+      (is (= [] (:includedBuiltinSkills p)))
       (is (= [] (:installedPlugins p)) "installedPlugins always forced to [] in :empty mode"))))
+
+(deftest test-empty-mode-options-update-built-in-skill-allowlist
+  (testing "empty mode preserves an explicit built-in skill allowlist"
+    (let [p (empty-mode-capture-options-update
+             {:included-builtin-skills ["search" "edit"]})]
+      (is (= ["search" "edit"] (:includedBuiltinSkills p))))))
 
 (deftest test-cli-mode-options-update-skipped-when-no-caller-flags
   (testing "CLI mode does NOT issue session.options.update when caller sets no flags"
@@ -599,6 +607,21 @@
       (is (not (contains? p :coauthorEnabled)))
       (is (not (contains? p :installedPlugins))
           "installedPlugins must NOT be forced in :copilot-cli mode"))))
+
+(deftest test-cli-mode-options-update-built-in-skill-allowlist
+  (testing "CLI mode forwards the built-in skill allowlist only when explicitly configured"
+    (let [seen (atom nil)
+          _ (mock/set-request-hook! *mock-server*
+                                    (fn [method params]
+                                      (when (= "session.options.update" method)
+                                        (reset! seen params))))
+          _ (sdk/create-session *test-client*
+                                {:on-permission-request sdk/approve-all
+                                 :included-builtin-skills []})
+          p @seen]
+      (is (= [] (:includedBuiltinSkills p)))
+      (is (not (contains? p :installedPlugins)))
+      (is (not (contains? p :skipCustomInstructions))))))
 
 (deftest test-empty-mode-options-update-async-path
   (testing "async <create-session also issues session.options.update with mode defaults"
@@ -634,8 +657,10 @@
   (testing "options.update RPC failure cleans up session (disconnect + remove) and rethrows"
     (let [server (mock/create-mock-server)
           _ (mock/start-mock-server! server)
+          requests (atom [])
           _ (mock/set-request-hook! server
                                     (fn [method _params]
+                                      (swap! requests conj method)
                                       (when (= "session.options.update" method)
                                         (throw (ex-info "Simulated options.update failure"
                                                         {:code -32603})))))
@@ -658,6 +683,8 @@
         ;; from its in-memory registry.
         (is (empty? (:sessions @(:state client)))
             "failed session must be removed from in-memory registry")
+        (is (= 1 (count (filter #{"session.destroy"} @requests)))
+            "failed setup must destroy the runtime session exactly once")
         (finally
           (try (sdk/stop! client) (catch Exception _))
           (mock/stop-mock-server! server))))))
@@ -666,8 +693,10 @@
   (testing "async <create-session: options.update failure cleans up session and yields Throwable"
     (let [server (mock/create-mock-server)
           _ (mock/start-mock-server! server)
+          requests (atom [])
           _ (mock/set-request-hook! server
                                     (fn [method _params]
+                                      (swap! requests conj method)
                                       (when (= "session.options.update" method)
                                         (throw (ex-info "Simulated options.update failure"
                                                         {:code -32603})))))
@@ -687,6 +716,8 @@
               "exception message should mention options.update"))
         (is (empty? (:sessions @(:state client)))
             "failed session must be removed from in-memory registry (async path)")
+        (is (= 1 (count (filter #{"session.destroy"} @requests)))
+            "failed async setup must destroy the runtime session exactly once")
         (finally
           (try (sdk/stop! client) (catch Exception _))
           (mock/stop-mock-server! server))))))

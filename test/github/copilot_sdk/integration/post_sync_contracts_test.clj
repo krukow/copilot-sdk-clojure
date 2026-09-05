@@ -593,3 +593,20 @@
                                  :include-sub-agent-streaming-events? false})
           resume-params (get @seen "session.resume")]
       (is (false? (:includeSubAgentStreamingEvents resume-params))))))
+
+(deftest test-github-token-provider-result-open-contract
+  (testing ":cancelled result accepts extension fields"
+    (is (s/valid? :github.copilot-sdk.specs/github-token-provider-result
+                  {:kind :cancelled}))
+    (is (s/valid? :github.copilot-sdk.specs/github-token-provider-result
+                  {:kind :cancelled :reason :expired})))
+
+  (testing ":token result validates known fields and accepts extension fields"
+    (is (s/valid? :github.copilot-sdk.specs/github-token-provider-result
+                  {:kind :token :access-token "token" :expires-in 3601}))
+    (is (s/valid? :github.copilot-sdk.specs/github-token-provider-result
+                  {:kind :token :access-token "token" :expires-in 3601
+                   :token-type "Bearer"}))
+    (is (s/valid? :github.copilot-sdk.specs/github-token-provider-result
+                  {:kind :token :access-token "token" :expires-in 3601
+                   :account-label "enterprise"}))))

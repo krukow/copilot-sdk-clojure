@@ -222,8 +222,8 @@
            :success true}
     :field :output
     :wire-field :output
-    :object-key-path [:snake-key]
-    :expected-key :snake-key}])
+    :object-key-path [:snake_key]
+    :expected-key :snake_key}])
 
 (deftest opaque-json-event-contracts
   (doseq [{:keys [event-type spec base field wire-field object-key-path expected-key]}

@@ -1,14 +1,13 @@
 (ns github.copilot-sdk.integration.stable-sync-cc0438d-test
   "Executable certification for the post-1.0.12-preview.0 upstream delta."
-  (:require [clojure.data.json :as json]
-            [clojure.edn :as edn]
+  (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as sh]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]])
-  (:import (java.math BigInteger)
-           (java.nio.file Files Paths)
-           (java.security MessageDigest)))
+  (:import [java.math BigInteger]
+           [java.nio.file Files]
+           [java.security MessageDigest]))
 
 (def ^:private report-resource
   "resources/stable_upstream_delta_cc0438d.edn")
@@ -49,17 +48,56 @@
          (remove str/blank?)
          vec)))
 
-(defn- sha256-file
-  [path]
-  (let [digest (MessageDigest/getInstance "SHA-256")
-        bytes (Files/readAllBytes (Paths/get path (make-array String 0)))]
-    (format "%064x" (BigInteger. 1 (.digest digest bytes)))))
-
 (defn- evidence-references
   [report]
   (set (concat
         (mapcat :evidence (:ported-internal-deltas report))
         (mapcat :evidence (:intentional-exclusions report)))))
+
+(defn- sha256-file
+  [file]
+  (let [digest (.digest (MessageDigest/getInstance "SHA-256")
+                        (Files/readAllBytes (.toPath file)))]
+    (format "%064x" (BigInteger. 1 digest))))
+
+(defn- run-command!
+  [directory & command]
+  (let [{:keys [exit out err]}
+        (apply sh/sh (concat command [:dir directory]))]
+    (when-not (zero? exit)
+      (throw (ex-info "Historical schema artifact command failed"
+                      {:command command
+                       :exit exit
+                       :stdout out
+                       :stderr err})))
+    (str/trim out)))
+
+(defn- delete-tree!
+  [root]
+  (when (.exists root)
+    (doseq [file (reverse (file-seq root))]
+      (io/delete-file file))))
+
+(defn- published-schema-hashes
+  [{:keys [package version schemas]}]
+  (let [temp-dir (.toFile
+                  (Files/createTempDirectory
+                   "copilot-sdk-historical-schema-"
+                   (make-array java.nio.file.attribute.FileAttribute 0)))
+        directory (.getCanonicalPath temp-dir)]
+    (try
+      (let [tarball-name
+            (run-command! directory
+                          "npm" "pack" "--silent"
+                          (str package "@" version))
+            tarball (.getCanonicalPath (io/file temp-dir tarball-name))]
+        (run-command! directory "tar" "-xzf" tarball)
+        (into {}
+              (map (fn [entry]
+                     [entry (sha256-file (io/file temp-dir entry))]))
+              (keys schemas)))
+      (finally
+        (delete-tree! temp-dir)))))
 
 (deftest upstream-range-and-classification-are-exact
   (let [{:keys [base target exact-commits classified-files]} (read-report)
@@ -102,27 +140,20 @@
             (is (zero? exit))
             (is (str/includes? out symbol))))))))
 
-(deftest current-runtime-schema-is-exact
-  (let [{:keys [schema version]} (read-report)
-        api-schema (json/read-str (slurp "schemas/api.schema.json"))
-        definitions (get api-schema "definitions")
-        account-login (get definitions "AccountLoginRequest")
-        permission-mode-source (get definitions "PermissionModeSource")
-        approve-all-source (get definitions "PermissionsSetApproveAllSource")]
-    (is (= (:runtime-pin schema)
-           (str/trim (slurp ".copilot-schema-version"))))
-    (is (= (get-in schema [:api :sha256])
-           (sha256-file "schemas/api.schema.json")))
-    (is (= (get-in schema [:session-events :sha256])
-           (sha256-file "schemas/session-events.schema.json")))
-    (is (= #{"host" "token"} (set (get account-login "required"))))
-    (is (contains? (get account-login "properties") "login"))
-    (is (= false (get account-login "additionalProperties")))
-    (is (= "experimental" (get permission-mode-source "stability")))
-    (is (contains? (set (get permission-mode-source "enum"))
-                   "user_setting"))
-    (is (contains? (set (get approve-all-source "enum"))
-                   "user_setting"))
+(deftest historical-runtime-contract-remains-represented
+  (let [{:keys [schema published-schema-artifact version]} (read-report)]
+    (is (= "1.0.81-6" (:runtime-pin schema)))
+    (is (= "@github/copilot/1.0.81-6" (get-in schema [:api :source])))
+    (is (= "@github/copilot/1.0.81-6"
+           (get-in schema [:session-events :source])))
+    (is (= "603b014acb7a5c93a4b3c1580394f301eb60453e516eef15e47cbb6522bad558"
+           (get-in schema [:api :sha256])))
+    (is (= "9fd414f5020c317a234da6d7a06a4d0ef02ddad227ddc9962dced49302e5e8ec"
+           (get-in schema [:session-events :sha256])))
+    (when upstream-validation-enabled?
+      (is (= (:schemas published-schema-artifact)
+             (published-schema-hashes published-schema-artifact))
+          "recorded historical hashes must match the published npm artifact"))
     (is (= {:sdk "1.0.11.0"
             :changed? false
             :release-required? false}

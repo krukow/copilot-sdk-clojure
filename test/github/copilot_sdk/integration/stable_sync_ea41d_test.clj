@@ -46,9 +46,9 @@
                 :version "^1.0.81-5"}
                (get-in report [:upstream :node-runtime-dependency])))
         (is (= {"api.schema.json"
-               "6bb6cd3e01b6d59b8b9f83740e3d1e90fda13f70f458dca24ebdac6c7941c464"
-               "session-events.schema.json"
-               "9fd414f5020c317a234da6d7a06a4d0ef02ddad227ddc9962dced49302e5e8ec"}
+                "6bb6cd3e01b6d59b8b9f83740e3d1e90fda13f70f458dca24ebdac6c7941c464"
+                "session-events.schema.json"
+                "9fd414f5020c317a234da6d7a06a4d0ef02ddad227ddc9962dced49302e5e8ec"}
                (get-in report [:upstream :schema-sha256])))
         (is (= (:stable-delta-ids report)
                (set (map :id stable-deltas))))
@@ -78,9 +78,9 @@
                            (not (str/blank? symbol))))
                     source-symbols))
         (is (every? (fn [[_ {:keys [file symbol]}]]
-                     (and (= "schemas/session-events.schema.json" file)
-                          (string? symbol)
-                          (not (str/blank? symbol))))
+                      (and (= "schemas/session-events.schema.json" file)
+                           (string? symbol)
+                           (not (str/blank? symbol))))
                     runtime-schema-symbols))
         (is (= #{"525866c9379c525f405086d32b82da338a353ecf"
                  "0c599433cc3759264503c2e96a09bc7670b63a72"
@@ -158,16 +158,16 @@
                    :agent-description "Performs delegated work"
                    :factory-run-id "run-1"}))
     (is (not (s/valid? :github.copilot-sdk.specs/subagent.started-data
-                      {:tool-call-id "tool-1"
-                       :agent-name "worker"
-                       :agent-display-name "Worker"
-                       :factory-run-id "run-1"})))
+                       {:tool-call-id "tool-1"
+                        :agent-name "worker"
+                        :agent-display-name "Worker"
+                        :factory-run-id "run-1"})))
     (is (not (s/valid? :github.copilot-sdk.specs/subagent.started-data
-                      {:tool-call-id "tool-1"
-                       :agent-name "worker"
-                       :agent-display-name "Worker"
-                       :agent-description "Performs delegated work"
-                       :factory-run-id 1}))))
+                       {:tool-call-id "tool-1"
+                        :agent-name "worker"
+                        :agent-display-name "Worker"
+                        :agent-description "Performs delegated work"
+                        :factory-run-id 1}))))
 
   (testing "telemetry and host-integration additions"
     (is (s/valid? :github.copilot-sdk.specs/model.call_failure-data
@@ -191,13 +191,13 @@
                                :status "completed"
                                :display-name 42}})))
     (doseq [kind [{:type "agent_idle"
-                  :agent-id "agent-2"
-                  :agent-type "explore"
-                  :display-name "Researcher"}
-                 {:type "new_inbox_message"
-                  :entry-id "entry-1"
-                  :sender-name "Worker"
-                  :sender-type "task"
+                   :agent-id "agent-2"
+                   :agent-type "explore"
+                   :display-name "Researcher"}
+                  {:type "new_inbox_message"
+                   :entry-id "entry-1"
+                   :sender-name "Worker"
+                   :sender-type "task"
                    :summary "New result"}
                   {:type "shell_completed"
                    :shell-id "shell-1"
@@ -232,7 +232,7 @@
                    :consumed-nano-aiu 200}
                   {:type "future_runtime_kind"}]]
       (is (not (s/valid? :github.copilot-sdk.specs/system.notification-data
-                        {:content "notification" :kind kind}))))
+                         {:content "notification" :kind kind}))))
     (is (s/valid? :github.copilot-sdk.specs/external_tool.requested-data
                   {:request-id "request-1"
                    :session-id "session-1"
@@ -288,17 +288,17 @@
   (let [event-schema (read-schema "schemas/session-events.schema.json")
         api-schema (read-schema "schemas/api.schema.json")]
     (doseq [definition [:PermissionApproved
-                       :PermissionApprovedForSession
-                       :PermissionApprovedForLocation]]
+                        :PermissionApprovedForSession
+                        :PermissionApprovedForLocation]]
       (is (= {:type "boolean"}
              (select-keys
               (get-in event-schema
                       [:definitions definition :properties
-                      :managedApprovalHandled])
+                       :managedApprovalHandled])
               [:type]))))
     (doseq [definition [:PermissionDecisionApproveOnce
-                       :PermissionDecisionApproveForSession
-                       :PermissionDecisionApproveForLocation]]
+                        :PermissionDecisionApproveForSession
+                        :PermissionDecisionApproveForLocation]]
       (is (not (contains?
                 (get-in api-schema [:definitions definition :properties])
                 :managedApprovalHandled))))))

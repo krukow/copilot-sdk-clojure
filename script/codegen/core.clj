@@ -43,8 +43,9 @@
 (defn wire-key->kebab
   "Transform a wire JSON key to a kebab-case Clojure name part.
    Rules:
-   - Insert `-` between a lowercase letter and an uppercase letter (camelCase → kebab).
-   - Replace `_` with `-` (snake_case → kebab).
+   - Preserve acronym word boundaries (`URLValue` → `url-value`).
+   - Insert `-` between a lowercase letter or digit and an uppercase letter.
+   - Collapse separators and strip them from the edges.
    - Lowercase the result.
    Examples:
      `sessionId`     → `session-id`
@@ -53,8 +54,10 @@
      `parentId`      → `parent-id`"
   [s]
   (-> s
+      (str/replace #"([A-Z]+)([A-Z][a-z])" "$1-$2")
       (str/replace #"([a-z0-9])([A-Z])" "$1-$2")
-      (str/replace #"_" "-")
+      (str/replace #"[_\s-]+" "-")
+      (str/replace #"^-+|-+$" "")
       str/lower-case))
 
 (defn wire-key->kw
@@ -96,12 +99,16 @@
 (defn write-clj!
   "Write `forms` (a sequence of forms) to `path` with a generated-file header."
   [path forms]
-  (let [sw (java.io.StringWriter.)]
+  (let [sw (java.io.StringWriter.)
+        form-strings
+        (mapv
+         (fn [form]
+           (binding [*print-meta* true]
+             (pr-str form)))
+         forms)]
     (.write sw header)
     (.write sw "\n")
-    (doseq [f forms]
-      (binding [*print-meta* true]
-        (.write sw (pr-str f)))
-      (.write sw "\n\n"))
+    (.write sw (str/join "\n\n" form-strings))
+    (.write sw "\n")
     (io/make-parents path)
     (spit path (.toString sw))))

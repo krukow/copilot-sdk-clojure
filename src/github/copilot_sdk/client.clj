@@ -1,11 +1,13 @@
 (ns github.copilot-sdk.client
   "CopilotClient - manages connection to the Copilot CLI server."
   (:require [clojure.core.async :as async :refer [go go-loop <! >! >!! chan close!]]
+            [clojure.core.async.impl.protocols :as async-protocols]
             [clojure.spec.alpha :as s]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.data.json :as json]
             [github.copilot-sdk.factory :as factory]
+            [github.copilot-sdk.github-token-provider :as token-provider]
             [github.copilot-sdk.protocol :as proto]
             [github.copilot-sdk.process :as proc]
             [github.copilot-sdk.specs :as specs]
@@ -14,14 +16,28 @@
             [github.copilot-sdk.teardown :as td]
             [github.copilot-sdk.logging :as log])
   (:import [java.io BufferedInputStream]
-           [java.net Socket]
-           [java.util.concurrent LinkedBlockingQueue]))
+           [java.net InetAddress Socket]
+           [java.util.concurrent LinkedBlockingQueue RejectedExecutionException
+            FutureTask ThreadFactory ThreadPoolExecutor ThreadPoolExecutor$AbortPolicy
+            TimeUnit]
+           [java.util.concurrent.atomic AtomicLong]))
 
 (def ^:private sdk-protocol-version-max 3)
 ;; Upstream PR #1378 raised the minimum protocol version to 3 by removing
 ;; the v2 back-compat shims (the `tool.call` and `permission.request`
 ;; server→client RPCs). Servers reporting a version below 3 are now rejected.
 (def ^:private sdk-protocol-version-min 3)
+
+(def ^:private github-token-provider-thread-count 4)
+(def ^:private github-token-provider-queue-size 64)
+(def ^:private github-token-provider-shutdown-timeout-ms 1000)
+(def ^:private github-token-provider-saturation-count-max 1000000)
+(def ^:dynamic ^:private github-token-provider-timeout-ms 120000)
+(def ^:private github-token-provider-reasons
+  {"initial" :initial
+   :initial :initial
+   "refresh" :refresh
+   :refresh :refresh})
 
 (defn- get-trace-context
   "Call the user-provided trace context provider. Returns {} when no provider
@@ -41,7 +57,12 @@
 (defn- parse-cli-url
   "Parse CLI URL into {:host :port}."
   [url]
-  (let [clean (str/replace url #"^https?://" "")]
+  (when (re-find #"(?i)^https://" url)
+    (throw
+     (ex-info
+      "https:// cli-url is not supported by the plaintext TCP transport"
+      {:url url})))
+  (let [clean (str/replace url #"(?i)^http://" "")]
     (if (re-matches #"\d+" clean)
       ;; Port only
       (let [port (parse-long clean)]
@@ -49,14 +70,52 @@
           (throw (ex-info "Invalid port in cli-url" {:url url :port port})))
         {:host "localhost" :port port})
       ;; host:port
-      (let [[host port-str] (str/split clean #":" 2)]
-        (when (or (str/blank? port-str) (not (re-matches #"-?\d+" port-str)))
+      (let [[_ bracketed-host bracketed-port]
+            (re-matches #"^\[([^\]]+)\]:(-?\d+)$" clean)
+            [_ plain-host plain-port]
+            (when-not bracketed-host
+              (re-matches #"^([^:]*):(-?\d+)$" clean))
+            host (or bracketed-host plain-host)
+            port-str (or bracketed-port plain-port)]
+        (when (or (nil? host) (str/blank? port-str))
           (throw (ex-info "Invalid cli-url format" {:url url})))
         (let [port (parse-long port-str)]
           (when (or (nil? port) (<= port 0) (> port 65535))
             (throw (ex-info "Invalid port in cli-url" {:url url :port port})))
           {:host (if (str/blank? host) "localhost" host)
            :port port})))))
+
+(defn- loopback-host?
+  [host]
+  (or (= "localhost" (str/lower-case host))
+      (and (or (re-matches #"(?:\d+\.)+\d+" host)
+               (str/includes? host ":"))
+           (try
+             (.isLoopbackAddress (InetAddress/getByName host))
+             (catch Exception _
+               false)))))
+
+(defn- ensure-github-token-provider-transport!
+  [client config]
+  (when (:github-token-provider config)
+    (cond
+      (:caller-supplied-streams? @(:state client))
+      (throw
+       (ex-info
+        (str ":github-token-provider cannot be used with caller-supplied "
+             "testing streams")
+        {:type :github-token-provider-unsafe-transport
+         :transport :caller-supplied-streams}))
+
+      (and (some? (get-in client [:options :cli-url]))
+           (not (loopback-host? (:actual-host client))))
+      (throw
+       (ex-info
+        (str ":github-token-provider cannot be used with an explicit "
+             "non-loopback TCP :cli-url")
+        {:type :github-token-provider-unsafe-transport
+         :transport :explicit-non-loopback-tcp
+         :host (:actual-host client)})))))
 
 (defn- mask-secret
   "Replace `v` with \"***\" only when it is a non-blank string (i.e. an actual
@@ -194,24 +253,31 @@
 (defn- initial-state
   "Create initial client state."
   [port]
-  {:status :disconnected
-   :connection nil           ; protocol state (when connected)
-   :connection-io nil        ; protocol/Connection record (IO resources)
-   :process nil
-   :socket nil
-   :sessions {}              ; session state by session-id
-   :session-io {}            ; session IO resources by session-id
-   :actual-port port
-   :router-ch nil
-   :router-queue nil
-   :router-thread nil
-   :router-running? false
-   :stopping? false
-   :models-cache nil         ; nil, promise, or vector of models (cleared on stop)
-   :lifecycle-handlers {}
-   :lifecycle-ch nil         ; serial dispatch channel for lifecycle handlers
-   :stderr-buffer nil         ; atom of recent stderr lines (for error context)
-   :negotiated-protocol-version 0})
+  (assoc-in
+   {:status :disconnected
+    :connection nil           ; protocol state (when connected)
+    :connection-io nil        ; protocol/Connection record (IO resources)
+    :process nil
+    :socket nil
+    :sessions {}              ; session state by session-id
+    :session-io {}            ; session IO resources by session-id
+    :session-setups {}        ; active setup claim by session-id
+    :disconnecting-session-ids #{}
+    :session-disconnects {}    ; session-id -> shared disconnect completion promise
+    :actual-port port
+    :router-ch nil
+    :router-queue nil
+    :router-thread nil
+    :router-running? false
+    :caller-supplied-streams? false
+    :stopping? false
+    :models-cache nil         ; nil, promise, or vector of models (cleared on stop)
+    :lifecycle-handlers {}
+    :lifecycle-ch nil         ; serial dispatch channel for lifecycle handlers
+    :stderr-buffer nil         ; atom of recent stderr lines (for error context)
+    :negotiated-protocol-version 0}
+   token-provider/runtime-path
+   (token-provider/initial-state)))
 
 (defn client
   "Create a new CopilotClient.
@@ -421,6 +487,9 @@
 (declare stop!)
 (declare start!)
 (declare force-stop!)
+
+(declare purge-all-github-token-provider-resources!)
+(declare release-github-token-provider-runtime!)
 (declare maybe-reconnect!)
 (declare negotiated-protocol-version)
 
@@ -817,6 +886,11 @@
           (recur))
         (do
           (log/debug "Notification channel closed")
+          (purge-all-github-token-provider-resources! client)
+          (async/thread
+            (doseq [failure (release-github-token-provider-runtime! client)]
+              (log/warn failure
+                        "GitHub token provider cleanup failed after notification EOF")))
           (maybe-reconnect! client "connection-closed"))))))
 
 (defn notifications
@@ -905,6 +979,543 @@
   [v]
   (doto (chan 1) (async/put! v) (async/close!)))
 
+(defn- config-validation-message
+  [base-message config]
+  (if (util/github-token-auth-conflict? config)
+    (str base-message
+         ": :github-token and :github-token-provider are mutually exclusive")
+    base-message))
+
+(defn- register-github-token-provider!
+  [client provider session-id]
+  (when provider
+    (let [registration-id (str (java.util.UUID/randomUUID))
+          state-atom (:state client)
+          registration {:provider provider
+                        :session-id session-id
+                        :committed? false}]
+      (loop []
+        (let [state @state-atom]
+          (when (:stopping? state)
+            (throw
+             (ex-info "Client is stopping; cannot register GitHub token provider"
+                      {:type :client-stopping
+                       :session-id session-id})))
+          (if (compare-and-set!
+               state-atom
+               state
+               (assoc-in
+                state
+                (token-provider/registration-path registration-id)
+                registration))
+            registration-id
+            (recur)))))))
+
+(defn- register-session-github-token-provider
+  [client config session-id]
+  (let [registration-id
+        (register-github-token-provider!
+         client (:github-token-provider config) session-id)]
+    [(cond-> config
+       registration-id
+       (assoc :github-token-provider-registration-id registration-id))
+     registration-id]))
+
+(defn- assign-github-token-provider!
+  [client registration-id session-id]
+  (when registration-id
+    (swap! (:state client)
+           (fn [state]
+             (if (get-in
+                  state
+                  (token-provider/registration-path registration-id))
+               (assoc-in state
+                         (conj
+                          (token-provider/registration-path
+                           registration-id)
+                          :session-id)
+                         session-id)
+               state)))))
+
+(defn- purge-all-github-token-provider-resources!
+  [client]
+  (let [[old-state new-state]
+        (swap-vals! (:state client)
+                    token-provider/purge-all-resources)]
+    (token-provider/close-removed-invocations!
+     old-state new-state)))
+
+(defn- commit-github-token-provider!
+  [client session-id registration-id]
+  (let [[old-state new-state]
+        (swap-vals!
+         (:state client)
+         (fn [state]
+           (let [purged
+                 (token-provider/purge-session-resources
+                  state session-id :committed-only)]
+             (if-let [registration
+                      (and registration-id
+                           (get-in
+                            purged
+                            (token-provider/registration-path
+                             registration-id)))]
+               (assoc-in
+                purged
+                (token-provider/registration-path registration-id)
+                (assoc registration
+                       :session-id session-id
+                       :committed? true))
+               purged))))]
+    (token-provider/close-removed-invocations!
+     old-state new-state)))
+
+(defn- rollback-github-token-provider!
+  [client registration-id]
+  (when registration-id
+    (let [[old-state new-state]
+          (swap-vals!
+           (:state client)
+           token-provider/purge-registration
+           registration-id)]
+      (token-provider/close-removed-invocations!
+       old-state new-state))))
+
+(defn- create-github-token-provider-executor
+  []
+  (let [thread-sequence (AtomicLong.)
+        thread-factory
+        (reify ThreadFactory
+          (newThread [_ task]
+            (doto
+             (Thread. ^Runnable task
+                      (str "copilot-github-token-provider-"
+                           (.incrementAndGet thread-sequence)))
+              (.setDaemon true))))]
+    (ThreadPoolExecutor.
+     github-token-provider-thread-count
+     github-token-provider-thread-count
+     0
+     TimeUnit/MILLISECONDS
+     (LinkedBlockingQueue. github-token-provider-queue-size)
+     thread-factory
+     (ThreadPoolExecutor$AbortPolicy.))))
+
+(defn- github-token-provider-executor!
+  [client generation]
+  (let [state-atom (:state client)]
+    (loop []
+      (let [state @state-atom
+            ^ThreadPoolExecutor executor
+            (get-in state token-provider/executor-path)]
+        (cond
+          (not= generation (get-in state token-provider/generation-path))
+          (do
+            (log/debug
+             "GitHub token provider runtime generation retired before execution"
+             {:invocation-generation generation
+              :runtime-generation
+              (get-in state token-provider/generation-path)})
+            {:status :stale})
+
+          executor
+          (cond
+            (.isTerminated executor)
+            (do
+              (compare-and-set!
+               state-atom
+               state
+               (assoc-in state
+                         token-provider/executor-path
+                         nil))
+              (recur))
+
+            (.isShutdown executor)
+            (do
+              (log/warn
+               "GitHub token provider executor is still terminating"
+               {:invocation-generation generation})
+              {:status :unavailable})
+
+            :else
+            {:status :ready :executor executor})
+
+          :else
+          (let [executor (create-github-token-provider-executor)
+                next-state
+                (assoc-in state
+                          token-provider/executor-path
+                          executor)]
+            (if (compare-and-set! state-atom state next-state)
+              {:status :ready :executor executor}
+              (do
+                (.shutdownNow ^ThreadPoolExecutor executor)
+                (recur)))))))))
+
+(defn- release-github-token-provider-runtime!
+  [client]
+  (let [[old-state new-state]
+        (swap-vals!
+         (:state client)
+         (fn [state]
+           (-> (token-provider/purge-all-resources state)
+               (assoc-in
+                token-provider/saturation-count-path
+                0)
+               (update-in
+                token-provider/generation-path
+                inc))))
+        executor
+        (get-in old-state token-provider/executor-path)]
+    (token-provider/close-removed-invocations!
+     old-state new-state)
+    (if-not executor
+      []
+      (try
+        (.shutdownNow ^ThreadPoolExecutor executor)
+        (if (.awaitTermination
+             ^ThreadPoolExecutor executor
+             github-token-provider-shutdown-timeout-ms
+             TimeUnit/MILLISECONDS)
+          (do
+            (swap! (:state client)
+                   (fn [state]
+                     (if (identical?
+                          executor
+                          (get-in state token-provider/executor-path))
+                       (assoc-in state
+                                 token-provider/executor-path
+                                 nil)
+                       state)))
+            [])
+          [(td/failure
+            {:operation :terminate
+             :resource :github-token-provider-executor
+             :timeout-ms github-token-provider-shutdown-timeout-ms})])
+        (catch InterruptedException failure
+          (.interrupt (Thread/currentThread))
+          [(td/failure
+            {:operation :terminate
+             :resource :github-token-provider-executor
+             :stage :await-termination
+             :timeout-ms github-token-provider-shutdown-timeout-ms}
+            failure)])
+        (catch Exception failure
+          [(td/failure
+            {:operation :shutdown
+             :resource :github-token-provider-executor}
+            failure)])))))
+
+(defn- begin-github-token-provider-invocation!
+  [client {:keys [registration-id host session-id reason] :as request}]
+  (let [invocation-id (str (java.util.UUID/randomUUID))]
+    (loop []
+      (let [state-atom (:state client)
+            state @state-atom
+            {:keys [provider] :as registration}
+            (get-in
+             state
+             (token-provider/registration-path registration-id))]
+        (when-not registration
+          (throw
+           (ex-info
+            "No GitHub token provider registered"
+            {:type :github-token-provider-registration-not-found
+             :registration-id registration-id})))
+        (let [registered-session-id (:session-id registration)
+              supplied-session-id? (contains? request :session-id)
+              effective-session-id (if supplied-session-id?
+                                     session-id
+                                     registered-session-id)
+              args (cond-> {:host host
+                            :reason (get github-token-provider-reasons
+                                         reason
+                                         ::invalid-reason)}
+                     (or supplied-session-id? registered-session-id)
+                     (assoc :session-id effective-session-id))]
+          (when-not (s/valid? ::specs/github-token-provider-args args)
+            (throw
+             (ex-info
+              "Invalid GitHub token provider request"
+              {:type :github-token-provider-invalid-request
+               :registration-id registration-id
+               :session-id (or registered-session-id
+                               effective-session-id)})))
+          (when (and registered-session-id
+                     supplied-session-id?
+                     (not= registered-session-id session-id))
+            (throw
+             (ex-info
+              "GitHub token provider request session does not match registration"
+              {:type :github-token-provider-session-mismatch
+               :registration-id registration-id
+               :session-id registered-session-id})))
+          (let [invocation
+                (token-provider/invocation
+                 {:registration-id registration-id
+                  :session-id effective-session-id
+                  :host host
+                  :reason (:reason args)
+                  :generation
+                  (get-in state token-provider/generation-path)})
+                next-state
+                (assoc-in state
+                          (token-provider/invocation-path invocation-id)
+                          invocation)]
+            (if (compare-and-set! state-atom state next-state)
+              {:args args
+               :provider provider
+               :invocation-id invocation-id
+               :invocation invocation}
+              (recur))))))))
+
+(defn- record-github-token-provider-saturation!
+  [client generation]
+  (let [[old-state new-state]
+        (swap-vals!
+         (:state client)
+         (fn [state]
+           (if (= generation
+                  (get-in state token-provider/generation-path))
+             (update-in state
+                        token-provider/saturation-count-path
+                        #(min github-token-provider-saturation-count-max
+                              (inc %)))
+             state)))]
+    (if (= generation
+           (get-in old-state token-provider/generation-path))
+      (get-in new-state token-provider/saturation-count-path)
+      (do
+        (log/debug
+         "GitHub token provider saturation raced with runtime retirement"
+         {:invocation-generation generation
+          :runtime-generation
+          (get-in old-state token-provider/generation-path)})
+        nil))))
+
+(defn- github-token-provider-log-metadata
+  [invocation]
+  (select-keys invocation [:registration-id :session-id :host :reason]))
+
+(defn- throwable-class-name
+  [failure]
+  (some-> failure class .getName))
+
+(defn- sanitized-github-token-provider-failure
+  [^Throwable failure]
+  (doto
+   (RuntimeException. "GitHub token provider callback failed")
+    (.setStackTrace (.getStackTrace failure))))
+
+(defn- bounded-executor-facts
+  [^ThreadPoolExecutor executor]
+  {:active-count (.getActiveCount executor)
+   :pool-size (.getPoolSize executor)
+   :queue-depth (.size (.getQueue executor))
+   :thread-limit github-token-provider-thread-count
+   :queue-limit github-token-provider-queue-size})
+
+(defn- claim-github-token-provider-invocation!
+  [client invocation-id]
+  (let [[old-state _]
+        (swap-vals! (:state client)
+                    update-in
+                    token-provider/invocations-path
+                    dissoc
+                    invocation-id)]
+    (get-in old-state (token-provider/invocation-path invocation-id))))
+
+(defn- cancel-github-token-provider-invocation!
+  [client invocation-id]
+  (when-let [invocation
+             (claim-github-token-provider-invocation! client invocation-id)]
+    (token-provider/cancel-invocation! invocation)))
+
+(defn- invoke-github-token-provider
+  [provider args cancel-chan]
+  (try
+    (let [returned (provider args)
+          [result port]
+          (if (satisfies? async-protocols/ReadPort returned)
+            (async/alts!! [returned cancel-chan] :priority true)
+            [returned nil])]
+      (cond
+        (identical? port cancel-chan)
+        {:outcome :cancelled}
+
+        (instance? Throwable result)
+        {:outcome :failed :failure result}
+
+        :else
+        {:outcome :returned :result result}))
+    (catch Throwable failure
+      (when (instance? InterruptedException failure)
+        (.interrupt (Thread/currentThread)))
+      {:outcome :failed :failure failure})))
+
+(defn- provider-cancelled-response
+  []
+  {:result {:kind :cancelled}})
+
+(defn- provider-failure-response
+  [message]
+  {:error {:code -32603
+           :message (str "Internal error: " message)}})
+
+(defn- github-token-provider-outcome-response
+  [client invocation-id invocation {:keys [outcome result failure]}]
+  (if (or @(:cancelled? invocation)
+          (= :cancelled outcome)
+          (nil? (claim-github-token-provider-invocation!
+                 client invocation-id)))
+    (provider-cancelled-response)
+    (case outcome
+      :failed
+      (do
+        (log/warn
+         (sanitized-github-token-provider-failure failure)
+         "GitHub token provider callback failed"
+         (assoc
+          (github-token-provider-log-metadata invocation)
+          :exception-class (throwable-class-name failure)
+          :cause-class (throwable-class-name (.getCause ^Throwable failure))))
+        (provider-failure-response
+         "GitHub token provider callback failed"))
+
+      :returned
+      (if-let [constraint
+               (specs/github-token-provider-result-constraint result)]
+        (do
+          (log/warn
+           "GitHub token provider returned an invalid result"
+           (assoc
+            (github-token-provider-log-metadata invocation)
+            :constraint constraint))
+          (provider-failure-response
+           (str "GitHub token provider returned an invalid result: "
+                (name constraint))))
+        {:result result}))))
+
+(defn- github-token-provider-response
+  [client request]
+  (let [{:keys [args provider invocation-id invocation]}
+        (begin-github-token-provider-invocation! client request)
+        result-chan (chan 1)
+        response-chan (chan 1)
+        respond! (fn [response]
+                   (async/put! response-chan response)
+                   (close! response-chan)
+                   false)
+        timeout-chan (async/timeout github-token-provider-timeout-ms)
+        {:keys [status executor]}
+        (github-token-provider-executor!
+         client (:generation invocation))
+        await-result?
+        (case status
+          :ready
+          (try
+            (let [task
+                  (FutureTask.
+                   ^Runnable
+                   (reify Runnable
+                     (run [_]
+                       (>!!
+                        result-chan
+                        (invoke-github-token-provider
+                         provider args (:cancel-chan invocation)))))
+                   nil)]
+              (token-provider/attach-task! invocation executor task)
+              (.execute ^ThreadPoolExecutor executor task)
+              true)
+            (catch RejectedExecutionException _
+              (let [claimed
+                    (claim-github-token-provider-invocation!
+                     client invocation-id)
+                    saturation-count
+                    (when (and claimed
+                               (not @(:cancelled? invocation)))
+                      (record-github-token-provider-saturation!
+                       client (:generation invocation)))
+                    cancelled? (nil? saturation-count)]
+                (when-not cancelled?
+                  (log/warn
+                   "GitHub token provider executor saturated"
+                   (merge
+                    (github-token-provider-log-metadata invocation)
+                    (bounded-executor-facts executor)
+                    {:saturation-count saturation-count})))
+                (respond!
+                 (if cancelled?
+                   (provider-cancelled-response)
+                   {:error
+                    {:code -32000
+                     :message
+                     "GitHub token provider executor saturated"}})))))
+
+          :unavailable
+          (do
+            (claim-github-token-provider-invocation! client invocation-id)
+            (log/warn
+             "GitHub token provider executor unavailable"
+             (github-token-provider-log-metadata invocation))
+            (respond!
+             (provider-failure-response
+              "GitHub token provider executor unavailable")))
+
+          :stale
+          (do
+            (claim-github-token-provider-invocation! client invocation-id)
+            (respond! (provider-cancelled-response))))]
+    (when await-result?
+      (go
+        (try
+          (let [[outcome port]
+                (async/alts!
+                 [result-chan
+                  (:cancel-chan invocation)
+                  timeout-chan]
+                 :priority true)
+                response
+                (cond
+                  (identical? port (:cancel-chan invocation))
+                  (do
+                    (claim-github-token-provider-invocation!
+                     client invocation-id)
+                    (provider-cancelled-response))
+
+                  (identical? port timeout-chan)
+                  (if (cancel-github-token-provider-invocation!
+                       client invocation-id)
+                    (do
+                      (log/warn
+                       "GitHub token provider callback timed out"
+                       (github-token-provider-log-metadata invocation))
+                      (provider-failure-response
+                       "GitHub token provider callback timed out."))
+                    (provider-cancelled-response))
+
+                  :else
+                  (github-token-provider-outcome-response
+                   client invocation-id invocation outcome))]
+            (>! response-chan response))
+          (catch Throwable failure
+            (claim-github-token-provider-invocation! client invocation-id)
+            (log/warn
+             (sanitized-github-token-provider-failure failure)
+             "GitHub token provider response construction failed"
+             (assoc
+              (github-token-provider-log-metadata invocation)
+              :exception-class (throwable-class-name failure)))
+            (>! response-chan
+                {:error
+                 {:code -32603
+                  :message
+                  (str "Internal error: GitHub token provider response "
+                       "construction failed")}}))
+          (finally
+            (close! response-chan)))))
+    response-chan))
+
 (defn- setup-request-handler!
   "Set up handler for incoming requests (hooks, user input, sessionFs, etc.).
 
@@ -964,6 +1575,12 @@
            (if-not (session? session-id)
              (unknown-session session-id)
              (session/handle-provider-token-request! client session-id provider-name)))
+
+          ;; Session-scoped GitHub token acquisition (upstream PR #2412). This
+          ;; is client-global because cloud creation may request a token before
+          ;; the runtime has assigned a session ID.
+         "gitHubToken.getToken"
+         (github-token-provider-response client params)
 
          ;; Hooks invocation (PR #269)
          "hooks.invoke"
@@ -1176,12 +1793,12 @@
 ;; Permission helpers
 ;; ---------------------------------------------------------------------------
 
-(defn attributed-permission-result?
+(defn ^:experimental attributed-permission-result?
   "Return true when `result` is a well-formed attributed permission result."
   [result]
   (s/valid? ::specs/attributed-permission-result result))
 
-(defn attributed-permission-result
+(defn ^:experimental attributed-permission-result
   "Attach informational decision context to a permission-handler result.
 
    `result` is a permission decision such as `{:kind :approve-once}`. If it is
@@ -1260,7 +1877,8 @@
 
 (defn- release-transport!
   "Release the client-owned transport: notification router, JSON-RPC
-   connection, socket, and — per `:process` — an SDK-owned child process.
+   connection, GitHub token-provider executor, socket, and — per `:process` —
+   an SDK-owned child process.
 
    `:process` is `:none` (the caller owns the process, or there is none),
    `:graceful` (SIGTERM, then SIGKILL if it overstays), or `:forcible`
@@ -1274,7 +1892,8 @@
    that failed leaves `:process` in place so the host keeps its only reference
    to a live process."
   [client {:keys [process wait-for-exit-ms] :or {process :none}}]
-  (let [router-failures (release-router! client)
+  (let [provider-failures (release-github-token-provider-runtime! client)
+        router-failures (release-router! client)
         state @(:state client)
         {:keys [connection-io socket]} state
         proc-handle (:process state)
@@ -1298,6 +1917,7 @@
         failures
         (td/collect
          (concat
+          provider-failures
           router-failures
           (when connection-io
             (td/attempt-collecting {:operation :disconnect :resource :connection}
@@ -1306,7 +1926,10 @@
              (td/attempt {:operation :close :resource :socket}
                          (.close ^Socket socket)))]
           process-failures))]
-    (swap! (:state client) assoc :connection nil :connection-io nil :socket nil)
+    (swap! (:state client) assoc
+           :connection nil
+           :connection-io nil
+           :socket nil)
     ;; Only drop the process handle once the child is confirmed gone. Clearing
     ;; it after a failed kill would discard the only reference to a live
     ;; process, leaving the host no way to retry or report it.
@@ -1354,7 +1977,10 @@
                             (fn [s]
                               (if (#{:connecting :connected} (:status s))
                                 s
-                                (assoc s :stopping? false :status :connecting))))]
+                                (assoc s
+                                       :caller-supplied-streams? false
+                                       :stopping? false
+                                       :status :connecting))))]
     (when-not (#{:connecting :connected} (:status old))
       (log/info "Starting Copilot client...")
 
@@ -1471,9 +2097,16 @@
         (try
           (session/disconnect! client session-id)
           (catch Exception e
-            (swap! errors conj
-                   (ex-info (str "Failed to disconnect session " session-id)
-                            {:session-id session-id} e)))))
+            (let [failure
+                  (ex-info (str "Failed to disconnect session " session-id)
+                           {:session-id session-id}
+                           e)]
+              (try
+                (session/teardown-local! client session-id)
+                (catch Throwable cleanup-failure
+                  (when-not (identical? failure cleanup-failure)
+                    (.addSuppressed ^Throwable failure cleanup-failure))))
+              (swap! errors conj failure)))))
       (swap! (:state client) assoc :sessions {} :session-io {})
 
       ;; 1b. Ask SDK-owned runtimes to flush and clean up before tearing down
@@ -1520,11 +2153,19 @@
 
   (let [session-ids (keys (:sessions @(:state client)))]
     ;; Release event roots and send locks while their state is still reachable.
-    (doseq [session-id session-ids]
-      (session/teardown-local! client session-id))
-    (swap! (:state client) assoc :sessions {} :session-io {})
+    (let [session-failures
+          (td/collect
+           (for [session-id session-ids]
+             (td/attempt
+              {:operation :teardown
+               :resource :session
+               :session-id session-id}
+              (session/teardown-local! client session-id))))]
+      (swap! (:state client) assoc :sessions {} :session-io {})
 
-    (log-teardown-failures! (release-transport! client {:process :forcible})))
+      (log-teardown-failures!
+       (into session-failures
+             (release-transport! client {:process :forcible})))))
 
   (swap! (:state client) merge
          {:status :disconnected
@@ -1824,12 +2465,19 @@
   [config]
   (when-not (s/valid? ::specs/session-config config)
     (let [safe-config (redact-secrets config)
-          unknown (specs/unknown-keys config specs/session-config-keys)
+          unknown (when (map? config)
+                    (specs/unknown-keys config specs/session-config-keys))
           explain (s/explain-data ::specs/session-config safe-config)
-          msg (if (seq unknown)
+          msg (cond
+                (seq unknown)
                 (format "Invalid session config: unknown keys %s. Valid keys are: %s"
                         (pr-str unknown)
                         (pr-str (sort specs/session-config-keys)))
+
+                (util/github-token-auth-conflict? config)
+                (config-validation-message "Invalid session config" config)
+
+                :else
                 (format "Invalid session config: %s"
                         (with-out-str (s/explain ::specs/session-config safe-config))))]
       (throw (ex-info msg {:config safe-config :unknown-keys unknown :explain explain}))))
@@ -2121,7 +2769,8 @@
              (cond-> {}
                (some? (:disable-bypass-permissions-mode permissions))
                (assoc :disableBypassPermissionsMode
-                      (name (:disable-bypass-permissions-mode permissions)))
+                      (let [policy (:disable-bypass-permissions-mode permissions)]
+                        (if (keyword? policy) (name policy) policy)))
                (contains? permissions :deny) (assoc :deny (:deny permissions))
                (contains? permissions :ask) (assoc :ask (:ask permissions))
                (contains? permissions :allow) (assoc :allow (:allow permissions)))))))
@@ -2172,10 +2821,10 @@
 (defn- build-session-options-update-patch
   "Compute the params for session.options.update (upstream PR #1428).
 
-   In `:empty` mode, defaults the 4 overridable feature flags to safe values
-   (caller wins) and forces `installedPlugins: []` — apps that need custom
-   plugins must switch modes. In `:copilot-cli` mode, only forwards the 4
-   flags that the caller explicitly set.
+   In `:empty` mode, defaults the 4 overridable feature flags and built-in
+   skill allowlist to safe values (caller wins), and forces
+   `installedPlugins: []`. In `:copilot-cli` mode, only forwards values the
+   caller explicitly set.
 
    Returns nil if the resulting patch is empty (no RPC needed)."
   [client config]
@@ -2191,40 +2840,202 @@
                   (with-flag :coauthor-enabled :coauthor-enabled false)
                   (with-flag :manage-schedule-enabled :manage-schedule-enabled false))
         patch (cond-> patch
-                (= mode :empty) (assoc :installed-plugins []))]
+                (= mode :empty)
+                (assoc :installed-plugins [])
+
+                (or (= mode :empty)
+                    (contains? config :included-builtin-skills))
+                (assoc :included-builtin-skills
+                       (get config :included-builtin-skills [])))]
     (when (seq patch) patch)))
 
 (defn- cleanup-failed-session-setup!
-  "Best-effort cleanup after a post-create/resume setup RPC fails (e.g.
-   `session.options.update` or `session.eventLog.registerInterest`).
-   Disconnects the runtime session (`session.destroy` RPC) and removes it from
-   the in-memory registry so the SDK doesn't leak a half-configured session."
+  "Release every locally owned resource from a failed session setup.
+
+   `destroy-runtime?` is true only when the failed transaction owns the remote
+   session. A server-accepted cloud ID is not owned when it collides with an
+   existing local registration.
+   `provider-registration-ids` contains only committed registrations visible
+   when this setup transaction began, so cleanup cannot remove a provider that
+   another concurrent transaction committed later. The caller rolls back this
+   operation's provisional registration separately.
+   Returns unexpected cleanup failures without replacing the setup failure."
+  [client session-id {:keys [destroy-runtime? provider-registration-ids
+                             registration-token]
+                      :or {destroy-runtime? false
+                           provider-registration-ids #{}}}]
+  (td/collect
+   (concat
+    [(when (and destroy-runtime? session-id)
+       (td/attempt
+        {:operation :destroy :resource :failed-session-setup
+         :session-id session-id}
+        (when-let [connection-io (:connection-io @(:state client))]
+          (proto/send-request! connection-io
+                               "session.destroy"
+                               {:session-id session-id}
+                               5000))))]
+    (map
+     (fn [provider-registration-id]
+       (td/attempt
+        {:operation :rollback :resource :github-token-provider
+         :registration-id provider-registration-id}
+        (rollback-github-token-provider! client provider-registration-id)))
+     provider-registration-ids)
+    (when (and session-id registration-token)
+      [(td/attempt
+        {:operation :teardown :resource :failed-session-setup
+         :session-id session-id}
+        (session/teardown-local!
+         client session-id nil registration-token))
+       (td/attempt
+        {:operation :remove :resource :failed-session-setup
+         :session-id session-id}
+        (session/remove-session-registration!
+         client session-id registration-token))]))))
+
+(defn- preserve-setup-failure!
+  [^Throwable failure cleanup-failures]
+  (td/attach-cleanup-failures! failure cleanup-failures))
+
+(defn- claim-session-setup!
   [client session-id]
-  (try (session/disconnect! client session-id)
-       (catch Throwable t (log/debug "disconnect! during session-setup cleanup failed: " (.getMessage t))))
-  (try (session/remove-session! client session-id)
-       (catch Throwable t (log/debug "remove-session! during session-setup cleanup failed: " (.getMessage t)))))
+  (let [state-atom (:state client)
+        setup-token (Object.)]
+    (loop []
+      (let [state @state-atom]
+        (cond
+          (contains? (:session-setups state) session-id)
+          (throw
+           (ex-info "Session setup is already in progress"
+                    {:type :session-setup-in-progress
+                     :session-id session-id}))
+
+          (:stopping? state)
+          (throw
+           (ex-info "Client is stopping; cannot set up session"
+                    {:type :client-stopping
+                     :session-id session-id}))
+
+          (contains? (:disconnecting-session-ids state) session-id)
+          (throw
+           (ex-info "Session disconnect is in progress; cannot set up session"
+                    {:type :session-disconnect-in-progress
+                     :session-id session-id}))
+
+          (compare-and-set!
+           state-atom
+           state
+           (assoc-in state [:session-setups session-id] setup-token))
+          setup-token
+
+          :else
+          (recur))))))
+
+(defn- release-session-setup!
+  [client session-id setup-token]
+  (when (and session-id setup-token)
+    (swap! (:state client)
+           (fn [state]
+             (if (identical?
+                  setup-token
+                  (get-in state [:session-setups session-id]))
+               (update state :session-setups dissoc session-id)
+               state)))))
+
+(defn- session-registration-snapshot
+  [client session-id]
+  (let [state @(:state client)]
+    (when (contains? (:sessions state) session-id)
+      {:session (get-in state [:sessions session-id])
+       :session-io-present? (contains? (:session-io state) session-id)
+       :session-io (get-in state [:session-io session-id])
+       :committed-github-token-provider-registration-ids
+       (into
+        #{}
+        (keep
+         (fn [[registration-id registration]]
+           (when (and (= session-id (:session-id registration))
+                      (:committed? registration))
+             registration-id)))
+        (get-in state token-provider/registrations-path))})))
+
+(defn- restore-session-registration!
+  [client session-id snapshot expected-registration-token]
+  (when snapshot
+    (swap! (:state client)
+           (fn [state]
+             (let [current-token
+                   (get-in state [:sessions session-id :registration-token])]
+               (if (and current-token
+                        (not (identical?
+                              expected-registration-token
+                              current-token)))
+                 state
+                 (cond->
+                  (assoc-in state [:sessions session-id] (:session snapshot))
+                   (:session-io-present? snapshot)
+                   (assoc-in [:session-io session-id]
+                             (:session-io snapshot))
+
+                   (not (:session-io-present? snapshot))
+                   (update :session-io dissoc session-id))))))))
+
+(defn- fail-session-setup!
+  [client {:keys [session-id provider-registration-id destroy-runtime?
+                  snapshot registration-token setup-token]}
+   failure]
+  (try
+    (let [cleanup-failures
+          (td/collect
+           (concat
+            (cleanup-failed-session-setup!
+             client
+             session-id
+             {:destroy-runtime? destroy-runtime?
+              :registration-token registration-token
+              :provider-registration-ids
+              (when destroy-runtime?
+                (:committed-github-token-provider-registration-ids snapshot))})
+            [(td/attempt
+              {:operation :rollback :resource :github-token-provider
+               :registration-id provider-registration-id}
+              (rollback-github-token-provider!
+               client provider-registration-id))
+             (when (and (not destroy-runtime?) snapshot)
+               (td/attempt
+                {:operation :restore :resource :session-registration
+                 :session-id session-id}
+                (restore-session-registration!
+                 client session-id snapshot registration-token)))]))]
+      (preserve-setup-failure! failure cleanup-failures))
+    (finally
+      (release-session-setup! client session-id setup-token))))
+
+(defn- fail-session-setup-async
+  [client transaction failure]
+  (async/thread
+    (fail-session-setup! client transaction failure)))
+
+(defn- finish-session-setup!
+  [client {:keys [session-id provider-registration-id setup-token]}]
+  (commit-github-token-provider!
+   client session-id provider-registration-id)
+  (release-session-setup! client session-id setup-token))
 
 (defn- apply-session-options-update!
-  "Sync: issue session.options.update with the mode-derived patch. No-op
-   when the patch is empty. On RPC failure, cleans up the half-configured
-   session and rethrows."
+  "Issue session.options.update with the mode-derived patch. No-op when empty."
   [client session config]
   (when-let [patch (build-session-options-update-patch client config)]
     (let [session-id (:session-id session)
           {:keys [connection-io]} @(:state client)
           params (assoc patch :session-id session-id)]
-      (try
-        (proto/send-request! connection-io "session.options.update" params 30000)
-        (catch Throwable t
-          (log/warn "session.options.update failed; cleaning up session " session-id)
-          (cleanup-failed-session-setup! client session-id)
-          (throw t))))))
+      (proto/send-request! connection-io "session.options.update" params 30000))))
 
 (defn- <apply-session-options-update!
   "Async variant of `apply-session-options-update!`. Returns a channel that
-   yields `:ok` on success (including the no-op case) or a Throwable on
-   failure (after cleanup). The channel always closes after one value."
+   yields `:ok` on success (including the no-op case) or a Throwable on failure.
+   The channel always closes after one value."
   [client session config]
   (let [out (async/chan 1)]
     (if-let [patch (build-session-options-update-patch client config)]
@@ -2243,13 +3054,7 @@
                                     (get-in response [:error :message] "RPC error"))
                                {:session-id session-id :error (:error response)}))]
             (if err
-              (do
-                (log/warn "session.options.update failed; cleaning up session " session-id)
-                ;; cleanup-failed-session-setup! calls blocking session.destroy
-                ;; via proto/send-request! — offload to async/thread so it does
-                ;; not starve the core.async dispatch threadpool.
-                (<! (async/thread (cleanup-failed-session-setup! client session-id)))
-                (>! out err))
+              (>! out err)
               (>! out :ok))
             (close! out))))
       (do (async/put! out :ok)
@@ -2301,6 +3106,9 @@
       (:client-name config) (assoc :client-name (:client-name config))
       (:model config) (assoc :model (:model config))
       (:github-token config) (assoc :git-hub-token (:github-token config))
+      (:github-token-provider-registration-id config)
+      (assoc :git-hub-token-provider-registration-id
+             (:github-token-provider-registration-id config))
       wire-tools (assoc :tools wire-tools)
       wire-commands (assoc :commands wire-commands)
       wire-sys-msg (assoc :system-message wire-sys-msg)
@@ -2361,6 +3169,8 @@
       (:agent config) (assoc :agent (:agent config))
       true (assoc :request-user-input (boolean (:on-user-input-request config)))
       true (assoc :request-elicitation (boolean (:on-elicitation-request config)))
+      (contains? config :ask-user-variant)
+      (assoc :ask-user-variant (name (:ask-user-variant config)))
       (request-mcp-apps? config) (assoc :requestMcpApps true)
       true (assoc :request-exit-plan-mode (boolean (:on-exit-plan-mode config)))
       true (assoc :request-auto-mode-switch (boolean (:on-auto-mode-switch config)))
@@ -2373,6 +3183,8 @@
       (assoc :remote-session (name (:remote-session config)))
       (:cloud config)
       (assoc :cloud (util/clj->wire (:cloud config)))
+      (contains? config :feature-flags)
+      (assoc :feature-flags (:feature-flags config))
       (:model-capabilities config)
       (assoc :model-capabilities
              (util/model-capabilities->wire (:model-capabilities config)))
@@ -2505,6 +3317,9 @@
       (:client-name config) (assoc :client-name (:client-name config))
       (:model config) (assoc :model (:model config))
       (:github-token config) (assoc :git-hub-token (:github-token config))
+      (:github-token-provider-registration-id config)
+      (assoc :git-hub-token-provider-registration-id
+             (:github-token-provider-registration-id config))
       wire-tools (assoc :tools wire-tools)
       wire-commands (assoc :commands wire-commands)
       wire-sys-msg (assoc :system-message wire-sys-msg)
@@ -2562,6 +3377,8 @@
       (:agent config) (assoc :agent (:agent config))
       true (assoc :request-user-input (boolean (:on-user-input-request config)))
       true (assoc :request-elicitation (boolean (:on-elicitation-request config)))
+      (contains? config :ask-user-variant)
+      (assoc :ask-user-variant (name (:ask-user-variant config)))
       (request-mcp-apps? config) (assoc :requestMcpApps true)
       true (assoc :request-exit-plan-mode (boolean (:on-exit-plan-mode config)))
       true (assoc :request-auto-mode-switch (boolean (:on-auto-mode-switch config)))
@@ -2578,6 +3395,8 @@
       (assoc :enable-session-telemetry (:enable-session-telemetry? config))
       (:remote-session config)
       (assoc :remote-session (name (:remote-session config)))
+      (contains? config :feature-flags)
+      (assoc :feature-flags (:feature-flags config))
       (:model-capabilities config)
       (assoc :model-capabilities
              (util/model-capabilities->wire (:model-capabilities config)))
@@ -2674,14 +3493,88 @@
                       {:config (redact-secrets config)})))))
 
 (defn- install-session-fs-handler!
-  "Construct and install the per-session sessionFs handler. Caller is
-   responsible for sessionFs validation (use `ensure-session-fs-handler-factory!`
-   before calling). No-op when sessionFs is disabled on the client."
-  [client session-id session config]
+  "Construct and install the per-session sessionFs handler when enabled.
+   Caller must first validate the factory with
+   `ensure-session-fs-handler-factory!`."
+  [client session config]
   (when (:session-fs client)
-    (when-let [factory (:create-session-fs-handler config)]
-      (session/set-session-fs-handler! client session-id
-                                       (session/adapt-session-fs-handler (factory session))))))
+    (let [factory (:create-session-fs-handler config)
+          handler (session/adapt-session-fs-handler (factory session))]
+      (session/set-session-fs-handler!
+       client (:session-id session) handler))))
+
+(defn- prepare-local-session-setup!
+  "Prepare every local session resource before issuing a create/resume RPC.
+   Any failure is thrown synchronously and rolls back the complete provisional
+   transaction, restoring a prior session registration when resuming."
+  [client session-id config transform-callbacks build-params]
+  (let [setup-token (claim-session-setup! client session-id)]
+    (try
+      (let [snapshot (session-registration-snapshot client session-id)
+            [wire-config registration-id]
+            (register-session-github-token-provider client config session-id)
+            rollback-provider
+            (fn [failure]
+              (preserve-setup-failure!
+               failure
+               (td/collect
+                [(td/attempt
+                  {:operation :rollback
+                   :resource :github-token-provider
+                   :session-id session-id}
+                  (rollback-github-token-provider!
+                   client registration-id))])))
+            [params session]
+            (try
+              [(build-params wire-config)
+               (pre-register-session client session-id config)]
+              (catch Throwable failure
+                (throw (rollback-provider failure))))
+            registration-token
+            (get-in @(:state client)
+                    [:sessions session-id :registration-token])
+            transaction
+            {:session-id session-id
+             :provider-registration-id registration-id
+             :registration-token registration-token
+             :setup-token setup-token
+             :snapshot snapshot}]
+        (try
+          (session/register-transform-callbacks!
+           client session-id transform-callbacks)
+          (install-session-fs-handler! client session config)
+          (assoc transaction
+                 :params params
+                 :session session)
+          (catch Throwable failure
+            (throw
+             (fail-session-setup!
+              client
+              (assoc transaction :destroy-runtime? false)
+              failure)))))
+      (catch Throwable failure
+        (release-session-setup! client session-id setup-token)
+        (throw failure)))))
+
+(defn- prepare-deferred-session-request!
+  "Register provider state and build RPC params when the runtime assigns the
+   session ID. Parameter failures roll back the provisional provider."
+  [client config build-params]
+  (let [[wire-config registration-id]
+        (register-session-github-token-provider client config nil)]
+    (try
+      {:params (build-params wire-config)
+       :registration-id registration-id}
+      (catch Throwable failure
+        (throw
+         (preserve-setup-failure!
+          failure
+          (td/collect
+           [(td/attempt
+             {:operation :rollback
+              :resource :github-token-provider}
+             (rollback-github-token-provider!
+              client registration-id))])))))))
 
 (defn- register-mcp-auth-interest!
   "Register interest in `mcp.oauth_required` events for this session (upstream
@@ -2691,25 +3584,19 @@
    session has no handler. Mirrors upstream `client.ts`, which awaits this RPC
    (before `session.resume`, and after `session.create` but before the
    mode-options patch) and lets a failure reject the session rather than
-   degrade silently. On RPC failure, cleans up the half-configured session
-   (`session.destroy` + registry removal) and rethrows. Sync variant."
+   degrade silently. Sync variant."
   [client session-id config]
   (when (:on-mcp-auth-request config)
     (let [{:keys [connection-io]} @(:state client)]
-      (try
-        (proto/send-request! connection-io "session.eventLog.registerInterest"
-                             {:session-id session-id
-                              :event-type "mcp.oauth_required"}
-                             30000)
-        (catch Throwable t
-          (log/warn "registerInterest (mcp.oauth_required) failed; cleaning up session " session-id)
-          (cleanup-failed-session-setup! client session-id)
-          (throw t))))))
+      (proto/send-request! connection-io "session.eventLog.registerInterest"
+                           {:session-id session-id
+                            :event-type "mcp.oauth_required"}
+                           30000))))
 
 (defn- <register-mcp-auth-interest!
   "Async variant of `register-mcp-auth-interest!`. Returns a channel that yields
-   `:ok` on success (including the no-op case) or a Throwable on failure (after
-   cleanup). The channel always closes after one value."
+   `:ok` on success (including the no-op case) or a Throwable on failure. The
+   channel always closes after one value."
   [client session-id config]
   (let [out (async/chan 1)]
     (if (:on-mcp-auth-request config)
@@ -2728,12 +3615,7 @@
                                     (get-in response [:error :message] "RPC error"))
                                {:session-id session-id :error (:error response)}))]
             (if err
-              (do
-                (log/warn "registerInterest (mcp.oauth_required) failed; cleaning up session " session-id)
-                ;; cleanup calls blocking session.destroy via proto/send-request! —
-                ;; offload to async/thread so it does not starve the dispatch pool.
-                (<! (async/thread (cleanup-failed-session-setup! client session-id)))
-                (>! out err))
+              (>! out err)
               (>! out :ok))
             (close! out))))
       (do (async/put! out :ok)
@@ -2742,10 +3624,10 @@
 
 (defn- make-create-session-inline-callback
   "Build the inline-response callback used by the cloud-no-id session
-   creation path. The callback runs in the JSON-RPC reader thread; keep
-   it minimal and non-blocking. On any failure it removes any partially
-   registered session and delivers the error to `result-promise`; on
-   success it delivers the live session.
+   creation path. The callback runs in the JSON-RPC reader thread so it can
+   register every local resource before later events are dispatched. On any
+   failure it synchronously retires a partial registration before returning
+   control to the reader, then delivers the error to `result-promise`.
 
    Note: `install-session-fs-handler!` invokes a user-supplied
    `:create-session-fs-handler` factory. Document and rely on the
@@ -2753,16 +3635,20 @@
    if it issues another RPC it will deadlock the reader thread.
    `ensure-session-fs-handler-factory!` is called BEFORE the RPC so a
    missing factory cannot reach the callback."
-  [client config transform-callbacks result-promise]
-  (let [registered-id (atom nil)
-        deliver-error!
-        (fn [ex]
-          (when-let [sid @registered-id]
-            (try
-              (session/remove-session! client sid)
-              (catch Throwable cleanup-t
-                (log/warn cleanup-t "Failed to remove partially registered session " sid))))
-          (deliver result-promise ex))]
+  [client config transform-callbacks registration-id assigned-session-id
+   setup-context result-promise]
+  (let [deliver-error!
+        (fn [failure]
+          (let [cleanup-failures
+                (td/collect
+                 [(td/attempt
+                   {:operation :rollback :resource :github-token-provider
+                    :registration-id registration-id}
+                   (rollback-github-token-provider!
+                    client registration-id))])]
+            (deliver
+             result-promise
+             (preserve-setup-failure! failure cleanup-failures))))]
     (fn [result]
       (try
         (let [assigned-id (:session-id result)]
@@ -2770,11 +3656,49 @@
             (deliver-error!
              (ex-info "session.create response did not include a sessionId for cloud session"
                       {:result result}))
-            (let [session (pre-register-session client assigned-id config)]
-              (reset! registered-id assigned-id)
-              (session/register-transform-callbacks! client assigned-id transform-callbacks)
-              (install-session-fs-handler! client assigned-id session config)
-              (deliver result-promise session))))
+            (do
+              (reset! assigned-session-id assigned-id)
+              (let [setup-token (claim-session-setup! client assigned-id)
+                    snapshot (session-registration-snapshot client assigned-id)
+                    base-context
+                    {:session-id assigned-id
+                     :provider-registration-id registration-id
+                     :setup-token setup-token
+                     :snapshot snapshot}]
+                (reset! setup-context base-context)
+                (when snapshot
+                  (throw
+                   (ex-info "Cloud session ID is already registered locally"
+                            {:type :session-id-collision
+                             :session-id assigned-id})))
+                (let [owned-context (assoc base-context :destroy-runtime? true)
+                      _ (reset! setup-context owned-context)
+                      session (pre-register-session client assigned-id config)
+                      registration-token
+                      (get-in @(:state client)
+                              [:sessions assigned-id :registration-token])
+                      transaction
+                      (assoc owned-context
+                             :registration-token registration-token)]
+                  (reset! setup-context transaction)
+                  (try
+                    (assign-github-token-provider!
+                     client registration-id assigned-id)
+                    (session/register-transform-callbacks!
+                     client assigned-id transform-callbacks)
+                    (install-session-fs-handler! client session config)
+                    (deliver result-promise session)
+                    (catch Throwable failure
+                      (let [cleanup-failures
+                            (td/collect
+                             (cleanup-failed-session-setup!
+                              client assigned-id
+                              {:registration-token registration-token}))]
+                        (release-session-setup!
+                         client assigned-id setup-token)
+                        (throw
+                         (preserve-setup-failure!
+                          failure cleanup-failures))))))))))
         (catch Throwable t
           (deliver-error! t))))))
 
@@ -2799,6 +3723,11 @@
    - :excluded-tools     - List of excluded tool names
    - :tool-search        - Tool discovery config {:enabled :defer-threshold}
    - :provider           - Custom provider config (BYOK)
+   - :capi               - Copilot API options {:enable-web-socket-responses boolean
+                                                :auto-tier :efficiency|:balance|:intelligence}.
+                           Auto-tier applies on create and cold resume; a warm
+                           resume cannot change an already-resident session.
+   - :feature-flags      - String-to-boolean feature flag map. Omission and {} are distinct.
    - :streaming?         - Enable streaming
    - :mcp-servers        - MCP server configs map
    - :custom-agents      - Custom agent configs
@@ -2807,19 +3736,38 @@
                            :config-dir remains a deprecated alias.
    - :skill-directories  - Additional skill directories to load
    - :disabled-skills    - Disable specific skills by name
+   - :included-builtin-skills - Allowlist of runtime-bundled skill names. Empty client mode
+                                defaults to []; CLI mode omits it unless explicitly provided.
    - :large-output       - Tool output handling config
                            {:enabled :max-size-bytes :output-directory}.
                            :output-dir remains a deprecated alias.
    - :working-directory  - Working directory for the session (tool operations relative to this)
-    - :infinite-sessions  - Infinite session config for automatic context compaction
-                            {:enabled (default true)
-                             :background-compaction-threshold (0.0-1.0, default 0.80)
-                             :buffer-exhaustion-threshold (0.0-1.0, default 0.95)}
-    - :memory             - Persistent memory config {:enabled boolean} (upstream PR #1617).
-                            Sent on both create and resume; omitted when unset.
-    - :reasoning-effort   - Reasoning effort level: \"low\", \"medium\", \"high\", or \"xhigh\" (PR #302)
-    - :github-token       - GitHub token for this session (sent as gitHubToken)
-    - :on-user-input-request - Handler for ask_user requests (PR #269)
+   - :infinite-sessions  - Infinite session config for automatic context compaction
+                           {:enabled (default true)
+                            :background-compaction-threshold (0.0-1.0, default 0.80)
+                            :buffer-exhaustion-threshold (0.0-1.0, default 0.95)}
+   - :memory             - Persistent memory config {:enabled boolean} (upstream PR #1617).
+                           Sent on both create and resume; omitted when unset.
+   - :reasoning-effort   - Reasoning effort level: \"low\", \"medium\", \"high\", or \"xhigh\" (PR #302)
+   - :github-token       - Static GitHub token for this session (sent as gitHubToken).
+                           Mutually exclusive with :github-token-provider.
+   - :github-token-provider - Refreshable session credential callback. Receives
+                              {:host :session-id? :reason keyword}; :reason is
+                              exactly :initial or :refresh.
+                              Returns
+                              {:kind :token :access-token :expires-in :token-type?} or
+                              {:kind :cancelled}, directly or on a core.async channel.
+                              Token results require integer :expires-in >= 3601.
+                              Both result variants may contain extension fields.
+                              Only an opaque registration id is sent in session
+                              configuration, but acquired credentials cross the
+                              JSON-RPC connection to the CLI. Provider work runs
+                              on a bounded client-owned executor. Managed stdio,
+                              SDK-managed TCP, and explicit loopback :cli-url
+                              connections are supported. HTTPS and explicit
+                              non-loopback TCP :cli-url connections are rejected.
+   - :on-user-input-request - Handler for ask_user requests (PR #269)
+   - :ask-user-variant  - Built-in ask_user shape: :legacy or :elicitation.
    - :on-elicitation-request - Handler for elicitation requests from the agent (upstream PRs #908, #960).
                                When provided, sends requestElicitation=true and enables the
                                elicitation capability. Single-arg handler receives an ElicitationContext
@@ -2888,6 +3836,12 @@
                            session's `:github-token`, which must be set (the runtime fails closed
                            otherwise). Forwarded verbatim as `enableManagedSettings` — an explicit
                            `false` is sent on the wire. (upstream PR #1925)
+   - :managed-settings   - Caller-supplied enterprise policy. Optional
+                           {:permissions {:disable-bypass-permissions-mode string-or-keyword
+                                          :deny [...] :ask [...] :allow [...]}}.
+                           The bypass-policy value is an open wire string; simple
+                           keywords are converted with `name`.
+                           known values include \"disable\" and \"allow-auto-only\".
    - :request-extensions? - Boolean. Opt into extension management and dispatch for this
                             connection. Explicit false is preserved; omission sends no key.
    - :extension-sdk-path - String path override for the SDK injected into extension
@@ -2927,6 +3881,7 @@
   (validate-session-config! config)
   (validate-tool-filters! config)
   (validate-empty-mode-session-requirements! client config)
+  (ensure-github-token-provider-transport! client config)
   (ensure-connected! client)
   (ensure-session-fs-handler-factory! client config)
   (let [config (normalize-config-for-mode client config)
@@ -2942,44 +3897,61 @@
       ;; SDK registers the session under the server-returned id inside an
       ;; inline-response callback so any session-scoped notifications that
       ;; arrive after the response are routed to the correct session.
-      (let [params (merge trace-ctx (build-create-session-params config))
+      (let [{:keys [params registration-id]}
+            (prepare-deferred-session-request!
+             client config
+             #(merge trace-ctx (build-create-session-params %)))
+            assigned-session-id (atom nil)
+            setup-context (atom nil)
             session-promise (promise)
             on-inline (make-create-session-inline-callback
-                       client config transform-callbacks session-promise)
-            result (proto/send-request! connection-io "session.create" params 60000
-                                        {:on-response-inline on-inline})
-            registered (deref session-promise 0 :not-delivered)]
-        (cond
-          (= registered :not-delivered)
-          (throw (ex-info "Internal error: inline-response callback did not run for session.create"
-                          {:result result}))
-
-          (instance? Throwable registered)
-          (throw registered)
-
-          :else
-          (let [session registered
-                session-id (:session-id session)]
-            (session/set-workspace-path! client session-id (:workspace-path result))
-            (session/set-capabilities! client session-id (:capabilities result))
-            ;; Register MCP-auth interest before the mode-options patch so the
-            ;; runtime can broadcast `mcp.oauth_required` during any post-create
-            ;; work (upstream client.ts:1477). Then apply the mode-specific
-            ;; options patch (upstream PR #1428).
-            (register-mcp-auth-interest! client session-id config)
-            (apply-session-options-update! client session config)
-            (log/info "Session created (cloud, server-assigned id): " session-id)
-            session)))
-      ;; Standard path: client supplies (or generates) the sessionId up front.
-      (let [session-id (or caller-session-id (str (java.util.UUID/randomUUID)))
-            params (merge trace-ctx (assoc (build-create-session-params config) :session-id session-id))
-            ;; Pre-register session before RPC so early events are captured
-            session (pre-register-session client session-id config)]
-        ;; Register transform callbacks on session before RPC
-        (session/register-transform-callbacks! client session-id transform-callbacks)
+                       client config transform-callbacks registration-id
+                       assigned-session-id setup-context session-promise)]
         (try
-          (install-session-fs-handler! client session-id session config)
+          (let [result (proto/send-request! connection-io "session.create" params 60000
+                                            {:on-response-inline on-inline})
+                registered (deref session-promise 0 :not-delivered)]
+            (cond
+              (= registered :not-delivered)
+              (throw (ex-info "Internal error: inline-response callback did not run for session.create"
+                              {:result result}))
+
+              (instance? Throwable registered)
+              (throw registered)
+
+              :else
+              (let [session registered
+                    session-id (:session-id session)]
+                (session/set-workspace-path! client session-id (:workspace-path result))
+                (session/set-capabilities! client session-id (:capabilities result))
+                (register-mcp-auth-interest! client session-id config)
+                (apply-session-options-update! client session config)
+                (finish-session-setup! client @setup-context)
+                (log/info "Session created (cloud, server-assigned id): " session-id)
+                session)))
+          (catch Throwable t
+            (throw
+             (fail-session-setup!
+              client
+              (merge
+               {:session-id @assigned-session-id
+                :provider-registration-id registration-id
+                :destroy-runtime? false}
+               @setup-context)
+              t)))))
+      ;; Standard path: client supplies (or generates) the sessionId up front.
+      (let [session-id (or caller-session-id
+                           (str (java.util.UUID/randomUUID)))
+            {:keys [params session] :as transaction}
+            (prepare-local-session-setup!
+             client session-id config transform-callbacks
+             #(merge trace-ctx
+                     (assoc (build-create-session-params %)
+                            :session-id session-id)))
+            destroy-runtime? (atom false)]
+        (try
           (let [result (proto/send-request! connection-io "session.create" params)
+                _ (reset! destroy-runtime? true)
                 returned-id (:session-id result)]
             (when (and (string? returned-id)
                        (not (str/blank? returned-id))
@@ -2988,47 +3960,53 @@
                               {:requested session-id :returned returned-id})))
             (session/set-workspace-path! client session-id (:workspace-path result))
             (session/set-capabilities! client session-id (:capabilities result))
-            ;; Register MCP-auth interest before the mode-options patch so the
-            ;; runtime can broadcast `mcp.oauth_required` during any post-create
-            ;; work (upstream client.ts:1477). Both helpers clean up the
-            ;; half-configured session (disconnect! + remove-session!) before
-            ;; rethrowing; the outer catch's remove-session! is then a safe
-            ;; no-op. Then apply the mode-specific options patch (upstream PR #1428).
             (register-mcp-auth-interest! client session-id config)
             (apply-session-options-update! client session config)
+            (finish-session-setup! client transaction)
             (log/info "Session created: " session-id)
             session)
           (catch Throwable t
-            (session/remove-session! client session-id)
-            (throw t)))))))
+            (throw
+             (fail-session-setup!
+              client
+              (assoc transaction :destroy-runtime? @destroy-runtime?)
+              t))))))))
 
 (defn- resume-session-result*
   [client session-id config]
   (validate-provider-config! config)
   (validate-tool-filters! config)
   (validate-empty-mode-session-requirements! client config)
+  (ensure-github-token-provider-transport! client config)
   (ensure-connected! client)
   (ensure-session-fs-handler-factory! client config)
   (let [config (normalize-config-for-mode client config)
         {:keys [connection-io]} @(:state client)
         trace-ctx (get-trace-context (:on-get-trace-context client))
         {:keys [transform-callbacks]} (extract-transform-callbacks (:system-message config))
-        params (merge trace-ctx (build-resume-session-params session-id config))
-        session (pre-register-session client session-id config)]
-    (session/register-transform-callbacks! client session-id transform-callbacks)
+        {:keys [params session] :as transaction}
+        (prepare-local-session-setup!
+         client session-id config transform-callbacks
+         #(merge trace-ctx
+                 (build-resume-session-params session-id %)))
+        destroy-runtime? (atom false)]
     (try
-      (install-session-fs-handler! client session-id session config)
       (register-mcp-auth-interest! client session-id config)
-      (let [result (proto/send-request! connection-io "session.resume" params)]
+      (let [result (proto/send-request! connection-io "session.resume" params)
+            _ (reset! destroy-runtime? true)]
         (session/set-workspace-path! client session-id (:workspace-path result))
         (session/set-capabilities! client session-id (:capabilities result))
         (session/set-open-canvases! client session-id (:open-canvases result))
         (apply-session-options-update! client session config)
+        (finish-session-setup! client transaction)
         {:session session
          :result result})
       (catch Throwable t
-        (session/remove-session! client session-id)
-        (throw t)))))
+        (throw
+         (fail-session-setup!
+          client
+          (assoc transaction :destroy-runtime? @destroy-runtime?)
+          t))))))
 
 (defn- resume-session*
   [client session-id config]
@@ -3052,6 +4030,11 @@
    - :excluded-tools     - List of tool names to disable
    - :tool-search        - Tool discovery config {:enabled :defer-threshold}
    - :provider           - Custom provider configuration (BYOK)
+   - :capi               - Copilot API options {:enable-web-socket-responses boolean
+                                                :auto-tier :efficiency|:balance|:intelligence}.
+                           Auto-tier applies to a cold resume; a warm resume
+                           cannot change an already-resident session.
+   - :feature-flags      - String-to-boolean feature flag map. Omission and {} are distinct.
    - :streaming?         - Enable streaming responses
    - :mcp-servers        - MCP server configurations, applied as part of session.resume.
    - :custom-agents      - Custom agent configurations
@@ -3059,13 +4042,22 @@
    - :config-directory   - Override configuration directory.
                            :config-dir remains a deprecated alias.
    - :skill-directories  - Directories to load skills from
-    - :disabled-skills    - Skills to disable
-    - :infinite-sessions  - Infinite session configuration
-    - :memory             - Persistent memory config {:enabled boolean} (upstream PR #1617).
-                            Parity with create-session; omitted when unset.
-    - :reasoning-effort   - Reasoning effort level: \"low\", \"medium\", \"high\", or \"xhigh\"
-    - :github-token       - GitHub token for this session (sent as gitHubToken)
-    - :on-user-input-request - Handler for ask_user requests
+   - :disabled-skills    - Skills to disable
+   - :included-builtin-skills - Allowlist of runtime-bundled skill names. Empty client mode
+                                defaults to []; CLI mode omits it unless explicitly provided.
+   - :infinite-sessions  - Infinite session configuration
+   - :memory             - Persistent memory config {:enabled boolean} (upstream PR #1617).
+                           Parity with create-session; omitted when unset.
+   - :reasoning-effort   - Reasoning effort level: \"low\", \"medium\", \"high\", or \"xhigh\"
+   - :github-token       - Static GitHub token for this session (sent as gitHubToken).
+                           Mutually exclusive with :github-token-provider.
+   - :github-token-provider - Refreshable session credential callback. Same shape,
+                              lifecycle, and transport-security requirements as
+                              create-session; a successful resume replaces the
+                              session's previous provider. Token results require
+                              integer :expires-in >= 3601.
+   - :on-user-input-request - Handler for ask_user requests
+   - :ask-user-variant  - Built-in ask_user shape: :legacy or :elicitation.
    - :on-elicitation-request - Handler for elicitation requests (upstream PRs #908, #960).
                                Single-arg handler receives an ElicitationContext map with
                                :session-id, :message, :requested-schema, :mode,
@@ -3096,6 +4088,7 @@
                                      earlier untracked turns cannot be reconstructed.
    - :session-limits     - Map (@experimental). See `create-session` (upstream PR #1865).
    - :enable-managed-settings? - Boolean. See `create-session` (upstream PR #1925).
+   - :managed-settings   - Structured enterprise policy. See `create-session`.
    - :request-extensions? - Boolean. See `create-session`; explicit false is forwarded.
    - :extension-sdk-path - String path override for extension subprocesses. See `create-session`.
    - :extension-info     - Stable extension identity `{:source string :name string}`.
@@ -3109,7 +4102,9 @@
   [client session-id config]
   (when-not (s/valid? ::specs/resume-session-config config)
     (let [safe-config (redact-secrets config)]
-      (throw (ex-info "Invalid resume session config"
+      (throw (ex-info (config-validation-message
+                       "Invalid resume session config"
+                       config)
                       {:config safe-config
                        :explain (s/explain-data ::specs/resume-session-config safe-config)}))))
   (resume-session* client session-id config))
@@ -3119,10 +4114,16 @@
 
    Same config options as create-session (`:on-permission-request` is **optional**
    since upstream PR #1308).
-   Validation is performed synchronously (throws immediately on invalid config).
-   The RPC call parks instead of blocking, making this safe to use inside go blocks.
+   Configuration validation, connection setup, and local preparation are
+   performed synchronously. For every path whose session id is known before the
+   RPC, this includes construction of the session filesystem handler. Failures
+   in those steps throw before a result channel is returned. A cloud create
+   without a caller-supplied session id defers filesystem-handler construction
+   until the server returns the id, so that failure is delivered on the channel.
+   The RPC call parks instead of blocking, making the returned channel safe to
+   consume inside go blocks.
 
-   On RPC error, delivers an ExceptionInfo to the channel (not nil).
+   On RPC or later setup error, delivers an ExceptionInfo to the channel (not nil).
    Callers should check the result with (instance? Throwable result).
 
    Note: the sessionFs + cloud-no-id constraint described on `create-session`
@@ -3144,6 +4145,7 @@
   (validate-session-config! config)
   (validate-tool-filters! config)
   (validate-empty-mode-session-requirements! client config)
+  (ensure-github-token-provider-transport! client config)
   (ensure-connected! client)
   (ensure-session-fs-handler-factory! client config)
   (let [config (normalize-config-for-mode client config)
@@ -3157,109 +4159,170 @@
       ;; Cloud session, server-assigned id (upstream PR #1479). Register the
       ;; session inside an inline-response callback so the registration is
       ;; ordered before any subsequent session-scoped notifications.
-      (let [params (merge trace-ctx (build-create-session-params config))
+      (let [{:keys [params registration-id]}
+            (prepare-deferred-session-request!
+             client config
+             #(merge trace-ctx (build-create-session-params %)))
+            assigned-session-id (atom nil)
+            setup-context (atom nil)
+            fail-ch (fn [failure]
+                      (fail-session-setup-async
+                       client
+                       (merge
+                        {:session-id @assigned-session-id
+                         :provider-registration-id registration-id
+                         :destroy-runtime? false}
+                        @setup-context)
+                       failure))
             session-promise (promise)
             on-inline (make-create-session-inline-callback
-                       client config transform-callbacks session-promise)
-            rpc-ch (proto/send-request connection-io "session.create" params
-                                       {:on-response-inline on-inline})]
-        (go
-          (let [response (<! rpc-ch)
-                cleanup-partial!
-                (fn []
-                  (when (and (realized? session-promise)
-                             (not (instance? Throwable @session-promise)))
-                    (session/remove-session! client (:session-id @session-promise))))]
-            (cond
-              (nil? response)
-              (do (cleanup-partial!)
-                  (ex-info "Session creation failed: RPC channel closed (cloud)" {}))
-
-              (:error response)
-              (let [err (:error response)]
-                (log/error "<create-session RPC error: " err)
-                (cleanup-partial!)
-                (ex-info (str "Failed to create session: " (:message err)) {:error err}))
-
-              :else
-              (let [registered (deref session-promise 0 :not-delivered)
-                    result (:result response)]
+                       client config transform-callbacks registration-id
+                       assigned-session-id setup-context session-promise)
+            rpc-ch
+            (try
+              (proto/send-request connection-io "session.create" params
+                                  {:on-response-inline on-inline})
+              (catch Throwable t
+                (fail-session-setup!
+                 client
+                 {:provider-registration-id registration-id
+                  :destroy-runtime? false}
+                 t)))]
+        (if (instance? Throwable rpc-ch)
+          (delivered-chan rpc-ch)
+          (go
+            (try
+              (let [response (<! rpc-ch)]
                 (cond
-                  (= registered :not-delivered)
-                  (ex-info "Internal error: inline-response callback did not run for session.create"
-                           {:result result})
+                  (nil? response)
+                  (<! (fail-ch
+                       (ex-info "Session creation failed: RPC channel closed (cloud)" {})))
 
-                  (instance? Throwable registered)
-                  registered
+                  (:error response)
+                  (let [err (:error response)]
+                    (log/error "<create-session RPC error: " err)
+                    (<! (fail-ch
+                         (ex-info (str "Failed to create session: " (:message err))
+                                  {:error err}))))
 
                   :else
-                  (let [session registered
-                        session-id (:session-id session)]
-                    (session/set-workspace-path! client session-id (:workspace-path result))
-                    (session/set-capabilities! client session-id (:capabilities result))
-                    ;; Register MCP-auth interest before the mode-options patch
-                    ;; (upstream client.ts:1477). Each helper returns a Throwable
-                    ;; on failure (after cleanup); short-circuit on the first.
-                    (let [reg (<! (<register-mcp-auth-interest! client session-id config))]
-                      (if (instance? Throwable reg)
-                        reg
-                        (let [r (<! (<apply-session-options-update! client session config))]
-                          (if (instance? Throwable r)
-                            r
-                            (do (log/info "Session created (async, cloud, server-assigned id): " session-id)
-                                session))))))))))))
+                  (do
+                    (let [registered (deref session-promise 0 :not-delivered)
+                          result (:result response)]
+                      (cond
+                        (= registered :not-delivered)
+                        (<! (fail-ch
+                             (ex-info "Internal error: inline-response callback did not run for session.create"
+                                      {:result result})))
+
+                        (instance? Throwable registered)
+                        (<! (fail-ch registered))
+
+                        :else
+                        (let [session registered
+                              session-id (:session-id session)]
+                          (session/set-workspace-path! client session-id (:workspace-path result))
+                          (session/set-capabilities! client session-id (:capabilities result))
+                         ;; Register MCP-auth interest before the mode-options patch
+                         ;; (upstream client.ts:1477). Each helper returns a Throwable
+                         ;; on failure; the outer transaction owns cleanup.
+                          (let [reg (<! (<register-mcp-auth-interest!
+                                         client session-id config))]
+                            (if (instance? Throwable reg)
+                              (<! (fail-ch reg))
+                              (let [r (<! (<apply-session-options-update!
+                                           client session config))]
+                                (if (instance? Throwable r)
+                                  (<! (fail-ch r))
+                                  (do
+                                    (finish-session-setup!
+                                     client @setup-context)
+                                    (log/info "Session created (async, cloud, server-assigned id): " session-id)
+                                    session)))))))))))
+              (catch Throwable t
+                (<! (fail-ch t)))))))
       ;; Standard path: client supplies (or generates) the sessionId up front.
-      (let [session-id (or caller-session-id (str (java.util.UUID/randomUUID)))
-            params (merge trace-ctx (assoc (build-create-session-params config) :session-id session-id))
-            session (pre-register-session client session-id config)
-            _ (session/register-transform-callbacks! client session-id transform-callbacks)
-            _ (try
-                (install-session-fs-handler! client session-id session config)
-                (catch Throwable t
-                  (session/remove-session! client session-id)
-                  (throw t)))
-            rpc-ch (proto/send-request connection-io "session.create" params)]
-        (go
-          (let [response (<! rpc-ch)]
-            (if (nil? response)
-              (do (session/remove-session! client session-id)
-                  (ex-info "Session creation failed: RPC channel closed" {:session-id session-id}))
-              (if-let [err (:error response)]
-                (do (log/error "<create-session RPC error: " err)
-                    (session/remove-session! client session-id)
-                    (ex-info (str "Failed to create session: " (:message err))
-                             {:error err}))
-                (let [result (:result response)
-                      returned-id (:session-id result)]
-                  (if (and (string? returned-id)
-                           (not (str/blank? returned-id))
-                           (not= returned-id session-id))
-                    (do (session/remove-session! client session-id)
-                        (ex-info "session.create returned a sessionId that differs from the requested id"
-                                 {:requested session-id :returned returned-id}))
+      (let [session-id (or caller-session-id
+                           (str (java.util.UUID/randomUUID)))
+            {:keys [params session] :as transaction}
+            (prepare-local-session-setup!
+             client session-id config transform-callbacks
+             #(merge trace-ctx
+                     (assoc (build-create-session-params %)
+                            :session-id session-id)))
+            fail-ch (fn [destroy-runtime? failure]
+                      (fail-session-setup-async
+                       client
+                       (assoc transaction :destroy-runtime? destroy-runtime?)
+                       failure))
+            destroy-runtime? (atom false)
+            rpc-ch
+            (try
+              (proto/send-request
+               connection-io "session.create" params)
+              (catch Throwable t
+                (fail-session-setup!
+                 client
+                 (assoc transaction :destroy-runtime? false)
+                 t)))]
+        (if (instance? Throwable rpc-ch)
+          (delivered-chan rpc-ch)
+          (go
+            (try
+              (let [response (<! rpc-ch)]
+                (if (nil? response)
+                  (<! (fail-ch false
+                               (ex-info "Session creation failed: RPC channel closed"
+                                        {:session-id session-id})))
+                  (if-let [err (:error response)]
                     (do
-                      (session/set-workspace-path! client session-id (:workspace-path result))
-                      (session/set-capabilities! client session-id (:capabilities result))
-                      ;; Register MCP-auth interest before the mode-options patch
-                      ;; (upstream client.ts:1477); short-circuit on the first
-                      ;; helper that returns a Throwable (after its own cleanup).
-                      (let [reg (<! (<register-mcp-auth-interest! client session-id config))]
-                        (if (instance? Throwable reg)
-                          reg
-                          (let [r (<! (<apply-session-options-update! client session config))]
-                            (if (instance? Throwable r)
-                              r
-                              (do (log/info "Session created (async): " session-id)
-                                  session))))))))))))))))
+                      (log/error "<create-session RPC error: " err)
+                      (<! (fail-ch false
+                                   (ex-info (str "Failed to create session: " (:message err))
+                                            {:error err}))))
+                    (let [result (:result response)
+                          returned-id (:session-id result)]
+                      (reset! destroy-runtime? true)
+                      (if (and (string? returned-id)
+                               (not (str/blank? returned-id))
+                               (not= returned-id session-id))
+                        (<! (fail-ch true
+                                     (ex-info "session.create returned a sessionId that differs from the requested id"
+                                              {:requested session-id :returned returned-id})))
+                        (do
+                          (session/set-workspace-path! client session-id (:workspace-path result))
+                          (session/set-capabilities! client session-id (:capabilities result))
+                           ;; Register MCP-auth interest before the mode-options patch
+                           ;; (upstream client.ts:1477); short-circuit on the first
+                           ;; helper that returns a Throwable. The outer transaction
+                           ;; owns cleanup.
+                          (let [reg (<! (<register-mcp-auth-interest!
+                                         client session-id config))]
+                            (if (instance? Throwable reg)
+                              (<! (fail-ch true reg))
+                              (let [r (<! (<apply-session-options-update!
+                                           client session config))]
+                                (if (instance? Throwable r)
+                                  (<! (fail-ch true r))
+                                  (do
+                                    (finish-session-setup!
+                                     client transaction)
+                                    (log/info "Session created (async): " session-id)
+                                    session)))))))))))
+              (catch Throwable t
+                (<! (fail-ch @destroy-runtime? t))))))))))
+
 (defn <resume-session
   "Async version of resume-session. Returns a channel that delivers a CopilotSession.
 
    Same config options as resume-session (`:on-permission-request` is **optional**
    since upstream PR #1308).
-   Validation is performed synchronously (throws immediately on invalid config).
-   The RPC call parks instead of blocking, making this safe to use inside go blocks.
+   Configuration validation, connection setup, and local preparation, including
+   session filesystem handler construction, are performed synchronously and
+   throw before a result channel is returned. The RPC call parks instead of
+   blocking, making the returned channel safe to consume inside go blocks.
 
-   On RPC error, delivers an ExceptionInfo to the channel (not nil).
+   On RPC or later setup error, delivers an ExceptionInfo to the channel (not nil).
    Callers should check the result with (instance? Throwable result).
 
    Usage:
@@ -3274,54 +4337,70 @@
   [client session-id config]
   (when-not (s/valid? ::specs/resume-session-config config)
     (let [safe-config (redact-secrets config)]
-      (throw (ex-info "Invalid resume session config"
+      (throw (ex-info (config-validation-message
+                       "Invalid resume session config"
+                       config)
                       {:config safe-config
                        :explain (s/explain-data ::specs/resume-session-config safe-config)}))))
   (validate-provider-config! config)
   (validate-tool-filters! config)
   (validate-empty-mode-session-requirements! client config)
+  (ensure-github-token-provider-transport! client config)
   (ensure-connected! client)
   (ensure-session-fs-handler-factory! client config)
   (let [config (normalize-config-for-mode client config)
         {:keys [connection-io]} @(:state client)
         trace-ctx (get-trace-context (:on-get-trace-context client))
         {:keys [transform-callbacks]} (extract-transform-callbacks (:system-message config))
-        params (merge trace-ctx (build-resume-session-params session-id config))
-        ;; Pre-register session before RPC so early events are captured
-        session (pre-register-session client session-id config)
-        _ (session/register-transform-callbacks! client session-id transform-callbacks)
-        _ (try
-            (install-session-fs-handler! client session-id session config)
-            (catch Throwable t
-              (session/remove-session! client session-id)
-              (throw t)))]
+        {:keys [params session] :as transaction}
+        (prepare-local-session-setup!
+         client session-id config transform-callbacks
+         #(merge trace-ctx
+                 (build-resume-session-params session-id %)))
+        destroy-runtime? (atom false)
+        fail-ch (fn [destroy-runtime? failure]
+                  (fail-session-setup-async
+                   client
+                   (assoc transaction :destroy-runtime? destroy-runtime?)
+                   failure))]
     (go
-      ;; Register MCP-auth interest BEFORE session.resume (upstream
-      ;; client.ts:1578) so OAuth the runtime needs while processing resume
-      ;; reaches the handler instead of silently using a cached token. The
-      ;; helper returns a Throwable (after cleanup) on failure.
-      (let [reg (<! (<register-mcp-auth-interest! client session-id config))]
-        (if (instance? Throwable reg)
-          reg
-          (let [response (<! (proto/send-request connection-io "session.resume" params))]
-            (if (nil? response)
-          ;; Channel closed without response — clean up pre-registered session
-              (do (session/remove-session! client session-id)
-                  (ex-info "Session resume failed: RPC channel closed"
-                           {:session-id session-id}))
-              (if-let [err (:error response)]
-                (do (log/error "<resume-session RPC error: " err)
-                    (session/remove-session! client session-id)
-                    (ex-info (str "Failed to resume session: " (:message err))
-                             {:error err :session-id session-id}))
-                (let [result (:result response)]
-                  (session/set-workspace-path! client session-id (:workspace-path result))
-                  (session/set-capabilities! client session-id (:capabilities result))
-                  (session/set-open-canvases! client session-id (:open-canvases result))
-                  (let [r (<! (<apply-session-options-update! client session config))]
-                    (if (instance? Throwable r)
-                      r
-                      session)))))))))))
+      (try
+          ;; Register MCP-auth interest BEFORE session.resume (upstream
+          ;; client.ts:1578) so OAuth the runtime needs while processing resume
+          ;; reaches the handler instead of silently using a cached token.
+        (let [reg (<! (<register-mcp-auth-interest!
+                       client session-id config))]
+          (if (instance? Throwable reg)
+            (<! (fail-ch false reg))
+            (let [response
+                  (<! (proto/send-request
+                       connection-io "session.resume" params))]
+              (if (nil? response)
+                (<! (fail-ch
+                     false
+                     (ex-info "Session resume failed: RPC channel closed"
+                              {:session-id session-id})))
+                (if-let [err (:error response)]
+                  (do
+                    (log/error "<resume-session RPC error: " err)
+                    (<! (fail-ch
+                         false
+                         (ex-info (str "Failed to resume session: " (:message err))
+                                  {:error err :session-id session-id}))))
+                  (let [result (:result response)]
+                    (reset! destroy-runtime? true)
+                    (session/set-workspace-path! client session-id (:workspace-path result))
+                    (session/set-capabilities! client session-id (:capabilities result))
+                    (session/set-open-canvases! client session-id (:open-canvases result))
+                    (let [r (<! (<apply-session-options-update!
+                                 client session config))]
+                      (if (instance? Throwable r)
+                        (<! (fail-ch true r))
+                        (do
+                          (finish-session-setup! client transaction)
+                          session)))))))))
+        (catch Throwable t
+          (<! (fail-ch @destroy-runtime? t)))))))
 
 (defn- project-granted-environment-variables
   [requested-names grants]
@@ -3356,6 +4435,8 @@
 
    Config is the same as resume-session except `:extension-sdk-path` is not accepted.
    `:request-extensions?` and `:extension-info` are accepted.
+   `:github-token-provider` is accepted with the same callback contract,
+   lifecycle, and transport-security requirements as resume-session.
    `:on-permission-request` is **optional**;
    when omitted, a default handler is used that returns `{:kind :no-result}`, leaving any
    pending permission request unanswered (appropriate for most extensions that use
@@ -3376,7 +4457,9 @@
    Throws if SESSION_ID is not set in the environment."
   [config]
   (when-not (s/valid? ::specs/join-session-config config)
-    (throw (ex-info "Invalid join session config"
+    (throw (ex-info (config-validation-message
+                     "Invalid join session config"
+                     config)
                     {:config (redact-secrets config)
                      :explain (s/explain-data ::specs/join-session-config
                                               (redact-secrets config))})))
@@ -3402,8 +4485,12 @@
                     requested-names
                     (:granted-environment-variables result)))))
         (catch Throwable t
-          (try (stop! c) (catch Throwable _))
-          (throw t))))))
+          (let [cleanup-failures
+                (try
+                  (stop! c)
+                  (catch Throwable cleanup-failure
+                    [cleanup-failure]))]
+            (throw (preserve-setup-failure! t cleanup-failures))))))))
 
 (defn- wire->session-metadata
   "Convert a wire-format session map to the Clojure session-metadata shape."
@@ -3477,11 +4564,19 @@
     (when-not (:success result)
       (throw (ex-info (str "Failed to delete session: " (:error result))
                       {:session-id session-id :error (:error result)})))
-    ;; Remove from local sessions and IO
-    (swap! (:state client) (fn [s]
-                             (-> s
-                                 (update :sessions dissoc session-id)
-                                 (update :session-io dissoc session-id))))
+    (let [cleanup-failures
+          (td/collect
+           [(td/attempt
+             {:operation :teardown :resource :deleted-session
+              :session-id session-id}
+             (session/teardown-local! client session-id))
+            (td/attempt
+             {:operation :remove :resource :deleted-session
+              :session-id session-id}
+             (session/remove-session! client session-id))])]
+      (when-let [primary (first cleanup-failures)]
+        (td/attach-cleanup-failures! primary (rest cleanup-failures))
+        (throw primary)))
     nil))
 
 (defn get-last-session-id
@@ -3517,15 +4612,15 @@
 ;; Testing Utilities
 ;; -----------------------------------------------------------------------------
 
-(defn connect-with-streams!
-  "Connect to a server using pre-existing input/output streams.
-   For testing purposes only."
-  [client in out]
+(defn- connect-with-streams*
+  [client in out caller-supplied?]
   (let [[old _] (swap-vals! (:state client)
                             (fn [s]
                               (if (#{:connecting :connected} (:status s))
                                 s
-                                (assoc s :status :connecting))))]
+                                (assoc s
+                                       :caller-supplied-streams? caller-supplied?
+                                       :status :connecting))))]
     (when-not (#{:connecting :connected} (:status old))
       (try
         ;; Initialize connection state before connecting
@@ -3554,3 +4649,12 @@
           (log-teardown-failures! (release-transport! client {:process :none}))
           (swap! (:state client) assoc :status :error)
           (throw e))))))
+
+(defn connect-with-streams!
+  "Connect to a server using caller-supplied input/output streams.
+
+   For testing purposes only. Because the SDK cannot authenticate the peer
+   represented by these streams, sessions using `:github-token-provider` reject
+   this transport before sending a session RPC."
+  [client in out]
+  (connect-with-streams* client in out true))

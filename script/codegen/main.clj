@@ -36,7 +36,13 @@
           forms (es/emit-event-specs-ns root)
           out   (str (fs/path gen-dir "event_specs.clj"))]
       (cc/write-clj! out forms)
-      (println (format "  → %s (%d forms)" out (count forms))))
+      (println (format "  → %s (%d forms)" out (count forms)))
+      (let [metadata-forms (es/emit-event-metadata-ns root)
+            metadata-out (str (fs/path gen-dir "event_metadata.clj"))]
+        (cc/write-clj! metadata-out metadata-forms)
+        (println (format "  → %s (%d forms)"
+                         metadata-out
+                         (count metadata-forms)))))
     (println "Loading" coerce-path)
     (let [coercions (ec/load-coercions coerce-path)
           forms     (ec/emit-coerce-ns coercions)

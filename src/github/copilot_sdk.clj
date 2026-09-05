@@ -25,6 +25,7 @@
             [github.copilot-sdk.factory :as factory]
             [github.copilot-sdk.session :as session]
             [github.copilot-sdk.specs :as specs]
+            [github.copilot-sdk.teardown :as teardown]
             [github.copilot-sdk.tools :as tools]))
 
 ;; =============================================================================
@@ -184,7 +185,13 @@
     :copilot/session.managed_settings_resolved
     :copilot/tool_search.activated
     ;; v1.0.9 + post-v1.0.9 sync (pinned schema 1.0.79-6).
-    :copilot/factory.run_updated})
+    :copilot/factory.run_updated
+    ;; Stable events present at upstream pin 2980c78 (schema 1.0.83-1).
+    ;; HydraFusion events remain generated-only: upstream marks routing/phase
+    ;; signals experimental and handoff/commit checkpoints internal.
+    :copilot/session.mode_notice_delivered
+    :copilot/model.call_finished
+    :copilot/subagent.configured})
 
 (def session-events
   "Session lifecycle and state management events."
@@ -237,7 +244,9 @@
     ;; Post-v1.0.7 sync (pinned schema 1.0.73): enterprise managed-settings
     ;; resolution and enforcement.
     :copilot/session.managed_settings_enforced
-    :copilot/session.managed_settings_resolved})
+    :copilot/session.managed_settings_resolved
+    ;; Upstream pin 2980c78 (schema 1.0.83-1): persisted mid-turn mode notices.
+    :copilot/session.mode_notice_delivered})
 
 (def assistant-events
   "Assistant response events."
@@ -400,10 +409,8 @@
   [[client-sym & [opts]] & body]
   `(let [~client-sym ~(if opts `(client ~opts) `(client))]
      (start! ~client-sym)
-     (try
-       ~@body
-       (finally
-         (stop! ~client-sym)))))
+     (teardown/with-cleanup #(stop! ~client-sym)
+       ~@body)))
 
 (defn notifications
   "Get the channel that receives non-session notifications.
@@ -610,16 +617,17 @@
 (defmacro with-session
   "Create a session and ensure disconnect! on exit.
 
+   `disconnect!` can throw. If both the body and disconnect fail, the body
+   failure remains primary and the disconnect failure is attached as suppressed.
+
    Usage:
    (with-session [s client {:on-permission-request copilot/approve-all
                             :model \"gpt-5.4\"}]
      ...)"
   [[session-sym client config] & body]
   `(let [~session-sym (create-session ~client ~config)]
-     (try
-       ~@body
-       (finally
-         (disconnect! ~session-sym)))))
+     (teardown/with-cleanup #(disconnect! ~session-sym)
+       ~@body)))
 
 (defmacro with-client-session
   "Create a client + session and ensure cleanup on exit.
@@ -755,6 +763,8 @@
    `:request-extensions?`, `:extension-info`, and the join-only
    `:requested-environment-variables` vector are accepted. An omitted or empty
    environment-variable vector sends no request; explicit nil is invalid.
+   `:github-token-provider` uses the same callback contract, lifecycle, and
+   transport-security requirements as `resume-session`.
    `:on-permission-request` is **optional**;
    when omitted, join-session uses `default-join-session-permission-handler`.
    The `:disable-resume?` option defaults to true.
@@ -869,6 +879,9 @@
   "Send a message and wait until the session becomes idle.
    Returns the final assistant message event, or nil if none received.
    Serialized per session to avoid mixing concurrent sends.
+   An idle event whose `:data :mode` is the string \"autopilot\" is a
+   nonterminal turn boundary (the agent keeps working), so the wait
+   continues past it to the next session.idle/session.error.
 
    Options: same as send!, plus:
    - :timeout-ms   - Timeout in milliseconds (default: 60000). Read from `opts`
@@ -888,8 +901,16 @@
 
 (defn send-async
   "Send a message and return a core.async channel that receives events.
-   The channel closes after session.idle or session.error.
+   The channel closes after an ordinary session.idle or session.error. An
+   idle event whose `:data :mode` is the string \"autopilot\" is a
+   nonterminal turn boundary (the agent keeps working) and is delivered on
+   the channel without closing it.
+   A timeout is delivered as a final `:copilot/session.error` event whose data
+   includes `:timeout-ms`, then the channel closes.
    Serialized per session to avoid mixing concurrent sends.
+
+   Options: same as send!, plus:
+   - :timeout-ms   - Timeout in milliseconds (default: 60000, set to nil to disable)
 
    Example:
    ```clojure
@@ -905,6 +926,14 @@
 (defn <send!
   "Send a message and return a channel that delivers the final content string.
    This is the async equivalent of send-and-wait! - use inside go blocks.
+   As with send-and-wait!, a nonterminal autopilot session.idle (`:data
+   :mode` = \"autopilot\") does not end the wait.
+
+   Options: same as send!, plus:
+   - :timeout-ms   - Timeout in milliseconds (default: 60000, set to nil to disable)
+
+   Session errors and timeouts close the channel after delivering the latest
+   assistant content, if any; otherwise the channel closes without a value.
 
    Example:
    ```clojure
@@ -920,6 +949,10 @@
    event - the channel-based equivalent of `send-and-wait!`. Use it inside go
    blocks instead of blocking a dispatch thread. Unlike `<send!` (which delivers
    the final content string), this delivers the full assistant message event.
+   As with send-and-wait!, an idle event whose `:data :mode` is the string
+   \"autopilot\" is a nonterminal turn boundary, so the wait continues past it.
+   Session errors and timeouts close the channel after delivering the latest
+   assistant message event, if any; otherwise the channel closes without a value.
 
    Options: same as send!, plus:
    - :timeout-ms   - Timeout in milliseconds (default: 60000, set to nil to disable)
@@ -937,7 +970,14 @@
   (session/<send-and-wait! session opts))
 
 (defn send-async-with-id
-  "Send a message and return {:message-id :events-ch}."
+  "Send a message and return `{:message-id :events-ch}`.
+
+   Options: same as send!, plus:
+   - :timeout-ms   - Timeout in milliseconds (default: 60000, set to nil to disable)
+
+   `:events-ch` follows `send-async`: a timeout is delivered as a final
+   `:copilot/session.error` event whose data includes `:timeout-ms`, then the
+   channel closes."
   [session opts]
   (session/send-async-with-id session opts))
 
@@ -970,7 +1010,7 @@
   [session opts]
   (session/<handle-pending-tool-call! session opts))
 
-(defn handle-pending-permission-request!
+(defn ^:experimental handle-pending-permission-request!
   "Manually resolve a pending permission request (upstream PR #1308).
 
    Use this when no `:on-permission-request` handler was registered and the
@@ -985,7 +1025,7 @@
   [session opts]
   (session/handle-pending-permission-request! session opts))
 
-(defn <handle-pending-permission-request!
+(defn ^:experimental <handle-pending-permission-request!
   "core.async variant of `handle-pending-permission-request!`. Returns a channel."
   [session opts]
   (session/<handle-pending-permission-request! session opts))
@@ -994,7 +1034,12 @@
   "Disconnects the session and releases in-memory resources (event handlers,
    tool handlers, permission handler). Session data on disk is preserved for
    later resumption via `resume-session`. To permanently remove all session
-   data, use `delete-session!` instead."
+   data, use `delete-session!` instead.
+
+   The runtime session is destroyed before local resources are released. A
+   definite runtime rejection is rethrown and leaves the local session connected
+   so the caller can retry. An ambiguous timeout, interruption, response-channel
+   closure, or connection loss is rethrown after local teardown."
   [session]
   (session/disconnect! session))
 
@@ -1472,13 +1517,13 @@
   (tools/convert-mcp-call-tool-result result))
 
 ;; Re-export permission helpers
-(defn attributed-permission-result?
+(defn ^:experimental attributed-permission-result?
   "Return true when `result` is a well-formed attributed permission result.
    See `github.copilot-sdk.client/attributed-permission-result?`."
   [result]
   (client/attributed-permission-result? result))
 
-(defn attributed-permission-result
+(defn ^:experimental attributed-permission-result
   "Attach informational decision context to a permission-handler result.
    Reapplying attribution replaces the previous context rather than nesting it.
    See `github.copilot-sdk.client/attributed-permission-result`."

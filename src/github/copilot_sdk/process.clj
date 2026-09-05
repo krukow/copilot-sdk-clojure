@@ -5,8 +5,9 @@
             [github.copilot-sdk.logging :as log]
             [github.copilot-sdk.teardown :as td])
   (:import [java.lang ProcessBuilder ProcessBuilder$Redirect]
-           [java.io File]
-           [java.net Socket]))
+           [java.io File InputStreamReader]
+           [java.net Socket]
+           [java.util.concurrent CountDownLatch LinkedBlockingQueue TimeUnit]))
 
 (defrecord ManagedProcess
            [^Process process
@@ -147,7 +148,7 @@
     (.redirectErrorStream builder false)
 
     (let [process (.start builder)
-          exit-chan (chan 1)]
+          exit-chan (async/promise-chan)]
 
       ;; Monitor process exit. `.waitFor` blocks the calling thread until the
       ;; child exits, so it must run on a real thread (async/thread), never a
@@ -267,38 +268,197 @@
       (catch Exception _ false))
     true))
 
+(def ^:private port-exit-poll-ms
+  "Maximum startup delay before noticing that the child process exited."
+  10)
+
+(def ^:private port-candidate-settle-ms
+  "Quiet period used to disambiguate an unterminated port from a read split
+   between digits. A delimiter or EOF confirms the candidate immediately."
+  50)
+
+(def ^:private port-reader-stop-timeout-ms
+  "Maximum time to wait for the stdout reader after closing its stream."
+  1000)
+
+(defn- process-exit-status
+  [^ManagedProcess mp]
+  (or (when-let [exit-ch (:exit-chan mp)]
+        (async/poll! exit-ch))
+      (when-let [^Process process (:process mp)]
+        (when-not (.isAlive process)
+          {:exit-code
+           (try
+             (.exitValue process)
+             (catch IllegalThreadStateException _
+               nil))}))))
+
+(defn- process-exit-failure
+  [exit-status]
+  (ex-info "CLI process exited before announcing port"
+           (select-keys exit-status [:exit-code])))
+
+(defn- await-latch-preserving-interrupt
+  [^CountDownLatch latch timeout-ms]
+  (let [deadline (+ (System/nanoTime) (* timeout-ms 1000000))
+        interrupted? (volatile! (Thread/interrupted))]
+    (loop []
+      (let [remaining (- deadline (System/nanoTime))]
+        (if-not (pos? remaining)
+          (do
+            (when @interrupted?
+              (.interrupt (Thread/currentThread)))
+            false)
+          (let [outcome
+                (try
+                  {:completed?
+                   (.await latch remaining TimeUnit/NANOSECONDS)}
+                  (catch InterruptedException _
+                    {:interrupted? true}))]
+            (if (:interrupted? outcome)
+              (do
+                (vreset! interrupted? true)
+                (recur))
+              (do
+                (when @interrupted?
+                  (.interrupt (Thread/currentThread)))
+                (:completed? outcome)))))))))
+
+(defn- stop-port-reader!
+  [stdout ^Thread reader-thread ^CountDownLatch reader-done]
+  (.interrupt reader-thread)
+  (let [close-failure
+        (td/attempt {:operation :close :resource :stdout}
+                    (.close stdout))
+        stopped? (await-latch-preserving-interrupt
+                  reader-done port-reader-stop-timeout-ms)
+        wait-failure
+        (when-not stopped?
+          (td/failure {:operation :wait-for-exit
+                       :resource :stdout-reader
+                       :timeout-ms port-reader-stop-timeout-ms}))]
+    (td/collect [close-failure wait-failure])))
+
+(defn- stop-port-reader-and-throw!
+  [failure stdout reader-thread reader-done]
+  (td/attach-cleanup-failures!
+   failure
+   (stop-port-reader! stdout reader-thread reader-done))
+  (throw failure))
+
 (defn wait-for-port
   "Wait for TCP server to announce its port on stdout.
    Returns the port number or throws on timeout."
   [^ManagedProcess mp timeout-ms]
+  (when-let [exit-status (process-exit-status mp)]
+    (throw (process-exit-failure exit-status)))
   (let [stdout (:stdout mp)
-        reader (java.io.BufferedReader.
-                (java.io.InputStreamReader. stdout "UTF-8"))
-        deadline (+ (System/currentTimeMillis) timeout-ms)]
-    (loop [buffer ""]
-      (when (> (System/currentTimeMillis) deadline)
-        (throw (ex-info "Timeout waiting for CLI server to start" {:timeout-ms timeout-ms})))
-      (when-not (alive? mp)
-        (throw (ex-info "CLI process exited before announcing port" {})))
-      (if (.ready reader)
-        (let [ch (.read reader)]
-          (if (neg? ch)
-            (throw (ex-info "CLI stdout closed unexpectedly" {}))
-            (let [new-buffer (str buffer (char ch))
-                  matcher (re-find #"listening on port (\d+)" (str/lower-case new-buffer))]
-              (if matcher
-                (do
-                  (async/thread
-                    (try
-                      (loop []
-                        (when (.readLine reader)
-                          (recur)))
-                      (catch Exception _)))
-                  (parse-long (second matcher)))
-                (recur new-buffer)))))
-        (do
-          (Thread/sleep 50)
-          (recur buffer))))))
+        results (LinkedBlockingQueue.)
+        reader-done (CountDownLatch. 1)
+        announced? (volatile! false)
+        deadline (+ (System/nanoTime) (* timeout-ms 1000000))
+        accept-port!
+        (fn [port]
+          (vreset! announced? true)
+          port)
+        reader-thread
+        (Thread.
+         ^Runnable
+         (reify Runnable
+           (run [_]
+             (try
+               (with-open [reader (InputStreamReader. stdout "UTF-8")]
+                 (let [buffer (char-array 1024)]
+                   (loop [tail ""]
+                     (let [read-count
+                           (.read reader buffer 0 (alength buffer))]
+                       (if (neg? read-count)
+                         (when-not @announced?
+                           (.offer results {:eof? true}))
+                         (let [text
+                               (str tail
+                                    (String. buffer 0 read-count))
+                               matcher
+                               (when-not @announced?
+                                 (re-matcher
+                                  #"listening on port (\d+)"
+                                  (str/lower-case text)))]
+                           (when (and matcher (.find matcher))
+                             (.offer
+                              results
+                              {:port (parse-long (.group matcher 1))
+                               :complete?
+                               (< (.end matcher 1) (count text))}))
+                           (recur
+                            (if @announced?
+                              ""
+                              (subs text
+                                    (max 0 (- (count text) 64)))))))))))
+               (catch Exception error
+                 (when-not @announced?
+                   (.offer results {:error error})))
+               (finally
+                 (.countDown reader-done)))))
+         "copilot-port-reader")]
+    (.setDaemon reader-thread true)
+    (.start reader-thread)
+    (try
+      (loop [pending-port nil
+             candidate-deadline nil
+             result (.poll results)]
+        (cond
+          (:error result)
+          (throw (:error result))
+
+          (:eof? result)
+          (if pending-port
+            (accept-port! pending-port)
+            (throw
+             (ex-info "CLI stdout closed before announcing port" {})))
+
+          (:complete? result)
+          (accept-port! (:port result))
+
+          (:port result)
+          (recur (:port result)
+                 (+ (System/nanoTime)
+                    (* port-candidate-settle-ms 1000000))
+                 (.poll results))
+
+          :else
+          (let [now (System/nanoTime)
+                remaining (- deadline now)
+                candidate-remaining
+                (when candidate-deadline
+                  (- candidate-deadline now))]
+            (cond
+              (not (pos? remaining))
+              (throw (ex-info "Timeout waiting for CLI server to start"
+                              {:timeout-ms timeout-ms}))
+
+              (and candidate-remaining
+                   (not (pos? candidate-remaining)))
+              (accept-port! pending-port)
+
+              :else
+              (if-let [exit-status (process-exit-status mp)]
+                (throw (process-exit-failure exit-status))
+                (recur
+                 pending-port
+                 candidate-deadline
+                 (.poll
+                  results
+                  (min remaining
+                       (* port-exit-poll-ms 1000000)
+                       (or candidate-remaining Long/MAX_VALUE))
+                  TimeUnit/NANOSECONDS)))))))
+      (catch InterruptedException failure
+        (.interrupt (Thread/currentThread))
+        (stop-port-reader-and-throw!
+         failure stdout reader-thread reader-done))
+      (catch Throwable failure
+        (stop-port-reader-and-throw!
+         failure stdout reader-thread reader-done)))))
 
 (defn connect-tcp
   "Connect to a TCP server. Returns a socket."

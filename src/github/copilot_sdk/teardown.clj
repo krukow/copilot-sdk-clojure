@@ -12,6 +12,7 @@
    become an `ex-info` carrying the operation and resource identity so the
    caller can return or log it. Nothing is propagated, so a failing step cannot
    short-circuit the steps that follow it."
+  (:require [github.copilot-sdk.logging :as log])
   (:import [java.nio.channels ClosedChannelException]))
 
 (defn expected-failure?
@@ -66,3 +67,54 @@
   `(let [collected# (volatile! nil)
          thrown# (attempt ~step (vreset! collected# (do ~@body)))]
      (collect (conj (vec @collected#) thrown#))))
+
+(defn attach-cleanup-failures!
+  "Attach cleanup failures to primary and log each retained failure."
+  [^Throwable primary cleanup-failures]
+  (doseq [^Throwable cleanup-failure cleanup-failures]
+    (when-not (identical? primary cleanup-failure)
+      (.addSuppressed primary cleanup-failure))
+    (log/warn cleanup-failure
+              "Cleanup failed while preserving the primary failure"))
+  primary)
+
+(defn cleanup-preserving!
+  "Run `cleanup`, preserving `primary` when both body and cleanup fail.
+
+   Cleanup-only failures are rethrown. Interrupted failures restore the current
+   thread's interrupt status before control returns to the caller."
+  [primary cleanup]
+  (let [interrupted? (or (.isInterrupted (Thread/currentThread))
+                         (instance? InterruptedException primary))]
+    (try
+      (cleanup)
+      (catch Throwable cleanup-failure
+        (when (instance? InterruptedException cleanup-failure)
+          (.interrupt (Thread/currentThread)))
+        (if primary
+          (attach-cleanup-failures! primary [cleanup-failure])
+          (throw cleanup-failure)))
+      (finally
+        (when interrupted?
+          (.interrupt (Thread/currentThread)))))))
+
+(defmacro with-cleanup
+  "Evaluate `body`, then call `cleanup`, preserving a body failure as primary.
+
+   Unlike `call-with-cleanup`, this keeps `body` lexically visible to enclosing
+   macros such as `core.async/go`."
+  [cleanup & body]
+  `(let [primary# (volatile! nil)]
+     (try
+       ~@body
+       (catch Throwable failure#
+         (vreset! primary# failure#)
+         (throw failure#))
+       (finally
+         (cleanup-preserving! @primary# ~cleanup)))))
+
+(defn call-with-cleanup
+  "Call `body`, then `cleanup`, preserving a body failure as the primary error."
+  [body cleanup]
+  (with-cleanup cleanup
+    (body)))

@@ -172,6 +172,14 @@
   {:session-event-schema-changed? false
    :event-specs-changed? false
    :coercion-source-changed? false}}
+ :published-schema-artifact
+ {:package "@github/copilot-linux-x64"
+  :version "1.0.81-6"
+  :schemas
+  {"package/schemas/api.schema.json"
+  "603b014acb7a5c93a4b3c1580394f301eb60453e516eef15e47cbb6522bad558"
+  "package/schemas/session-events.schema.json"
+  "9fd414f5020c317a234da6d7a06a4d0ef02ddad227ddc9962dced49302e5e8ec"}}
  :version
  {:sdk "1.0.11.0"
   :changed? false

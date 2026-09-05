@@ -18,7 +18,20 @@
    - `array`             → `(s/coll-of <items>)`
    - top-level `data` / envelope objects with properties
      → `(s/keys :req-un [...] :opt-un [...])`
-   - nested `object` nodes handled by `emit-type` → `map?`
+   - nested `object` nodes with declared `properties`, reached via `$ref`
+     → registered once as a named `::<definition>-shape` spec (see
+     `register-object-shape!`) enforcing required-key presence, recursive
+     validity of every known property, and (when the schema declares
+     `additionalProperties: false`) rejection of unknown keys. Registering
+     (instead of inlining at every occurrence) keeps generated forms small
+     when the same definition recurs across many event variants.
+   - nested `object` nodes with declared `properties` reached *inline*
+     (i.e., not via `$ref` — currently none flow through this path; see
+     `emit-object`) → an inline `(s/and map? ...)` form with the same
+     structural predicates, built but not separately registered.
+   - nested `object` nodes *without* declared `properties` (dictionary-style
+     or otherwise opaque objects) → `map?`, left open
+   - nodes marked `x-opaque-json` → recursive JSON values (including scalars)
    - `anyOf` (incl. nullable)   → `(s/or ...)` or `(s/nilable ...)`
    - Otherwise / less precise cases → `any?`
 
@@ -28,7 +41,8 @@
    `util/wire->clj` before reaching specs, all keys are kebab-case at this
    point."
   (:require [codegen.core :as cc]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [clojure.walk :as walk]))
 
 (def ^:private ns-name "github.copilot-sdk.generated.event-specs")
 
@@ -36,6 +50,33 @@
   "Build a keyword in the generated namespace."
   [name-part]
   (keyword ns-name name-part))
+
+;; ---------------------------------------------------------------------------
+;; Nested-object shape registry
+;; ---------------------------------------------------------------------------
+;; A `$ref`'d object definition with declared `:properties` is registered
+;; once as a named `::<definition>-shape` spec rather than inlined at every
+;; occurrence. The same definition can recur across many event variants
+;; (every event's envelope `:data` property references a distinct Data
+;; definition — see `collect-leaf-properties`), and inlining a full
+;; recursive structural predicate at each occurrence multiplies generated
+;; bytecode enough to exceed the JVM's per-method size limit. Both atoms are
+;; reset per `emit-event-specs-ns` invocation (see below); a fresh process
+;; runs codegen exactly once, so this is defensive rather than load-bearing.
+
+(def ^:private object-registry
+  "`$ref` string -> registered shape spec keyword."
+  (atom {}))
+
+(def ^:private object-defs
+  "Ordered `[kw form]` pairs accumulated as object shapes are registered."
+  (atom []))
+
+(defn- ref->shape-kw
+  "Build the registered shape spec keyword for a `$ref` string such as
+   `#/definitions/AssistantMessageToolRequestCaller`."
+  [ref]
+  (-> ref (str/split #"/") last cc/wire-key->kebab (str "-shape") ns-kw))
 
 ;; ---------------------------------------------------------------------------
 ;; Type emission
@@ -48,6 +89,78 @@
     (:enum node)  (set (:enum node))
     (:const node) #{(:const node)}
     :else         `string?))
+
+(defn- emit-number
+  [node predicate]
+  (let [bounds
+        (cond-> []
+          (contains? node :minimum)
+          (conj `(~'fn [~'n] (~'<= ~(:minimum node) ~'n)))
+
+          (contains? node :exclusiveMinimum)
+          (conj `(~'fn [~'n] (~'< ~(:exclusiveMinimum node) ~'n)))
+
+          (contains? node :maximum)
+          (conj `(~'fn [~'n] (~'<= ~'n ~(:maximum node))))
+
+          (contains? node :exclusiveMaximum)
+          (conj `(~'fn [~'n] (~'< ~'n ~(:exclusiveMaximum node)))))]
+    (if (seq bounds)
+      `(~'s/and ~predicate ~@bounds)
+      predicate)))
+
+(def ^:private json-number-predicate
+  `(~'s/and
+    ~'number?
+    (~'fn [~'n]
+          (~'and
+           (~'not (~'ratio? ~'n))
+           (~'cond
+            (~'instance? Double ~'n) (Double/isFinite ~'n)
+            (~'instance? Float ~'n) (Float/isFinite ~'n)
+            :else true)))))
+
+(defn- strip-positional-metadata
+  [form]
+  (walk/postwalk
+   (fn [value]
+     (if (instance? clojure.lang.IObj value)
+       (with-meta value
+         (not-empty
+          (apply dissoc (meta value)
+                 [:line :column :end-line :end-column])))
+       value))
+   form))
+
+(def ^:private opaque-json-predicate
+  (strip-positional-metadata
+   '(fn [root]
+      (loop [pending [root]]
+        (if (empty? pending)
+          true
+          (let [value (peek pending)
+                remaining (pop pending)]
+            (cond
+              (or (nil? value)
+                  (string? value)
+                  (and (number? value)
+                       (not (ratio? value))
+                       (cond
+                         (instance? Double value) (Double/isFinite value)
+                         (instance? Float value) (Float/isFinite value)
+                         :else true))
+                  (boolean? value))
+              (recur remaining)
+
+              (vector? value)
+              (recur (into remaining value))
+
+              (map? value)
+              (and (every? #(or (keyword? %) (string? %)) (keys value))
+                   (recur (into remaining (vals value))))
+
+              :else
+              false)))))))
 
 (defn- emit-array [root node]
   (let [items (:items node)]
@@ -72,18 +185,85 @@
       `(~'s/nilable ~union)
       union)))
 
+(defn- emit-type-array
+  [root node]
+  (emit-anyOf
+   root
+   {:anyOf (mapv #(assoc node :type %) (:type node))}))
+
+(defn- emit-object
+  "Build a structural `(s/and map? ...)` form for an object node with
+   declared `:properties`. This is the low-level form builder used both
+   directly for inline object nodes and, via `register-object-shape!`, to
+   populate a named registered spec for `$ref`'d object nodes. Handles
+   arbitrary nesting depth through ordinary recursion into `emit-type`:
+
+   - one predicate per declared property enforcing recursive validity via
+     `emit-type` — required properties are checked unconditionally
+     (`contains?` + `s/valid?`), optional properties only when present
+   - when the schema declares `additionalProperties: false` (checked with
+     `false?`, so an absent `additionalProperties` — meaning \"open\" per
+     JSON Schema — is correctly left alone), an extra predicate rejecting
+     any key not in the declared property set
+
+   Properties are iterated in sorted-by-name order for deterministic
+   generated output across regenerations."
+  [root node]
+  (let [props       (:properties node)
+        required    (set (:required node))
+        kebab       (fn [k] (cc/wire-key->kebab (name k)))
+        prop-info   (->> props
+                         (map (fn [[k v]]
+                                {:kw   (keyword (kebab k))
+                                 :form (emit-type root v)
+                                 :req? (contains? required (name k))}))
+                         (sort-by (comp name :kw)))
+        prop-preds  (for [{:keys [kw form req?]} prop-info]
+                      (if req?
+                        `(~'fn [~'m]
+                               (~'and (~'contains? ~'m ~kw)
+                                      (~'s/valid? ~form (~kw ~'m))))
+                        `(~'fn [~'m]
+                               (~'or (~'not (~'contains? ~'m ~kw))
+                                     (~'s/valid? ~form (~kw ~'m))))))
+        closed?     (false? (:additionalProperties node))
+        closed-pred (when closed?
+                      (let [allowed (into (sorted-set) (map :kw prop-info))]
+                        `(~'fn [~'m] (~'every? ~allowed (~'keys ~'m)))))]
+    `(~'s/and map? ~@prop-preds ~@(when closed-pred [closed-pred]))))
+
+(defn- register-object-shape!
+  "Look up or register a named shape spec for a `$ref`'d object node with
+   declared `:properties`, returning its spec keyword. Reserves the keyword
+   in `object-registry` *before* building the structural form so a
+   (currently nonexistent, but not schema-forbidden) cycle back to the same
+   `$ref` resolves to the keyword instead of recursing forever."
+  [root ref node]
+  (or (get @object-registry ref)
+      (let [kw (ref->shape-kw ref)]
+        (swap! object-registry assoc ref kw)
+        (swap! object-defs conj [kw (emit-object root node)])
+        kw)))
+
 (defn emit-type
   [root node]
-  (let [node (cc/deref-once root node)]
+  (let [ref  (:$ref node)
+        node (cc/deref-once root node)]
     (cond
+      (:x-opaque-json node)        opaque-json-predicate
       (:anyOf node)              (emit-anyOf root node)
+      (vector? (:type node))     (emit-type-array root node)
       (= "string"  (:type node)) (emit-string node)
-      (= "integer" (:type node)) `integer?
-      (= "number"  (:type node)) `number?
+      (= "integer" (:type node)) (emit-number node `integer?)
+      (= "number"  (:type node)) (emit-number node json-number-predicate)
       (= "boolean" (:type node)) `boolean?
       (= "null"    (:type node)) `nil?
       (= "array"   (:type node)) (emit-array root node)
-      (= "object"  (:type node)) `map?            ;; nested objects → map? for now
+      (= "object"  (:type node)) (if (:properties node)
+                                   (if ref
+                                     (register-object-shape! root ref node)
+                                     (emit-object root node))
+                                   `map?)          ;; opaque/dictionary object → stays open
       :else                      `any?)))
 
 ;; ---------------------------------------------------------------------------
@@ -100,6 +280,20 @@
   [props]
   (for [[wire-k node] props]
     [(cc/wire-key->kebab (name wire-k)) node]))
+
+(defn- envelope-leaf-node
+  "Keep envelope `:data` open at the global leaf layer.
+
+   Each event envelope has a variant-specific data-spec predicate, so closing
+   the shared `::data` leaf over every currently known payload would reject
+   forward-compatible fields before that precise predicate runs."
+  [root kebab node]
+  (let [resolved (cc/deref-once root node)]
+    (if (and (= "data" kebab)
+             (= "object" (:type resolved))
+             (:properties resolved))
+      {:type "object"}
+      node)))
 
 (defn- collect-leaf-properties
   "Return a map describing emitted leaf-property forms.
@@ -121,18 +315,17 @@
                          introduced by data-side conflicts.
 
    `:conflicted`       — set of kebab-names whose `:leaf-map` form is a
-                         non-conforming union. Envelope emission adds a
-                         per-property strict predicate for any envelope key
-                         appearing in this set, so e.g. envelope `id` (UUID
-                         string) is not weakened by a data-payload `id`
-                         (positive integer). Note: `:conflicted` is narrowed
-                         to *envelope-vs-data* collisions only — keys that
-                         differ purely across envelope variants (e.g. `:type`,
-                         which has a distinct `const` per variant) are
-                         excluded, because the envelope spec's existing
-                         per-variant `const-preds` already enforce them, and
-                         emitting a redundant union-of-all-variants strict
-                         predicate would noticeably bloat validation.
+                         non-conforming union because some data payload
+                         contributes a schema not already present on the
+                         envelope side (an *envelope-vs-data* collision).
+                         Envelope emission adds a per-property strict
+                         predicate for most envelope keys appearing in this
+                         set, so e.g. envelope `id` (UUID string) is not
+                         weakened by a data-payload `id` (positive integer).
+                         `:type` and `:data` are always members of this set
+                         too; `emit-envelope-spec` excludes them from strict
+                         predicates for the reasons documented beside its
+                         `strict-preds` binding.
 
    `:data-conflicted`  — set of kebab-names whose global `:leaf-map` form is
                          a non-conforming union and which occur in at least
@@ -143,7 +336,9 @@
                          schema declared by each event."
   [root variants]
   (let [env-pairs  (mapcat (fn [{:keys [variant]}]
-                             (walk-props (:properties variant)))
+                             (map (fn [[k node]]
+                                    [k (envelope-leaf-node root k node)])
+                                  (walk-props (:properties variant))))
                            variants)
         data-pairs (mapcat (fn [{:keys [variant]}]
                              (let [data-node (cc/deref-once root (get-in variant [:properties :data]))]
@@ -167,7 +362,7 @@
                      (let [v (gensym "v")]
                        `(~'s/spec
                          (~'fn [~v]
-                          (~'or ~@(map (fn [f] `(~'s/valid? ~f ~v)) forms))))))])))
+                               (~'or ~@(map (fn [f] `(~'s/valid? ~f ~v)) forms))))))])))
         env-form-by-kebab  (side-form env-groups)
         ;; Per-kebab distinct envelope/data forms — used to decide whether a
         ;; key's leaf-union is *truly* weakened from the envelope side (i.e.,
@@ -191,7 +386,7 @@
                   (let [v (gensym "v")
                         union-form `(~'s/spec
                                      (~'fn [~v]
-                                      (~'or ~@(map (fn [f] `(~'s/valid? ~f ~v)) uniq))))
+                                           (~'or ~@(map (fn [f] `(~'s/valid? ~f ~v)) uniq))))
                         env-fs  (env-forms-by-kebab kebab #{})
                         data-fs (data-forms-by-kebab kebab #{})
                         ;; Only flag each side as "weakened" if the *other*
@@ -204,7 +399,7 @@
                     (binding [*out* *err*]
                       (println (format "INFO: property '%s' has %d distinct schemas — emitting non-conforming union%s%s"
                                        kebab (count uniq)
-                                       (if env-weakened?  " (envelope strict-pred added)" "")
+                                       (if env-weakened?  " (envelope-conflicted)" "")
                                        (if data-conflict? " (data strict-pred added)"     ""))))
                     [kebab union-form]))))]
     {:leaf-map           leaf-map
@@ -266,10 +461,10 @@
                                  (let [getter `(~(keyword prop-name) ~'data)]
                                    (if req?
                                      `(~'fn [~'data]
-                                        (~'s/valid? ~data-form ~getter))
+                                            (~'s/valid? ~data-form ~getter))
                                      `(~'fn [~'data]
-                                        (~'or (~'not (~'contains? ~'data ~(keyword prop-name)))
-                                              (~'s/valid? ~data-form ~getter))))))))]
+                                            (~'or (~'not (~'contains? ~'data ~(keyword prop-name)))
+                                                  (~'s/valid? ~data-form ~getter))))))))]
     (if (seq strict-preds)
       `(~'s/def ~(ns-kw (str event-type "-data"))
                 (~'s/and ~keys-form ~@strict-preds))
@@ -284,13 +479,15 @@
    `:data` validation to the variant's `::<event>-data` spec, so envelopes
    from one event variant cannot validate against another.
 
-   When an envelope property's name conflicts with a data-payload property
-   that has a different schema, the global leaf spec is a non-conforming
-   union (e.g. envelope `id` is a UUID string, but `session.schedule_*`
-   data payloads use a positive-integer `id`). Without intervention the
-   envelope `s/keys` would accept the weakened union. We therefore emit an
-   extra predicate per conflicted envelope key validating it against the
-   strict envelope-only form (`env-form-by-kebab`)."
+   When an envelope property conflicts with a differently shaped data
+   property, emit a predicate against its strict envelope-only form. The
+   exclusions and bytecode-size rationale are documented beside the
+   `strict-preds` binding.
+
+   When the event schema declares `additionalProperties: false`, close the
+   envelope to exactly its declared keys. The variant's `:data` payload is
+   still validated by the trailing `data-kw` predicate, whose own
+   `::<event>-data` spec stays open so event data can carry future fields."
   [variant env-form-by-kebab conflicted]
   (let [event-type (get-in variant [:properties :type :const])
         envelope   (:properties variant)
@@ -320,33 +517,63 @@
                          (sort-by first)
                          (map (fn [[prop-name const-val]]
                                 `(~'fn [~'event]
-                                   (= ~const-val
-                                      (~(keyword prop-name) ~'event))))))
+                                       (= ~const-val
+                                          (~(keyword prop-name) ~'event))))))
         ;; Strict per-property predicates for envelope keys whose global
         ;; leaf spec is a non-conforming union (i.e., weakened by a
         ;; data-payload conflict). Required keys are validated unconditionally;
         ;; optional keys are validated only when present.
+        ;;
+        ;; Two kebabs are always excluded here even when `conflicted` contains
+        ;; them, because a variant-specific, strictly-more-precise check
+        ;; already covers them elsewhere in this same `s/and`:
+        ;;   - any property this *specific* variant declares with a JSON
+        ;;     Schema `const` (chiefly `:type`) is already pinned to its
+        ;;     exact literal by `const-preds` above; a strict-pred here would
+        ;;     just re-check membership in the union of every variant's
+        ;;     literal — provably weaker and pure bloat (one huge redundant
+        ;;     union per envelope, multiplied across ~100+ event variants,
+        ;;     is what produces multi-KB `s/def` forms large enough to trip
+        ;;     the JVM's 64KB-per-method bytecode limit).
+        ;;   - `"data"` is always covered by the trailing `data-kw` predicate
+        ;;     below, which validates `:data` against *this* variant's own
+        ;;     `::<event>-data` spec — strictly more precise than a union
+        ;;     across every variant's data shape (which would spuriously
+        ;;     accept `:data` belonging to any *other* event type).
         strict-preds (->> envelope
-                          (keep (fn [[k _]]
+                          (keep (fn [[k v]]
                                   (let [kb       (kebab k)
                                         env-form (get env-form-by-kebab kb)]
-                                    (when (and (contains? conflicted kb) env-form)
+                                    (when (and (contains? conflicted kb)
+                                               env-form
+                                               (not (contains? v :const))
+                                               (not= kb "data"))
                                       [kb env-form (contains? required (name k))]))))
                           (sort-by first)
                           (map (fn [[prop-name env-form req?]]
                                  (let [getter `(~(keyword prop-name) ~'event)]
                                    (if req?
                                      `(~'fn [~'event]
-                                        (~'s/valid? ~env-form ~getter))
+                                            (~'s/valid? ~env-form ~getter))
                                      `(~'fn [~'event]
-                                        (~'or (~'not (~'contains? ~'event ~(keyword prop-name)))
-                                              (~'s/valid? ~env-form ~getter))))))))]
+                                            (~'or (~'not (~'contains? ~'event ~(keyword prop-name)))
+                                                  (~'s/valid? ~env-form ~getter))))))))
+        ;; When the event schema is closed (`additionalProperties: false`),
+        ;; restrict the envelope to exactly its declared keys. Data payload
+        ;; forward-compatibility is unaffected: `:data` is validated by the
+        ;; trailing `data-kw` predicate against an open `::<event>-data` spec.
+        closed?      (false? (:additionalProperties variant))
+        closed-pred  (when closed?
+                       (let [allowed (into (sorted-set)
+                                           (map (fn [[k _]] (keyword (kebab k))) envelope))]
+                         `(~'fn [~'event] (~'every? ~allowed (~'keys ~'event)))))]
     `(~'s/def ~(ns-kw event-type)
               (~'s/and
-                ~keys-form
-                ~@const-preds
-                ~@strict-preds
-                (~'fn [~'event] (~'s/valid? ~data-kw (:data ~'event)))))))
+               ~keys-form
+               ~@const-preds
+               ~@strict-preds
+               ~@(when closed-pred [closed-pred])
+               (~'fn [~'event] (~'s/valid? ~data-kw (:data ~'event)))))))
 
 (defn- emit-event-multi-spec
   "Emit a `defmulti` + `defmethod`s + aggregate `::event` spec that dispatches
@@ -360,7 +587,7 @@
         sorted        (sort-by :type variants)
         defmethods    (for [{:keys [type]} sorted]
                         `(~'defmethod ~mm-sym ~type [~'_]
-                                       (~'s/get-spec ~(ns-kw type))))
+                                      (~'s/get-spec ~(ns-kw type))))
         default-method `(~'defmethod ~mm-sym :default [~'_] nil)
         aggregate     `(~'s/def ~(ns-kw "event")
                                 (~'s/multi-spec ~mm-sym :type))]
@@ -380,24 +607,99 @@
 (defn emit-event-specs-ns
   "Build the form list for the generated event-specs namespace."
   [root]
+  (reset! object-registry {})
+  (reset! object-defs [])
   (let [variants  (cc/collect-anyOf-discriminators root)
         ;; Sort variants by event-type for deterministic emission.
         sorted    (sort-by :type variants)
         {:keys [leaf-map env-form-by-kebab conflicted data-conflicted]}
-        (collect-leaf-properties root variants)]
+        (collect-leaf-properties root variants)
+        ;; `mapv` forces eager evaluation, so `data-specs`/`envelope-specs`
+        ;; are bound before `@object-defs` is read below — every `emit-type`
+        ;; call reachable from these (and from `collect-leaf-properties`
+        ;; above) has already registered its nested object shapes by then.
+        data-specs     (mapv #(emit-data-spec root (:variant %) data-conflicted) sorted)
+        envelope-specs (mapv #(emit-envelope-spec (:variant %) env-form-by-kebab conflicted) sorted)
+        object-shape-defs (for [[kw form] (sort-by (comp name first) @object-defs)]
+                            `(~'s/def ~kw ~form))]
     (concat
-      [`(~'ns ~(symbol ns-name)
-              "AUTO-GENERATED. clojure.spec definitions for upstream session events.
+     [`(~'ns ~(symbol ns-name)
+             "AUTO-GENERATED. clojure.spec definitions for upstream session events.
 
    Each event variant's `data` payload is registered under
    `::<event-type>-data` (e.g. `::session.start-data`).
    The envelope (id/timestamp/parentId/type/data) is registered under
    `::<event-type>` (e.g. `::session.start`).
 
+   Nested `$ref`'d object definitions (reached via properties on the above)
+   are registered once each under `::<definition>-shape`
+   (e.g. `::assistant-message-tool-request-caller-shape`).
+
    Source: schemas/session-events.schema.json"
-              (:require [clojure.spec.alpha :as ~'s]))]
-      (emit-leaf-defs leaf-map)
-      (mapv #(emit-data-spec root (:variant %) data-conflicted) sorted)
-      (mapv #(emit-envelope-spec (:variant %) env-form-by-kebab conflicted) sorted)
-      [(emit-event-types-set variants)]
-      (emit-event-multi-spec variants))))
+             (:require [clojure.spec.alpha :as ~'s]))]
+      ;; Registered object shapes must precede leaf defs: some leaf defs are
+      ;; bare-keyword aliases (e.g. `(s/def ::citations ::citations-shape)`),
+      ;; and unlike `s/keys`/`s/valid?` references inside `fn` bodies, a bare
+      ;; keyword `s/def` form resolves its target spec *eagerly* at def time.
+     object-shape-defs
+     (emit-leaf-defs leaf-map)
+     data-specs
+     envelope-specs
+     [(emit-event-types-set variants)]
+     (emit-event-multi-spec variants))))
+
+(defn- opaque-paths-in-node
+  [root node wire-path idiom-path seen-refs]
+  (let [ref (:$ref node)]
+    (if (and ref (contains? seen-refs ref))
+      []
+      (let [node (cc/deref-once root node)
+            seen-refs (cond-> seen-refs ref (conj ref))
+            opaque-dictionary? (:x-opaque-json (:additionalProperties node))]
+        (cond
+          (or (:x-opaque-json node) opaque-dictionary?)
+          [{:wire wire-path :idiom idiom-path}]
+
+          :else
+          (concat
+           (mapcat #(opaque-paths-in-node root % wire-path idiom-path seen-refs)
+                   (concat (:anyOf node) (:oneOf node) (:allOf node)))
+           (when-let [items (:items node)]
+             (opaque-paths-in-node root items
+                                   (conj wire-path :*)
+                                   (conj idiom-path :*)
+                                   seen-refs))
+           (mapcat
+            (fn [[wire-key child]]
+              (let [wire-key (keyword (name wire-key))]
+                (opaque-paths-in-node
+                 root child
+                 (conj wire-path wire-key)
+                 (conj idiom-path (cc/wire-key->kw (name wire-key)))
+                 seen-refs)))
+            (sort-by (comp name key) (:properties node)))))))))
+
+(defn collect-opaque-json-paths
+  "Return event-type -> generated raw/idiom paths for every x-opaque-json node."
+  [root]
+  (into (sorted-map)
+        (keep
+         (fn [{:keys [type variant]}]
+           (let [paths (->> (opaque-paths-in-node root variant [] [] #{})
+                            distinct
+                            (sort-by pr-str)
+                            vec)]
+             (when (seq paths)
+               [type paths]))))
+        (cc/collect-anyOf-discriminators root)))
+
+(defn emit-event-metadata-ns
+  "Build the generated event metadata namespace."
+  [root]
+  [`(~'ns ~'github.copilot-sdk.generated.event-metadata
+          "AUTO-GENERATED event normalization metadata.
+
+   Source: schemas/session-events.schema.json")
+   `(~'def ~'opaque-json-paths
+           "Event-type -> raw/idiom paths whose JSON key spelling is opaque."
+           ~(collect-opaque-json-paths root))])

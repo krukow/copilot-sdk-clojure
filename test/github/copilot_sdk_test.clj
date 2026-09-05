@@ -160,11 +160,12 @@
       (is (= "localhost" (:host (:options c))))
       (is (true? (:external-server? (:options c))))))
 
-  (testing "parse https://host:port URL format"
-    (let [c (copilot/client {:cli-url "https://example.com:443" :auto-start? false})]
-      (is (= 443 (:port (:options c))))
-      (is (= "example.com" (:host (:options c))))
-      (is (true? (:external-server? (:options c))))))
+  (testing "reject https:// because the transport is plaintext TCP"
+    (is (thrown-with-msg?
+         Exception
+         #"https:// cli-url is not supported by the plaintext TCP transport"
+         (copilot/client {:cli-url "https://example.com:443"
+                          :auto-start? false}))))
 
   (testing "invalid URL format throws"
     (is (thrown-with-msg? Exception #"Invalid cli-url format"
