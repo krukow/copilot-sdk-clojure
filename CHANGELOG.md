@@ -49,6 +49,10 @@ All notable changes to this project will be documented in this file. This change
   valid IPv6 literal, including IPv4-mapped and scoped forms; malformed bracketed
   names and bracketed IPv4 addresses fail validation.
   ([upstream PR #2200](https://github.com/github/copilot-sdk/pull/2200))
+- Failed create or resume setup after runtime acceptance now detaches the
+  runtime session instead of destroying it, preserving resumable state while
+  releasing the incomplete local registration.
+  ([upstream PR #2307](https://github.com/github/copilot-sdk/pull/2307))
 
 ### Added (post-v1.0.13-preview.4 sync)
 - Added session-scoped `:github-token-provider` authentication for create,

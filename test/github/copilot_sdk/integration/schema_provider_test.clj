@@ -1611,7 +1611,7 @@
       (catch Throwable t
         t))))
 
-(deftest test-failed-create-setup-owns-complete-cleanup
+(deftest test-failed-create-setup-detaches-accepted-runtime
   (doseq [mode [:sync :async]
           stage [:returned-id-mismatch :mcp-interest :options-update]]
     (testing (str (name mode) " " (name stage))
@@ -1644,12 +1644,13 @@
                (throw (ex-info "options setup failed" {:code -32000}))))))
         (let [failure (invoke-create mode *test-client* config)]
           (is (instance? Throwable failure))
-          (is (= 1 (count (filter #{"session.destroy"} @methods))))
+          (is (= 1 (count (filter #{"session.detach"} @methods))))
+          (is (empty? (filter #{"session.destroy"} @methods)))
           (is (nil? (get-in @(:state *test-client*) [:sessions session-id])))
           (is (nil? (get-in @(:state *test-client*) [:session-io session-id])))
           (is (empty? (registrations-for-session *test-client* session-id)))
           (is (empty? (provider-invocations @(:state *test-client*))))
-          (is (nil? (get @(:sessions *mock-server*) session-id))))
+          (is (some? (get @(:sessions *mock-server*) session-id))))
         (mock/set-request-hook! *mock-server* nil)))))
 
 (deftest test-create-failure-before-remote-acceptance-rolls-back-locally
@@ -1758,7 +1759,7 @@
           (is (some? (get @(:sessions *mock-server*) session-id))))
         (mock/set-request-hook! *mock-server* nil)))))
 
-(deftest test-failed-resume-after-remote-acceptance-destroys-session
+(deftest test-failed-resume-after-remote-acceptance-detaches-session
   (doseq [mode [:sync :async]]
     (testing (name mode)
       (let [session-id (str "failed-resume-" (name mode))
@@ -1784,11 +1785,12 @@
                 :skip-custom-instructions true})]
           (is (instance? Throwable failure))
           (is (= 1 (count (filter #{"session.resume"} @methods))))
-          (is (= 1 (count (filter #{"session.destroy"} @methods))))
+          (is (= 1 (count (filter #{"session.detach"} @methods))))
+          (is (empty? (filter #{"session.destroy"} @methods)))
           (is (nil? (get-in @(:state *test-client*) [:sessions session-id])))
           (is (nil? (get-in @(:state *test-client*) [:session-io session-id])))
           (is (empty? (registrations-for-session *test-client* session-id)))
-          (is (nil? (get @(:sessions *mock-server*) session-id))))
+          (is (some? (get @(:sessions *mock-server*) session-id))))
         (mock/set-request-hook! *mock-server* nil)))))
 
 (deftest test-failed-setup-cancels-active-provider-invocation
@@ -1858,8 +1860,8 @@
          "session.options.update"
          (throw (ex-info "primary options failure" {:code -32000}))
 
-         "session.destroy"
-         (throw (ex-info "cleanup destroy failure" {:code -32000}))
+         "session.detach"
+         (throw (ex-info "cleanup detach failure" {:code -32000}))
 
          nil)))
     (let [failure
@@ -1878,7 +1880,7 @@
       (is (str/includes?
            (ex-message (.getCause ^Throwable
                         (first (.getSuppressed ^Throwable failure))))
-           "cleanup destroy failure"))
+           "cleanup detach failure"))
       (is (nil? (get-in @(:state *test-client*) [:sessions session-id])))
       (is (nil? (get-in @(:state *test-client*) [:session-io session-id])))
       (is (empty? (registrations-for-session *test-client* session-id))))))
@@ -2642,7 +2644,7 @@
         :provider-registration-id failing-id
         :registration-token registration-token
         :setup-token setup-token
-        :destroy-runtime? true
+        :remote-accepted? true
         :snapshot snapshot}
        failure)
       (let [registrations (provider-registrations @(:state client))]
@@ -3023,7 +3025,7 @@
                        {:phase :session-fs})))
            #'protocol/send-request!
            (fn [connection-io method params & args]
-             (when (= "session.destroy" method)
+             (when (= "session.detach" method)
                (deliver cleanup-entered true)
                (.await release-cleanup 1 TimeUnit/SECONDS))
              (apply real-send-request!

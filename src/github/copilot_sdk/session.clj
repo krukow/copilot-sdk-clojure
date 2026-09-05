@@ -2795,7 +2795,7 @@
   [completion outcome]
   (deliver completion outcome))
 
-(defn- request-session-detach!
+(defn ^:no-doc request-session-detach!
   [conn session-id]
   (loop [attempt 1]
     (let [response

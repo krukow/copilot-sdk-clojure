@@ -313,7 +313,7 @@
             (mock/stop-mock-server! old-server)
             (mock/stop-mock-server! new-server)))))))
 
-(deftest test-failed-session-setup-destroys-only-on-originating-connection
+(deftest test-failed-session-setup-detaches-only-on-originating-connection
   (let [old-server (mock/create-mock-server)
         new-server (mock/create-mock-server)
         c (sdk/client {:auto-start? false})
@@ -339,8 +339,8 @@
         (@#'client/cleanup-failed-session-setup!
          c session-id
          {:connection-io old-connection
-          :destroy-runtime? true}))
-      (is (empty? (filter #{"session.destroy"} @replacement-methods)))
+          :remote-accepted? true}))
+      (is (empty? (filter #{"session.detach"} @replacement-methods)))
       (finally
         (try
           (sdk/stop! c)

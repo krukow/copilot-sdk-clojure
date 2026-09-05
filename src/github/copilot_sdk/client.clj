@@ -3201,29 +3201,27 @@
 (defn- cleanup-failed-session-setup!
   "Release every locally owned resource from a failed session setup.
 
-   `destroy-runtime?` is true only when the failed transaction owns the remote
-   session. A server-accepted cloud ID is not owned when it collides with an
-   existing local registration.
+   `remote-accepted?` is true only after the runtime accepted the create or
+   resume request. Accepted sessions are detached rather than destroyed so
+   their persisted state remains resumable.
    `provider-registration-ids` contains only committed registrations visible
    when this setup transaction began, so cleanup cannot remove a provider that
    another concurrent transaction committed later. The caller rolls back this
    operation's provisional registration separately.
    Returns unexpected cleanup failures without replacing the setup failure."
-  [client session-id {:keys [connection-io destroy-runtime?
+  [client session-id {:keys [connection-io remote-accepted?
                              provider-registration-ids registration-token]
-                      :or {destroy-runtime? false
+                      :or {remote-accepted? false
                            provider-registration-ids #{}}}]
   (td/collect
    (concat
-    [(when (and destroy-runtime? session-id)
+    [(when (and remote-accepted? session-id)
        (td/attempt
-        {:operation :destroy :resource :failed-session-setup
+        {:operation :detach :resource :failed-session-setup
          :session-id session-id}
         (when connection-io
-          (proto/send-request! connection-io
-                               "session.destroy"
-                               {:session-id session-id}
-                               5000))))]
+          (session/request-session-detach!
+           connection-io session-id))))]
     (map
      (fn [provider-registration-id]
        (td/attempt
@@ -3416,7 +3414,7 @@
             failures))))))
 
 (defn- fail-session-setup!
-  [client {:keys [session-id provider-registration-id destroy-runtime?
+  [client {:keys [session-id provider-registration-id remote-accepted?
                   snapshot registration-token setup-token connection-io]
            :as transaction}
    failure]
@@ -3426,10 +3424,10 @@
            client
            session-id
            {:connection-io connection-io
-            :destroy-runtime? destroy-runtime?
+            :remote-accepted? remote-accepted?
             :registration-token registration-token
             :provider-registration-ids
-            (when destroy-runtime?
+            (when remote-accepted?
               (:committed-github-token-provider-registration-ids snapshot))})
           provider-rollback-failure
           (td/attempt
@@ -3439,7 +3437,7 @@
             client provider-registration-id))
           restored? (volatile! false)
           restore-failure
-          (when (and (not destroy-runtime?) snapshot)
+          (when (and (not remote-accepted?) snapshot)
             (td/attempt
              {:operation :restore :resource :session-registration
               :session-id session-id}
@@ -3450,7 +3448,7 @@
                 client transaction)))))
           snapshot-release-failures
           (when (and snapshot
-                     (or destroy-runtime? (not @restored?)))
+                     (or remote-accepted? (not @restored?)))
             (td/attempt-collecting
              {:operation :release
               :resource :superseded-session-registration
@@ -4056,7 +4054,7 @@
             (throw
              (fail-session-setup!
               client
-              (assoc transaction :destroy-runtime? false)
+              (assoc transaction :remote-accepted? false)
               failure)))))
       (catch Throwable failure
         (release-session-setup! client session-id setup-token)
@@ -4179,8 +4177,8 @@
                (ex-info "Cloud session ID is already registered locally"
                         {:type :session-id-collision
                          :session-id assigned-id})))
-            (let [owned-context (assoc base-context :destroy-runtime? true)
-                  _ (reset! setup-context owned-context)
+            (let [accepted-context (assoc base-context :remote-accepted? true)
+                  _ (reset! setup-context accepted-context)
                   {:keys [session snapshot]}
                   (pre-register-session
                    client assigned-id config setup-token
@@ -4196,7 +4194,7 @@
                   registration-token
                   (session/registration-token session)
                   transaction
-                  (assoc owned-context
+                  (assoc accepted-context
                          :registration-token registration-token)]
               (reset! setup-context transaction)
               (try
@@ -4485,7 +4483,7 @@
                {:session-id @assigned-session-id
                 :provider-registration-id registration-id
                 :connection-io connection-io
-                :destroy-runtime? false}
+                :remote-accepted? false}
                @setup-context)
               t)))))
       ;; Standard path: client supplies (or generates) the sessionId up front.
@@ -4497,10 +4495,10 @@
              #(merge trace-ctx
                      (assoc (build-create-session-params %)
                             :session-id session-id)))
-            destroy-runtime? (atom false)]
+            remote-accepted? (atom false)]
         (try
           (let [result (proto/send-request! connection-io "session.create" params)
-                _ (reset! destroy-runtime? true)
+                _ (reset! remote-accepted? true)
                 returned-id (:session-id result)]
             (when (and (string? returned-id)
                        (not (str/blank? returned-id))
@@ -4522,7 +4520,7 @@
             (throw
              (fail-session-setup!
               client
-              (assoc transaction :destroy-runtime? @destroy-runtime?)
+              (assoc transaction :remote-accepted? @remote-accepted?)
               t))))))))
 
 (defn- resume-session-result*
@@ -4542,13 +4540,13 @@
          client connection-io session-id config transform-callbacks
          #(merge trace-ctx
                  (build-resume-session-params session-id %)))
-        destroy-runtime? (atom false)]
+        remote-accepted? (atom false)]
     (try
       (assert-session-setup-owned! client transaction)
       (register-mcp-auth-interest!
        client connection-io session-id config)
       (let [result (proto/send-request! connection-io "session.resume" params)
-            _ (reset! destroy-runtime? true)]
+            _ (reset! remote-accepted? true)]
         (apply-session-rpc-result!
          client transaction result true)
         (assert-session-setup-owned! client transaction)
@@ -4561,7 +4559,7 @@
         (throw
          (fail-session-setup!
           client
-          (assoc transaction :destroy-runtime? @destroy-runtime?)
+          (assoc transaction :remote-accepted? @remote-accepted?)
           t))))))
 
 (defn- resume-session*
@@ -4729,7 +4727,7 @@
                         {:session-id @assigned-session-id
                          :provider-registration-id registration-id
                          :connection-io connection-io
-                         :destroy-runtime? false}
+                         :remote-accepted? false}
                         @setup-context)
                        failure))
             session-promise (promise)
@@ -4746,7 +4744,7 @@
                  client
                  {:connection-io connection-io
                   :provider-registration-id registration-id
-                  :destroy-runtime? false}
+                  :remote-accepted? false}
                  t)))]
         (if (instance? Throwable rpc-ch)
           (delivered-chan rpc-ch)
@@ -4818,12 +4816,12 @@
              #(merge trace-ctx
                      (assoc (build-create-session-params %)
                             :session-id session-id)))
-            fail-ch (fn [destroy-runtime? failure]
+            fail-ch (fn [remote-accepted? failure]
                       (fail-session-setup-async
                        client
-                       (assoc transaction :destroy-runtime? destroy-runtime?)
+                       (assoc transaction :remote-accepted? remote-accepted?)
                        failure))
-            destroy-runtime? (atom false)
+            remote-accepted? (atom false)
             rpc-ch
             (try
               (proto/send-request
@@ -4831,7 +4829,7 @@
               (catch Throwable t
                 (fail-session-setup!
                  client
-                 (assoc transaction :destroy-runtime? false)
+                 (assoc transaction :remote-accepted? false)
                  t)))]
         (if (instance? Throwable rpc-ch)
           (delivered-chan rpc-ch)
@@ -4850,7 +4848,7 @@
                                             {:error err}))))
                     (let [result (:result response)
                           returned-id (:session-id result)]
-                      (reset! destroy-runtime? true)
+                      (reset! remote-accepted? true)
                       (if (and (string? returned-id)
                                (not (str/blank? returned-id))
                                (not= returned-id session-id))
@@ -4885,7 +4883,7 @@
                                       (log/info "Session created (async): " session-id)
                                       session))))))))))))
               (catch Throwable t
-                (<! (fail-ch @destroy-runtime? t))))))))))
+                (<! (fail-ch @remote-accepted? t))))))))))
 
 (defn <resume-session
   "Async version of resume-session. Returns a channel that delivers a CopilotSession.
@@ -4932,11 +4930,11 @@
          client connection-io session-id config transform-callbacks
          #(merge trace-ctx
                  (build-resume-session-params session-id %)))
-        destroy-runtime? (atom false)
-        fail-ch (fn [destroy-runtime? failure]
+        remote-accepted? (atom false)
+        fail-ch (fn [remote-accepted? failure]
                   (fail-session-setup-async
                    client
-                   (assoc transaction :destroy-runtime? destroy-runtime?)
+                   (assoc transaction :remote-accepted? remote-accepted?)
                    failure))]
     (go
       (try
@@ -4964,7 +4962,7 @@
                          (ex-info (str "Failed to resume session: " (:message err))
                                   {:error err :session-id session-id}))))
                   (let [result (:result response)]
-                    (reset! destroy-runtime? true)
+                    (reset! remote-accepted? true)
                     (apply-session-rpc-result!
                      client transaction result true)
                     (assert-session-setup-owned!
@@ -4977,7 +4975,7 @@
                           (finish-session-setup! client transaction)
                           session)))))))))
         (catch Throwable t
-          (<! (fail-ch @destroy-runtime? t)))))))
+          (<! (fail-ch @remote-accepted? t)))))))
 
 (defn- project-granted-environment-variables
   [requested-names grants]
