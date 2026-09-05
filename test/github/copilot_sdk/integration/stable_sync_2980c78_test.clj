@@ -221,6 +221,107 @@
          #"(?m)^export\s+(?:type\s+)?\*\s+from\s+\"([^\"]+)\";"
          source)))
 
+(defn- named-export-origins
+  [source]
+  (into {}
+        (mapcat
+         (fn [[_ body module]]
+           (for [entry (-> body
+                           (str/replace #"(?s)/\*.*?\*/|//[^\n]*" "")
+                           (str/split #","))
+                 :let [entry (-> entry str/trim
+                                 (str/replace #"^type\s+" ""))
+                       parts (str/split entry #"\s+as\s+")]
+                 :when (not (str/blank? entry))]
+             [(last parts) module])))
+        (re-seq
+         #"(?s)export(?:\s+type)?\s*\{(.*?)\}\s*from\s*\"([^\"]+)\";"
+         source)))
+
+(defn- module-path
+  [source-path module]
+  (-> (.resolve (.getParent (Paths/get source-path (make-array String 0)))
+                (str/replace module #"\.js$" ".ts"))
+      .normalize
+      str
+      (str/replace java.io.File/separator "/")))
+
+(defn- exported-module-paths
+  [upstream target root-paths]
+  (loop [pending (seq root-paths)
+         visited #{}]
+    (if-let [path (first pending)]
+      (if (contains? visited path)
+        (recur (next pending) visited)
+        (let [source (git-output upstream "show" (str target ":" path))
+              modules (set/union (star-export-modules source)
+                                 (set (vals (named-export-origins source))))
+              child-paths (map #(module-path path %) modules)]
+          (recur (concat (next pending) child-paths)
+                 (conj visited path))))
+      visited)))
+
+(defn- root-export-origin-paths
+  [root-path source read-source]
+  (let [named-origins
+        (into {}
+              (map (fn [[symbol module]]
+                     [symbol (module-path root-path module)]))
+              (named-export-origins source))
+        star-origins
+        (into {}
+              (mapcat
+               (fn [module]
+                 (let [path (module-path root-path module)]
+                   (map #(vector % path) (exported-symbols (read-source path))))))
+              (star-export-modules source))
+        local-origins
+        (zipmap (declaration-symbols source) (repeat root-path))]
+    (merge star-origins named-origins local-origins)))
+
+(defn- declaration-annotation
+  [source symbol]
+  (let [declaration-pattern
+        (re-pattern
+         (str "(?m)^\\s*export\\s+(?:(?:declare|abstract)\\s+)*"
+              "(?:type|interface|class|enum|const|(?:async\\s+)?function)\\s+"
+              (java.util.regex.Pattern/quote symbol)
+              "\\b"))
+        declaration-start (some-> (re-matcher declaration-pattern source)
+                                  (#(when (.find %) (.start %))))]
+    (when declaration-start
+      (let [prefix (subs source 0 declaration-start)
+            comment-end (.lastIndexOf prefix "*/")]
+        (when (and (not (neg? comment-end))
+                   (str/blank? (subs prefix (+ comment-end 2))))
+          (let [comment-start (.lastIndexOf prefix "/**" comment-end)]
+            (when-not (neg? comment-start)
+              (->> (subs prefix (+ comment-start 3) comment-end)
+                   (re-seq #"@(experimental|internal)\b")
+                   (map second)
+                   set))))))))
+
+(deftest declaration-annotations-are-declaration-local
+  (let [source
+        (str "/** @experimental */\n"
+             "export interface Experimental {}\n\n"
+             "export interface Stable {}\n\n"
+             "/** @internal */\n"
+             "export function internalFn(): void;\n")]
+    (is (= #{"experimental"}
+           (declaration-annotation source "Experimental")))
+    (is (nil? (declaration-annotation source "Stable")))
+    (is (= #{"internal"}
+           (declaration-annotation source "internalFn")))))
+
+(defn- assert-annotated-classifications!
+  [surface-name source-by-path origin-paths classifications]
+  (doseq [[symbol path] origin-paths
+          annotation (declaration-annotation (source-by-path path) symbol)]
+    (is (contains? (get classifications (keyword annotation) #{}) symbol)
+        (str (name surface-name) " export " symbol " is @" annotation
+             " at " path " but its committed classification disagrees"))))
+
 (defn- added-exported-symbols
   [upstream base target path]
   (set/difference
@@ -274,9 +375,62 @@
 
 (defn- strip-typescript-comments
   [source]
-  (-> source
-      (str/replace #"(?s)/\*.*?\*/" " ")
-      (str/replace #"(?m)//[^\r\n]*" " ")))
+  (let [length (count source)]
+    (loop [index 0
+           quote-char nil
+           escaped? false
+           comment-mode nil
+           result (StringBuilder.)]
+      (if (>= index length)
+        (str result)
+        (let [ch (.charAt source index)
+              next-ch (when (< (inc index) length)
+                        (.charAt source (inc index)))]
+          (cond
+            (= comment-mode :line)
+            (if (#{\newline \return} ch)
+              (recur (inc index) nil false nil (.append result ch))
+              (recur (inc index) nil false :line (.append result \space)))
+
+            (= comment-mode :block)
+            (cond
+              (and (= ch \*) (= next-ch \/))
+              (recur (+ index 2) nil false nil
+                     (doto result (.append \space) (.append \space)))
+
+              (#{\newline \return} ch)
+              (recur (inc index) nil false :block (.append result ch))
+
+              :else
+              (recur (inc index) nil false :block (.append result \space)))
+
+            quote-char
+            (cond
+              escaped?
+              (recur (inc index) quote-char false nil (.append result ch))
+
+              (= ch \\)
+              (recur (inc index) quote-char true nil (.append result ch))
+
+              (= ch quote-char)
+              (recur (inc index) nil false nil (.append result ch))
+
+              :else
+              (recur (inc index) quote-char false nil (.append result ch)))
+
+            (#{\" \' \`} ch)
+            (recur (inc index) ch false nil (.append result ch))
+
+            (and (= ch \/) (= next-ch \/))
+            (recur (+ index 2) nil false :line
+                   (doto result (.append \space) (.append \space)))
+
+            (and (= ch \/) (= next-ch \*))
+            (recur (+ index 2) nil false :block
+                   (doto result (.append \space) (.append \space)))
+
+            :else
+            (recur (inc index) nil false nil (.append result ch))))))))
 
 (defn- declaration-end
   [source start kind]
@@ -372,6 +526,16 @@
                              str/trim)]
           (recur (assoc declarations declaration-name normalized)))
         declarations))))
+
+(deftest typescript-comment-stripping-preserves-string-literals
+  (let [source
+        (str "/* export interface Decoy {} */\n"
+             "export interface Token {\n"
+             "  host: \"https://github.com\"; // trailing comment\n"
+             "}\n")]
+    (is (= {"Token"
+            "export interface Token { host: \"https://github.com\"; }"}
+           (exported-declarations source)))))
 
 (defn- changed-exported-declarations
   [upstream base target path]
@@ -596,10 +760,11 @@
                  (git-lines upstream-repo "diff" "--name-only"
                             (str base-commit ".." target-commit)))]
             (is (= expected-commits actual-commits))
-            (is (= target-commit
-                   (str/trim
-                    (git-output upstream-repo "rev-parse" "HEAD")))
-                "validation must use an exact checkout of the certified target")
+            (is (zero?
+                 (:exit
+                  (sh/sh "git" "-C" upstream-repo "cat-file" "-e"
+                         (str target-commit "^{commit}"))))
+                "the certified target commit must resolve in the upstream checkout")
             (is (= (:count changed-paths) (count actual-paths)))
             (is (= (:sha256 changed-paths) (sha256-lines actual-paths)))
             (is (= (:classification-counts changed-paths)
@@ -748,6 +913,23 @@
                   (is (empty? (set/intersection left right))
                       (str "Declaration classifications overlap in " path
                            ": " left-class " and " right-class)))))
+            (let [exported-modules
+                  (exported-module-paths
+                   upstream-repo target-commit
+                   ["nodejs/src/index.ts" "nodejs/src/extension.ts"])
+                  actual-changed-declarations
+                  (into {}
+                        (keep
+                         (fn [path]
+                           (let [declarations
+                                 (changed-exported-declarations
+                                  upstream-repo base-commit target-commit path)]
+                             (when (seq declarations)
+                               [path declarations]))))
+                        exported-modules)]
+              (is (= (set (keys (:changed-declarations inventory)))
+                     (set (keys actual-changed-declarations)))
+                  "every changed declaration in a package-exported module must be classified"))
             (doseq [[path expected] (:internal-methods inventory)]
               (is (= expected
                      (added-class-method-symbols
@@ -854,7 +1036,8 @@
               extension-classifications
               (resolve-classification-policy
                (:classification-policy extension)
-               extension-symbols)]
+               extension-symbols)
+              source-by-path (memoize read-source)]
           (testing "package root resolves every star-exported declaration"
             (is (= (get-in report [:upstream :base-commit])
                    (get-in package-root [:provenance :baseline :target-commit])
@@ -891,6 +1074,18 @@
                    (sha256-lines (sort extension-symbols))))
             (is (= (:classification-counts extension)
                    (update-vals extension-classifications count))))
+          (assert-annotated-classifications!
+           :package-root source-by-path
+           (root-export-origin-paths
+            (:path package-root) package-source source-by-path)
+           package-classifications)
+          (assert-annotated-classifications!
+           :extension source-by-path
+           (root-export-origin-paths
+            (:path extension)
+            (source-by-path (:path extension))
+            source-by-path)
+           extension-classifications)
           (let [classifications-by-path
                 {"nodejs/src/index.ts" package-classifications
                  "nodejs/src/generated/session-events.ts" package-classifications
@@ -951,8 +1146,12 @@
                (sha256-file "schemas/session-events.schema.json")))
         (is (= (get-in schema [:generated-clojure-output :event-specs-sha256])
                (sha256-file "src/github/copilot_sdk/generated/event_specs.clj")))
-        (is (= (get-in schema [:generated-clojure-output :coercions-sha256])
+        (is (= (get-in schema [:generated-clojure-output :event-metadata-sha256])
+               (sha256-file "src/github/copilot_sdk/generated/event_metadata.clj")))
+        (is (= (get-in schema [:generated-clojure-output :coercion-source-sha256])
                (sha256-file "script/codegen/coercions.edn")))
+        (is (= (get-in schema [:generated-clojure-output :coerce-sha256])
+               (sha256-file "src/github/copilot_sdk/generated/coerce.clj")))
         (is (= {:sdk "1.0.11.0"
                 :changed? false
                 :release-required? false}

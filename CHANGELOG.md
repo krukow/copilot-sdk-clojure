@@ -25,8 +25,8 @@ All notable changes to this project will be documented in this file. This change
   [upstream PR #2432](https://github.com/github/copilot-sdk/pull/2432),
   [upstream PR #2437](https://github.com/github/copilot-sdk/pull/2437),
   [upstream PR #2451](https://github.com/github/copilot-sdk/pull/2451))
-- Added managed bypass-policy values and experimental permission
-  `:response-capability` forwarding, and curated the stable
+- Added managed bypass-policy values, experimental permission attribution
+  helpers and `:response-capability` forwarding, and curated the stable
   `session.mode_notice_delivered`,
   `model.call_finished`, and `subagent.configured` events with open idiomatic
   payload specs. Assistant tool requests now expose hosted-program caller
@@ -47,10 +47,11 @@ All notable changes to this project will be documented in this file. This change
 ### Changed (post-v1.0.13-preview.4 sync)
 - **BREAKING:** Wait and stream APIs now treat `session.idle` events whose wire
   `mode` is the string `"autopilot"` as nonterminal turn boundaries (upstream
-  [PR #2157](https://github.com/github/copilot-sdk/pull/2157)).
+  [PR #2409](https://github.com/github/copilot-sdk/pull/2409), commit
+  [`3d630a790`](https://github.com/github/copilot-sdk/commit/3d630a790)).
 - **BREAKING:** `:empty` client mode now disables runtime-bundled skills unless
   explicitly allowlisted with `:included-builtin-skills`, matching upstream safe
-  defaults ([upstream PR #1428](https://github.com/github/copilot-sdk/pull/1428)).
+  defaults ([upstream PR #2410](https://github.com/github/copilot-sdk/pull/2410)).
 - **BREAKING (experimental):** Corrected permission decision source
   `:judge-recommendation` / `"judge_recommendation"` to the pinned public schema's
   `:assisted-approval` / `"assisted_approval"`.
@@ -88,14 +89,17 @@ All notable changes to this project will be documented in this file. This change
   stale work cannot recreate a retired executor. Malformed results, callback
   failures, and executor saturation emit only bounded, sanitized diagnostic
   metadata.
+- Explicit `:cli-url` connections now reject `https://` rather than silently
+  downgrading the address to the SDK's plaintext TCP transport.
 - Create/resume setup now prepares locally owned resources transactionally.
   Async local filesystem factory failures throw before a result channel is
   returned when the session ID is known before the RPC; cloud create with a
   server-assigned ID delivers a later factory failure through that channel.
   Failed resumes restore the exact prior local registration, and cleanup
   failures remain observable without replacing the primary failure.
-- TCP startup now waits for the complete newline-terminated server announcement
-  before parsing its port, preventing multi-digit ports from being truncated.
+- TCP startup now waits for the complete server announcement, terminated by a
+  newline or stream exhaustion, before parsing its port, preventing multi-digit
+  ports from being truncated.
 - The commands example now avoids the runtime-reserved `/help` command.
 - Generated wire-key normalization now matches runtime normalization for
   acronyms, separators, and leading underscores. Numeric schemas preserve

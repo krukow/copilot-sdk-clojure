@@ -341,6 +341,42 @@
   {:stable-public #{"CapiSessionOptions"
                     "ManagedSettingsPermissions"
                     "SessionConfigBase"}}
+  "nodejs/src/factory.ts"
+  {:experimental #{"ResumeOptions"
+                   "RunOptions"
+                   "SessionFactoryApi"}}
+  "nodejs/src/generated/rpc.ts"
+  {:generated-only #{"AuthIdentity"
+                     "AuthInfo"
+                     "AuthInfoType"
+                     "CapiSessionOptions"
+                     "CatalogNetworkFailureError"
+                     "CatalogNetworkFailureReason"
+                     "ClientGlobalApiHandlers"
+                     "ConnectRequest"
+                     "EnqueueCommandParams"
+                     "ExternalToolTextResultForLlmContentShellExit"
+                     "FactoryResumeRequest"
+                     "FactoryRunFailure"
+                     "FactoryRunResult"
+                     "GitHubTelemetryClientInfo"
+                     "InstalledPlugin"
+                     "InstalledPluginInfo"
+                     "Model"
+                     "ModelApplyStartupOverlayRequest"
+                     "ModelBillingPromo"
+                     "PermissionDecisionContext"
+                     "PermissionDecisionSurface"
+                     "QueuePendingItemsResult"
+                     "RunOptions"
+                     "SessionInstalledPlugin"
+                     "SessionManagedPermissions"
+                     "SessionOpenOptions"
+                     "SessionSetCredentialsParams"
+                     "SessionUpdateOptionsParams"
+                     "SlashCommandCompletedResult"
+                     "TokenAuthInfo"
+                     "ToolsGetBuiltinDescriptorsRequest"}}
   "nodejs/src/generated/session-events.ts"
   {:stable-public #{"AssistantMessageToolRequest"
                     "AssistantUsageData"
@@ -1163,8 +1199,10 @@
   {:source "@github/copilot-linux-x64@1.0.83-1/schemas/session-events.schema.json"
    :sha256 "11d24b4e8de44590d70e261ebf15be18d91de14d674fdcfb1f2554ad43a48169"}
   :generated-clojure-output
-  {:event-specs-sha256 "d78da4885f607eaee39b80d28103cea78d6f948ae47e84f32139272763fe593a"
-   :coercions-sha256 "64b21e6cb17202ad18dc98e469f29293a12f7802cbd6ccb708c3d2edfdcf606d"}}
+  {   :event-specs-sha256 "22e231082fb22aba7dc3eac4d550015c0c3fd9899675c51b822ec5ad2848afe3"
+   :event-metadata-sha256 "60a6a782830241727e6d1348c6fdee594920b7099ff93ba3c07c1018360391ac"
+   :coercion-source-sha256 "f7cb014dbbab1dfd552c2ce446bfb8e64f0f8a409bfe5e07edfbb7a019184006"
+   :coerce-sha256 "4daf61b23897a37453aec06f9e778a5ed0114e484702389cfc3c33e7b62f938e"}}
 
  :published-schema-artifact
  {:package "@github/copilot-linux-x64"

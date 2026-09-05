@@ -16,9 +16,9 @@
             [github.copilot-sdk.teardown :as td]
             [github.copilot-sdk.logging :as log])
   (:import [java.io BufferedInputStream]
-           [java.net Socket]
+           [java.net InetAddress Socket]
            [java.util.concurrent LinkedBlockingQueue RejectedExecutionException
-            ThreadFactory ThreadPoolExecutor ThreadPoolExecutor$AbortPolicy
+            FutureTask ThreadFactory ThreadPoolExecutor ThreadPoolExecutor$AbortPolicy
             TimeUnit]
            [java.util.concurrent.atomic AtomicLong]))
 
@@ -57,7 +57,12 @@
 (defn- parse-cli-url
   "Parse CLI URL into {:host :port}."
   [url]
-  (let [clean (str/replace url #"(?i)^https?://" "")]
+  (when (re-find #"(?i)^https://" url)
+    (throw
+     (ex-info
+      "https:// cli-url is not supported by the plaintext TCP transport"
+      {:url url})))
+  (let [clean (str/replace url #"(?i)^http://" "")]
     (if (re-matches #"\d+" clean)
       ;; Port only
       (let [port (parse-long clean)]
@@ -80,16 +85,37 @@
           {:host (if (str/blank? host) "localhost" host)
            :port port})))))
 
+(defn- loopback-host?
+  [host]
+  (or (= "localhost" (str/lower-case host))
+      (and (or (re-matches #"(?:\d+\.)+\d+" host)
+               (str/includes? host ":"))
+           (try
+             (.isLoopbackAddress (InetAddress/getByName host))
+             (catch Exception _
+               false)))))
+
 (defn- ensure-github-token-provider-transport!
   [client config]
-  (when (and (:github-token-provider config)
-             (:caller-supplied-streams? @(:state client)))
-    (throw
-     (ex-info
-      (str ":github-token-provider cannot be used with caller-supplied "
-           "testing streams")
-      {:type :github-token-provider-unsafe-transport
-       :transport :caller-supplied-streams}))))
+  (when (:github-token-provider config)
+    (cond
+      (:caller-supplied-streams? @(:state client))
+      (throw
+       (ex-info
+        (str ":github-token-provider cannot be used with caller-supplied "
+             "testing streams")
+        {:type :github-token-provider-unsafe-transport
+         :transport :caller-supplied-streams}))
+
+      (and (some? (get-in client [:options :cli-url]))
+           (not (loopback-host? (:actual-host client))))
+      (throw
+       (ex-info
+        (str ":github-token-provider cannot be used with an explicit "
+             "non-loopback TCP :cli-url")
+        {:type :github-token-provider-unsafe-transport
+         :transport :explicit-non-loopback-tcp
+         :host (:actual-host client)})))))
 
 (defn- mask-secret
   "Replace `v` with \"***\" only when it is a non-blank string (i.e. an actual
@@ -1025,22 +1051,22 @@
         (swap-vals!
          (:state client)
          (fn [state]
-           (if registration-id
+           (let [purged
+                 (token-provider/purge-session-resources
+                  state session-id :committed-only)]
              (if-let [registration
-                      (get-in
-                       state
-                       (token-provider/registration-path
-                        registration-id))]
-               (-> (token-provider/purge-session-resources
-                    state session-id :committed-only)
-                   (assoc-in
-                    (token-provider/registration-path registration-id)
-                    (assoc registration
-                           :session-id session-id
-                           :committed? true)))
-               state)
-             (token-provider/purge-session-resources
-              state session-id :committed-only))))]
+                      (and registration-id
+                           (get-in
+                            purged
+                            (token-provider/registration-path
+                             registration-id)))]
+               (assoc-in
+                purged
+                (token-provider/registration-path registration-id)
+                (assoc registration
+                       :session-id session-id
+                       :committed? true))
+               purged))))]
     (token-provider/close-removed-invocations!
      old-state new-state)))
 
@@ -1388,17 +1414,18 @@
         (case status
           :ready
           (try
-            (let [future
-                  (.submit
-                   ^ThreadPoolExecutor executor
+            (let [task
+                  (FutureTask.
                    ^Runnable
                    (reify Runnable
                      (run [_]
                        (>!!
                         result-chan
                         (invoke-github-token-provider
-                         provider args (:cancel-chan invocation))))))]
-              (token-provider/attach-task! invocation executor future)
+                         provider args (:cancel-chan invocation)))))
+                   nil)]
+              (token-provider/attach-task! invocation executor task)
+              (.execute ^ThreadPoolExecutor executor task)
               true)
             (catch RejectedExecutionException _
               (let [claimed
@@ -1766,12 +1793,12 @@
 ;; Permission helpers
 ;; ---------------------------------------------------------------------------
 
-(defn attributed-permission-result?
+(defn ^:experimental attributed-permission-result?
   "Return true when `result` is a well-formed attributed permission result."
   [result]
   (s/valid? ::specs/attributed-permission-result result))
 
-(defn attributed-permission-result
+(defn ^:experimental attributed-permission-result
   "Attach informational decision context to a permission-handler result.
 
    `result` is a permission decision such as `{:kind :approve-once}`. If it is
@@ -2741,7 +2768,8 @@
              (cond-> {}
                (some? (:disable-bypass-permissions-mode permissions))
                (assoc :disableBypassPermissionsMode
-                      (name (:disable-bypass-permissions-mode permissions)))
+                      (let [policy (:disable-bypass-permissions-mode permissions)]
+                        (if (keyword? policy) (name policy) policy)))
                (contains? permissions :deny) (assoc :deny (:deny permissions))
                (contains? permissions :ask) (assoc :ask (:ask permissions))
                (contains? permissions :allow) (assoc :allow (:allow permissions)))))))
@@ -2862,7 +2890,7 @@
        (td/attempt
         {:operation :remove :resource :failed-session-setup
          :session-id session-id}
-        (session/remove-session!
+        (session/remove-session-registration!
          client session-id registration-token))]))))
 
 (defn- preserve-setup-failure!
@@ -3734,9 +3762,9 @@
                               configuration, but acquired credentials cross the
                               JSON-RPC connection to the CLI. Provider work runs
                               on a bounded client-owned executor. Managed stdio,
-                              SDK-managed TCP, and explicit :cli-url connections
-                              are supported. Explicit :cli-url uses raw TCP; use a
-                              trusted runtime and protect nonlocal connections.
+                              SDK-managed TCP, and explicit loopback :cli-url
+                              connections are supported. HTTPS and explicit
+                              non-loopback TCP :cli-url connections are rejected.
    - :on-user-input-request - Handler for ask_user requests (PR #269)
    - :ask-user-variant  - Built-in ask_user shape: :legacy or :elicitation.
    - :on-elicitation-request - Handler for elicitation requests from the agent (upstream PRs #908, #960).
@@ -3808,10 +3836,11 @@
                            otherwise). Forwarded verbatim as `enableManagedSettings` — an explicit
                            `false` is sent on the wire. (upstream PR #1925)
    - :managed-settings   - Caller-supplied enterprise policy. Optional
-                           {:permissions {:disable-bypass-permissions-mode keyword
+                           {:permissions {:disable-bypass-permissions-mode string-or-keyword
                                           :deny [...] :ask [...] :allow [...]}}.
-                           The bypass-policy value is a simple nonblank keyword;
-                           known values are :disable and :allow-auto-only.
+                           The bypass-policy value is an open wire string; simple
+                           keywords are converted with `name`.
+                           known values include \"disable\" and \"allow-auto-only\".
    - :request-extensions? - Boolean. Opt into extension management and dispatch for this
                             connection. Explicit false is preserved; omission sends no key.
    - :extension-sdk-path - String path override for the SDK injected into extension

@@ -63,6 +63,45 @@
       (close []
         (deliver closed true)))))
 
+(defn- split-input-stream
+  [prefix suffix]
+  (let [chunks (mapv #(.getBytes ^String % "UTF-8") [prefix suffix])
+        next-chunk (atom 0)
+        waiting-for-suffix (promise)
+        release-suffix (promise)
+        stream
+        (proxy [InputStream] []
+          (available [] 0)
+          (close []
+            (deliver release-suffix true))
+          (read
+            ([]
+             (let [buffer (byte-array 1)
+                   read-count (.read ^InputStream this buffer 0 1)]
+               (if (neg? read-count)
+                 -1
+                 (bit-and 0xff (aget buffer 0)))))
+            ([buffer]
+             (.read ^InputStream this buffer 0 (alength buffer)))
+            ([buffer buffer-offset length]
+             (let [index @next-chunk]
+               (if (< index (count chunks))
+                 (do
+                   (when (= index 1)
+                     (deliver waiting-for-suffix true)
+                     @release-suffix)
+                   (let [chunk (nth chunks index)
+                         chunk-length (alength chunk)]
+                     (assert (<= chunk-length length))
+                     (System/arraycopy
+                      chunk 0 buffer buffer-offset chunk-length)
+                     (swap! next-chunk inc)
+                     chunk-length))
+                 -1)))))]
+    {:stream stream
+     :waiting-for-suffix waiting-for-suffix
+     :release-suffix release-suffix}))
+
 (deftest wait-for-port-reads-the-complete-announced-port
   (doseq [announcement ["CLI server listening on port 63234\n"
                         "CLI server listening on port 63234\r"
@@ -78,6 +117,23 @@
             :stdout (ByteArrayInputStream. (.getBytes announcement "UTF-8"))})]
       (is (= 63234 (proc/wait-for-port managed-process 1000))
           announcement))))
+
+(deftest wait-for-port-does-not-accept-a-digit-prefix-at-a-read-boundary
+  (let [{:keys [stream waiting-for-suffix release-suffix]}
+        (split-input-stream "CLI server listening on port 63" "234")
+        process (fake-process (atom true) 0)
+        managed-process (proc/map->ManagedProcess
+                         {:process process
+                          :stdout stream})
+        outcome (future (proc/wait-for-port managed-process 1000))]
+    (try
+      (is (true? (deref waiting-for-suffix 500 false)))
+      (deliver release-suffix true)
+      (is (= 63234 (deref outcome 500 ::timeout)))
+      (finally
+        (deliver release-suffix true)
+        (.close stream)
+        (future-cancel outcome)))))
 
 (deftest wait-for-port-keeps-draining-stdout-after-announcement
   (let [{:keys [stream started closed finished]} (blocking-input-stream)

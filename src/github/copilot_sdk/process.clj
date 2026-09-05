@@ -272,6 +272,11 @@
   "Maximum startup delay before noticing that the child process exited."
   10)
 
+(def ^:private port-candidate-settle-ms
+  "Quiet period used to disambiguate an unterminated port from a read split
+   between digits. A delimiter or EOF confirms the candidate immediately."
+  50)
+
 (def ^:private port-reader-stop-timeout-ms
   "Maximum time to wait for the stdout reader after closing its stream."
   1000)
@@ -348,17 +353,14 @@
   (when-let [exit-status (process-exit-status mp)]
     (throw (process-exit-failure exit-status)))
   (let [stdout (:stdout mp)
-        results (LinkedBlockingQueue. 1)
+        results (LinkedBlockingQueue.)
         reader-done (CountDownLatch. 1)
         announced? (volatile! false)
         deadline (+ (System/nanoTime) (* timeout-ms 1000000))
-        read-result!
-        (fn [result]
-          (if-let [port (:port result)]
-            port
-            (throw (or (:error result)
-                       (ex-info "CLI process exited before announcing port"
-                                {})))))
+        accept-port!
+        (fn [port]
+          (vreset! announced? true)
+          port)
         reader-thread
         (Thread.
          ^Runnable
@@ -372,25 +374,21 @@
                            (.read reader buffer 0 (alength buffer))]
                        (if (neg? read-count)
                          (when-not @announced?
-                           (.offer
-                            results
-                            {:error
-                             (ex-info
-                              "CLI stdout closed before announcing port"
-                              {})}))
+                           (.offer results {:eof? true}))
                          (let [text
                                (str tail
                                     (String. buffer 0 read-count))
                                matcher
                                (when-not @announced?
-                                 (re-find
+                                 (re-matcher
                                   #"listening on port (\d+)"
                                   (str/lower-case text)))]
-                           (when matcher
-                             (vreset! announced? true)
+                           (when (and matcher (.find matcher))
                              (.offer
                               results
-                              {:port (parse-long (second matcher))}))
+                              {:port (parse-long (.group matcher 1))
+                               :complete?
+                               (< (.end matcher 1) (count text))}))
                            (recur
                             (if @announced?
                               ""
@@ -405,22 +403,55 @@
     (.setDaemon reader-thread true)
     (.start reader-thread)
     (try
-      (loop []
-        (if-let [result (.poll results)]
-          (read-result! result)
-          (if-let [exit-status (process-exit-status mp)]
-            (throw (process-exit-failure exit-status))
-            (let [remaining (- deadline (System/nanoTime))]
-              (if-not (pos? remaining)
-                (throw (ex-info "Timeout waiting for CLI server to start"
-                                {:timeout-ms timeout-ms}))
-                (if-let [result
-                         (.poll results
-                                (min remaining
-                                     (* port-exit-poll-ms 1000000))
-                                TimeUnit/NANOSECONDS)]
-                  (read-result! result)
-                  (recur)))))))
+      (loop [pending-port nil
+             candidate-deadline nil
+             result (.poll results)]
+        (cond
+          (:error result)
+          (throw (:error result))
+
+          (:eof? result)
+          (if pending-port
+            (accept-port! pending-port)
+            (throw
+             (ex-info "CLI stdout closed before announcing port" {})))
+
+          (:complete? result)
+          (accept-port! (:port result))
+
+          (:port result)
+          (recur (:port result)
+                 (+ (System/nanoTime)
+                    (* port-candidate-settle-ms 1000000))
+                 (.poll results))
+
+          :else
+          (let [now (System/nanoTime)
+                remaining (- deadline now)
+                candidate-remaining
+                (when candidate-deadline
+                  (- candidate-deadline now))]
+            (cond
+              (not (pos? remaining))
+              (throw (ex-info "Timeout waiting for CLI server to start"
+                              {:timeout-ms timeout-ms}))
+
+              (and candidate-remaining
+                   (not (pos? candidate-remaining)))
+              (accept-port! pending-port)
+
+              :else
+              (if-let [exit-status (process-exit-status mp)]
+                (throw (process-exit-failure exit-status))
+                (recur
+                 pending-port
+                 candidate-deadline
+                 (.poll
+                  results
+                  (min remaining
+                       (* port-exit-poll-ms 1000000)
+                       (or candidate-remaining Long/MAX_VALUE))
+                  TimeUnit/NANOSECONDS)))))))
       (catch InterruptedException failure
         (.interrupt (Thread/currentThread))
         (stop-port-reader-and-throw!

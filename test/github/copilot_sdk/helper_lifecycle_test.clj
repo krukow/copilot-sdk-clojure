@@ -269,24 +269,27 @@
       (fn [client session-id _provider-scope _registration-token]
         (swap! local-teardowns conj [client session-id])
         :claimed)}
-     (fn []
-       (with-redefs [async/timeout
-                     (fn [^long timeout-ms]
-                       (swap! timeout-calls conj timeout-ms)
-                       deadline-ch)]
-         (let [events (h/query-seq! "fixed deadline" :timeout-ms 1234)]
-           (is (= autopilot-idle (first events)))
-           (async/close! deadline-ch)
-           (let [caught (try
-                          (second events)
-                          ::no-error
-                          (catch Throwable error
-                            error))]
-             (is (instance? clojure.lang.ExceptionInfo caught))
-             (is (= :query-timeout (:type (ex-data caught))))
-             (is (= 1234 (:timeout-ms (ex-data caught))))
-             (is (= [cleanup-error]
-                    (vec (.getSuppressed ^Throwable caught)))))))))
+     #(with-redefs-fn
+        {(requiring-resolve 'github.copilot-sdk.helpers/monotonic-nanos)
+         (constantly 0)
+         #'async/timeout
+         (fn [^long timeout-ms]
+           (swap! timeout-calls conj timeout-ms)
+           deadline-ch)}
+        (fn []
+          (let [events (h/query-seq! "fixed deadline" :timeout-ms 1234)]
+            (is (= autopilot-idle (first events)))
+            (async/close! deadline-ch)
+            (let [caught (try
+                           (second events)
+                           ::no-error
+                           (catch Throwable error
+                             error))]
+              (is (instance? clojure.lang.ExceptionInfo caught))
+              (is (= :query-timeout (:type (ex-data caught))))
+              (is (= 1234 (:timeout-ms (ex-data caught))))
+              (is (= [cleanup-error]
+                     (vec (.getSuppressed ^Throwable caught)))))))))
     (is (= [1234] @timeout-calls))
     (is (= 1 @disconnects))
     (is (= [[nil nil]] @local-teardowns))
@@ -802,6 +805,18 @@
              (h/query-seq! "setup failure")))
         (is (= 1 (count @disconnects)))))))
 
+(deftest query-defaults-to-a-60000-ms-deadline
+  (let [observed-timeout (atom nil)]
+    (call-with-controlled-query
+     {:events-ch (async/chan)
+      :disconnect-fn (fn [_session] nil)}
+     #(with-redefs [sdk/send-and-wait!
+                    (fn [_session _message timeout-ms]
+                      (reset! observed-timeout timeout-ms)
+                      {:data {:content "response"}})]
+        (is (= "response" (h/query "default deadline")))
+        (is (= 60000 @observed-timeout))))))
+
 (deftest query-seq-send-uses-the-remaining-fixed-deadline
   (let [events-ch (async/chan)
         clock (atom [0 40000000])
@@ -903,7 +918,7 @@
     (try
       (with-redefs [sdk/disconnect!
                     (fn [_session]
-                      (session/remove-session!
+                      (session/remove-session-registration!
                        copilot-client session-id owned-token)
                       (reset! replacement
                               (session/create-session

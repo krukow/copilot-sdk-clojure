@@ -42,6 +42,7 @@
             [clojure.spec.alpha :as s]
             [clojure.string :as str]
             [github.copilot-sdk.generated.coerce :as coerce]
+            [github.copilot-sdk.generated.event-metadata :as event-metadata]
             [github.copilot-sdk.generated.event-specs :as gen]
             [github.copilot-sdk :as sdk]
             [github.copilot-sdk.specs :as specs])
@@ -105,6 +106,24 @@
 (deftest generated-source-omits-reader-position-metadata
   (let [source (slurp "src/github/copilot_sdk/generated/event_specs.clj")]
     (is (not (re-find #"\^\{:(?:line|column)\b" source)))))
+
+(deftest generated-opaque-json-paths-cover-nested-event-payloads
+  (doseq [[event-type expected-path]
+          [["assistant.message"
+            {:wire [:data :toolRequests :* :arguments]
+             :idiom [:data :tool-requests :* :arguments]}]
+           ["session.fusion_handoff"
+            {:wire [:data :message]
+             :idiom [:data :message]}]
+           ["assistant.fusion_phase_completed"
+            {:wire [:data :projectionMessage]
+             :idiom [:data :projection-message]}]
+           ["assistant.fusion_phase_completed"
+            {:wire [:data :stagedTerminal :assistantMessage]
+             :idiom [:data :staged-terminal :assistant-message]}]]]
+    (is (contains? (set (get event-metadata/opaque-json-paths event-type))
+                   expected-path)
+        (str event-type " should preserve " (:wire expected-path)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Schema introspection helpers — used by the envelope helper to honour
@@ -757,6 +776,27 @@
                 (str "round-trip lost equality for "
                      event-type "/" field))))))))
 
+(deftest enum-coercion-rejects-values-outside-the-idiom-domain
+  (doseq [[direction value]
+          [[:wire->idiom "efficiencyPlus"]
+           [:wire->idiom :efficiencyPlus]
+           [:idiom->wire "efficiencyPlus"]
+           [:idiom->wire :efficiencyPlus]]]
+    (testing (str (name direction) " rejects " (pr-str value))
+      (let [failure
+            (try
+              (coerce/coerce-data
+               "session.start" {:auto-tier value} direction)
+              nil
+              (catch clojure.lang.ExceptionInfo error error))]
+        (is (some? failure))
+        (is (= {:event-type "session.start"
+                :field :auto-tier
+                :direction direction
+                :value value}
+               (select-keys (ex-data failure)
+                            [:event-type :field :direction :value])))))))
+
 (deftest coerced-data-satisfies-hand-spec
   (testing "after wire->idiom, hand-written spec accepts the data"
     (doseq [[event-type payload] fixtures]
@@ -903,6 +943,15 @@
              (take-while #(not= % ::eof))
              (remove #(and (seq? %) (= 'ns (first %))))
              doall)))))
+
+(deftest generated-clojure-files-end-with-one-newline
+  (doseq [path ["src/github/copilot_sdk/generated/coerce.clj"
+                "src/github/copilot_sdk/generated/event_metadata.clj"
+                "src/github/copilot_sdk/generated/event_specs.clj"]]
+    (testing path
+      (let [source (slurp path)]
+        (is (str/ends-with? source "\n"))
+        (is (not (str/ends-with? source "\n\n")))))))
 
 (deftest generated-top-level-forms-stay-well-under-jvm-method-size-limit
   (let [sized (map (fn [form] {:form form :len (count (pr-str form))})

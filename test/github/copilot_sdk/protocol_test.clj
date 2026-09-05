@@ -39,6 +39,27 @@
     (.write out body)
     (.flush out)))
 
+(deftest generated-opaque-event-paths-preserve-source-key-spelling
+  (let [arguments {:snake_key {:mixedCase true}}
+        event {:id "event-1"
+               :timestamp "2026-08-13T08:00:00Z"
+               :type "assistant.message"
+               :data {:content "done"
+                      :toolRequests
+                      [{:toolCallId "tool-1"
+                        :name "example"
+                        :arguments arguments}]}}
+        live (#'protocol/normalize-incoming
+              {:method "session.event" :params {:event event}})
+        historical (#'protocol/normalize-incoming
+                    {:id "response-1" :result {:events [event]}})]
+    (is (= arguments
+           (get-in live
+                   [:params :event :data :tool-requests 0 :arguments])))
+    (is (= arguments
+           (get-in historical
+                   [:result :events 0 :data :tool-requests 0 :arguments])))))
+
 (deftest test-read-loop-stops-on-eof
   (testing "EOF stops read loop and fails pending requests"
     (let [state-atom (atom {:connection (protocol/initial-connection-state)})

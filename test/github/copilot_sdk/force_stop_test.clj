@@ -170,7 +170,11 @@
     (swap! (:state client) assoc :connection-io :connection)
     (with-redefs [protocol/send-request!
                   (fn [& _]
-                    (throw (ex-info "runtime destroy failed" {})))]
+                    (throw
+                     (ex-info "runtime destroy failed"
+                              {:error {:code -32603
+                                       :message "runtime destroy failed"}
+                               :method "session.destroy"})))]
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo
            #"runtime destroy failed"
@@ -200,11 +204,61 @@
                failure)))))
     (is (true? (get-in @(:state client)
                        [:sessions session-id :destroyed?])))
-    (is (async-protocols/closed? events-ch))
+    (is (:closed? (await-port events-ch)))
     (is (thrown-with-msg?
          clojure.lang.ExceptionInfo
          #"Session has been disconnected"
          (session/send! copilot-session {:prompt "after timeout"})))))
+
+(deftest disconnect-interruption-marks-the-session-terminal
+  (let [client (sdk/client {:auto-start? false})
+        copilot-session (session/create-session client "interrupted-disconnect" {})
+        session-id (sdk/session-id copilot-session)
+        events-ch (session/subscribe-events copilot-session)
+        interruption (InterruptedException. "destroy interrupted")]
+    (swap! (:state client) assoc :connection-io :connection)
+    (try
+      (with-redefs [protocol/send-request! (fn [& _] (throw interruption))]
+        (is (identical?
+             interruption
+             (try
+               (session/disconnect! copilot-session)
+               nil
+               (catch Throwable failure
+                 failure)))))
+      (finally
+        (Thread/interrupted)))
+    (is (true? (get-in @(:state client)
+                       [:sessions session-id :destroyed?])))
+    (is (:closed? (await-port events-ch)))))
+
+(deftest disconnect-connection-loss-marks-the-session-terminal
+  (let [client (sdk/client {:auto-start? false})
+        copilot-session (session/create-session client "connection-loss-disconnect" {})
+        session-id (sdk/session-id copilot-session)
+        events-ch (session/subscribe-events copilot-session)
+        connection-error
+        (ex-info "Connection closed by remote"
+                 {:error {:code -32000
+                          :message "Connection closed by remote"}
+                  :method "session.destroy"})]
+    (swap! (:state client) assoc :connection-io :connection)
+    (with-redefs [protocol/send-request!
+                  (fn [& _] (throw connection-error))]
+      (is (identical?
+           connection-error
+           (try
+             (session/disconnect! copilot-session)
+             nil
+             (catch Throwable failure
+               failure)))))
+    (is (true? (get-in @(:state client)
+                       [:sessions session-id :destroyed?])))
+    (is (:closed? (await-port events-ch)))
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo
+         #"Session has been disconnected"
+         (session/send! copilot-session {:prompt "after connection loss"})))))
 
 (deftest client-stop-forces-local-teardown-after-runtime-destroy-failure
   (let [client (sdk/client {:auto-start? false})
@@ -550,6 +604,16 @@
       (finally
         (async/close! cancel-ch)
         (async/close! send-lock)))))
+
+(deftest remove-session-retains-the-two-argument-call
+  (let [client (sdk/client {:auto-start? false})
+        copilot-session (session/create-session client "compatible-removal" {})
+        session-id (sdk/session-id copilot-session)
+        events-ch (session/subscribe-events copilot-session)]
+    (is (nil? (session/remove-session! client session-id)))
+    (is (:closed? (await-port events-ch)))
+    (is (not (contains? (:sessions @(:state client)) session-id)))
+    (is (not (contains? (:session-io @(:state client)) session-id)))))
 
 (deftest delete-session-removes-registration-when-local-teardown-fails
   (let [sdk-client (sdk/client {:auto-start? false})

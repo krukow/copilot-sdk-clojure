@@ -203,10 +203,10 @@ requests a credential, its result crosses the JSON-RPC connection to the CLI.
 Providers work over managed child-process stdio, SDK-managed TCP, and explicit
 `:cli-url` connections, matching the Node SDK. The Clojure-only testing
 transport that connects caller-supplied streams rejects token providers.
-An explicit `:cli-url` is a raw TCP connection even when written with an
-`http://` or `https://` prefix; those prefixes do not enable TLS. Use only a
-trusted runtime, and carry nonlocal connections through an authenticated,
-protected tunnel.
+An explicit `:cli-url` is a raw TCP connection. The `http://` prefix is accepted
+as an explicit plaintext spelling; `https://` is rejected rather than silently
+downgraded. Use only a trusted runtime, and carry nonlocal connections through
+an authenticated, protected tunnel.
 
 Failed create/resume/join calls roll back provisional registrations, a
 successful resume replaces the session's previous provider, and disconnect,

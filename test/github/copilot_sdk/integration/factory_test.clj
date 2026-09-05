@@ -318,6 +318,41 @@
            (get-in (deref execution 1000 :github.copilot-sdk.integration-test/timeout)
                    [:result :result])))))
 
+(deftest test-agent-factory-context-failure-returns-error-and-cleans-up-once
+  (let [handle
+        (factory/define-factory
+          {:meta {:name "context-failure"
+                  :description "Fail while constructing execution context"
+                  :phases []}
+           :run (fn [_] {"unreachable" true})})
+        session-id "factory-context-failure-session"
+        _ (session/create-session *test-client* session-id
+                                  {:config {:factories [handle]}})
+        cleanup-count (atom 0)
+        original-remove @#'session/remove-factory-execution!]
+    (with-redefs-fn
+      {#'session/factory-context
+       (fn [& _]
+         (throw (ex-info "context construction failed" {:stage "context"})))
+       #'session/remove-factory-execution!
+       (fn [& args]
+         (swap! cleanup-count inc)
+         (apply original-remove args))}
+      (fn []
+        (is (= {:error {:code -32603
+                        :message "context construction failed"
+                        :data {:stage "context"}}}
+               (<!! (session/handle-factory-execute!
+                     *test-client*
+                     session-id
+                     {:name "context-failure"
+                      :run-id "run-context-failure"
+                      :execution-token "attempt-1"
+                      :args {}}))))))
+    (is (= 1 @cleanup-count))
+    (is (empty? (get-in @(:state *test-client*)
+                        [:sessions session-id :factory-executions])))))
+
 (deftest test-agent-factory-overlapping-execution-cleanup-preserves-replacement
   (let [invocations (atom 0)
         first-started (promise)

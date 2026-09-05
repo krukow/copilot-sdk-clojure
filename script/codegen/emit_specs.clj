@@ -113,12 +113,12 @@
   `(~'s/and
     ~'number?
     (~'fn [~'n]
-      (~'and
-       (~'not (~'ratio? ~'n))
-       (~'cond
-        (~'instance? Double ~'n) (Double/isFinite ~'n)
-        (~'instance? Float ~'n) (Float/isFinite ~'n)
-        :else true)))))
+          (~'and
+           (~'not (~'ratio? ~'n))
+           (~'cond
+            (~'instance? Double ~'n) (Double/isFinite ~'n)
+            (~'instance? Float ~'n) (Float/isFinite ~'n)
+            :else true)))))
 
 (defn- strip-positional-metadata
   [form]
@@ -221,11 +221,11 @@
         prop-preds  (for [{:keys [kw form req?]} prop-info]
                       (if req?
                         `(~'fn [~'m]
-                           (~'and (~'contains? ~'m ~kw)
-                                  (~'s/valid? ~form (~kw ~'m))))
+                               (~'and (~'contains? ~'m ~kw)
+                                      (~'s/valid? ~form (~kw ~'m))))
                         `(~'fn [~'m]
-                           (~'or (~'not (~'contains? ~'m ~kw))
-                                 (~'s/valid? ~form (~kw ~'m))))))
+                               (~'or (~'not (~'contains? ~'m ~kw))
+                                     (~'s/valid? ~form (~kw ~'m))))))
         closed?     (false? (:additionalProperties node))
         closed-pred (when closed?
                       (let [allowed (into (sorted-set) (map :kw prop-info))]
@@ -362,7 +362,7 @@
                      (let [v (gensym "v")]
                        `(~'s/spec
                          (~'fn [~v]
-                          (~'or ~@(map (fn [f] `(~'s/valid? ~f ~v)) forms))))))])))
+                               (~'or ~@(map (fn [f] `(~'s/valid? ~f ~v)) forms))))))])))
         env-form-by-kebab  (side-form env-groups)
         ;; Per-kebab distinct envelope/data forms — used to decide whether a
         ;; key's leaf-union is *truly* weakened from the envelope side (i.e.,
@@ -386,7 +386,7 @@
                   (let [v (gensym "v")
                         union-form `(~'s/spec
                                      (~'fn [~v]
-                                      (~'or ~@(map (fn [f] `(~'s/valid? ~f ~v)) uniq))))
+                                           (~'or ~@(map (fn [f] `(~'s/valid? ~f ~v)) uniq))))
                         env-fs  (env-forms-by-kebab kebab #{})
                         data-fs (data-forms-by-kebab kebab #{})
                         ;; Only flag each side as "weakened" if the *other*
@@ -461,10 +461,10 @@
                                  (let [getter `(~(keyword prop-name) ~'data)]
                                    (if req?
                                      `(~'fn [~'data]
-                                        (~'s/valid? ~data-form ~getter))
+                                            (~'s/valid? ~data-form ~getter))
                                      `(~'fn [~'data]
-                                        (~'or (~'not (~'contains? ~'data ~(keyword prop-name)))
-                                              (~'s/valid? ~data-form ~getter))))))))]
+                                            (~'or (~'not (~'contains? ~'data ~(keyword prop-name)))
+                                                  (~'s/valid? ~data-form ~getter))))))))]
     (if (seq strict-preds)
       `(~'s/def ~(ns-kw (str event-type "-data"))
                 (~'s/and ~keys-form ~@strict-preds))
@@ -517,8 +517,8 @@
                          (sort-by first)
                          (map (fn [[prop-name const-val]]
                                 `(~'fn [~'event]
-                                   (= ~const-val
-                                      (~(keyword prop-name) ~'event))))))
+                                       (= ~const-val
+                                          (~(keyword prop-name) ~'event))))))
         ;; Strict per-property predicates for envelope keys whose global
         ;; leaf spec is a non-conforming union (i.e., weakened by a
         ;; data-payload conflict). Required keys are validated unconditionally;
@@ -554,10 +554,10 @@
                                  (let [getter `(~(keyword prop-name) ~'event)]
                                    (if req?
                                      `(~'fn [~'event]
-                                        (~'s/valid? ~env-form ~getter))
+                                            (~'s/valid? ~env-form ~getter))
                                      `(~'fn [~'event]
-                                        (~'or (~'not (~'contains? ~'event ~(keyword prop-name)))
-                                              (~'s/valid? ~env-form ~getter))))))))
+                                            (~'or (~'not (~'contains? ~'event ~(keyword prop-name)))
+                                                  (~'s/valid? ~env-form ~getter))))))))
         ;; When the event schema is closed (`additionalProperties: false`),
         ;; restrict the envelope to exactly its declared keys. Data payload
         ;; forward-compatibility is unaffected: `:data` is validated by the
@@ -565,15 +565,15 @@
         closed?      (false? (:additionalProperties variant))
         closed-pred  (when closed?
                        (let [allowed (into (sorted-set)
-                                          (map (fn [[k _]] (keyword (kebab k))) envelope))]
+                                           (map (fn [[k _]] (keyword (kebab k))) envelope))]
                          `(~'fn [~'event] (~'every? ~allowed (~'keys ~'event)))))]
     `(~'s/def ~(ns-kw event-type)
               (~'s/and
-                ~keys-form
-                ~@const-preds
-                ~@strict-preds
-                ~@(when closed-pred [closed-pred])
-                (~'fn [~'event] (~'s/valid? ~data-kw (:data ~'event)))))))
+               ~keys-form
+               ~@const-preds
+               ~@strict-preds
+               ~@(when closed-pred [closed-pred])
+               (~'fn [~'event] (~'s/valid? ~data-kw (:data ~'event)))))))
 
 (defn- emit-event-multi-spec
   "Emit a `defmulti` + `defmethod`s + aggregate `::event` spec that dispatches
@@ -587,7 +587,7 @@
         sorted        (sort-by :type variants)
         defmethods    (for [{:keys [type]} sorted]
                         `(~'defmethod ~mm-sym ~type [~'_]
-                                       (~'s/get-spec ~(ns-kw type))))
+                                      (~'s/get-spec ~(ns-kw type))))
         default-method `(~'defmethod ~mm-sym :default [~'_] nil)
         aggregate     `(~'s/def ~(ns-kw "event")
                                 (~'s/multi-spec ~mm-sym :type))]
@@ -621,10 +621,10 @@
         data-specs     (mapv #(emit-data-spec root (:variant %) data-conflicted) sorted)
         envelope-specs (mapv #(emit-envelope-spec (:variant %) env-form-by-kebab conflicted) sorted)
         object-shape-defs (for [[kw form] (sort-by (comp name first) @object-defs)]
-                             `(~'s/def ~kw ~form))]
+                            `(~'s/def ~kw ~form))]
     (concat
-      [`(~'ns ~(symbol ns-name)
-              "AUTO-GENERATED. clojure.spec definitions for upstream session events.
+     [`(~'ns ~(symbol ns-name)
+             "AUTO-GENERATED. clojure.spec definitions for upstream session events.
 
    Each event variant's `data` payload is registered under
    `::<event-type>-data` (e.g. `::session.start-data`).
@@ -636,14 +636,70 @@
    (e.g. `::assistant-message-tool-request-caller-shape`).
 
    Source: schemas/session-events.schema.json"
-              (:require [clojure.spec.alpha :as ~'s]))]
+             (:require [clojure.spec.alpha :as ~'s]))]
       ;; Registered object shapes must precede leaf defs: some leaf defs are
       ;; bare-keyword aliases (e.g. `(s/def ::citations ::citations-shape)`),
       ;; and unlike `s/keys`/`s/valid?` references inside `fn` bodies, a bare
       ;; keyword `s/def` form resolves its target spec *eagerly* at def time.
-      object-shape-defs
-      (emit-leaf-defs leaf-map)
-      data-specs
-      envelope-specs
-      [(emit-event-types-set variants)]
-      (emit-event-multi-spec variants))))
+     object-shape-defs
+     (emit-leaf-defs leaf-map)
+     data-specs
+     envelope-specs
+     [(emit-event-types-set variants)]
+     (emit-event-multi-spec variants))))
+
+(defn- opaque-paths-in-node
+  [root node wire-path idiom-path seen-refs]
+  (let [ref (:$ref node)]
+    (if (and ref (contains? seen-refs ref))
+      []
+      (let [node (cc/deref-once root node)
+            seen-refs (cond-> seen-refs ref (conj ref))
+            opaque-dictionary? (:x-opaque-json (:additionalProperties node))]
+        (cond
+          (or (:x-opaque-json node) opaque-dictionary?)
+          [{:wire wire-path :idiom idiom-path}]
+
+          :else
+          (concat
+           (mapcat #(opaque-paths-in-node root % wire-path idiom-path seen-refs)
+                   (concat (:anyOf node) (:oneOf node) (:allOf node)))
+           (when-let [items (:items node)]
+             (opaque-paths-in-node root items
+                                   (conj wire-path :*)
+                                   (conj idiom-path :*)
+                                   seen-refs))
+           (mapcat
+            (fn [[wire-key child]]
+              (let [wire-key (keyword (name wire-key))]
+                (opaque-paths-in-node
+                 root child
+                 (conj wire-path wire-key)
+                 (conj idiom-path (cc/wire-key->kw (name wire-key)))
+                 seen-refs)))
+            (sort-by (comp name key) (:properties node)))))))))
+
+(defn collect-opaque-json-paths
+  "Return event-type -> generated raw/idiom paths for every x-opaque-json node."
+  [root]
+  (into (sorted-map)
+        (keep
+         (fn [{:keys [type variant]}]
+           (let [paths (->> (opaque-paths-in-node root variant [] [] #{})
+                            distinct
+                            (sort-by pr-str)
+                            vec)]
+             (when (seq paths)
+               [type paths]))))
+        (cc/collect-anyOf-discriminators root)))
+
+(defn emit-event-metadata-ns
+  "Build the generated event metadata namespace."
+  [root]
+  [`(~'ns ~'github.copilot-sdk.generated.event-metadata
+          "AUTO-GENERATED event normalization metadata.
+
+   Source: schemas/session-events.schema.json")
+   `(~'def ~'opaque-json-paths
+           "Event-type -> raw/idiom paths whose JSON key spelling is opaque."
+           ~(collect-opaque-json-paths root))])

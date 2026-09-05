@@ -1010,7 +1010,7 @@
   [session opts]
   (session/<handle-pending-tool-call! session opts))
 
-(defn handle-pending-permission-request!
+(defn ^:experimental handle-pending-permission-request!
   "Manually resolve a pending permission request (upstream PR #1308).
 
    Use this when no `:on-permission-request` handler was registered and the
@@ -1025,7 +1025,7 @@
   [session opts]
   (session/handle-pending-permission-request! session opts))
 
-(defn <handle-pending-permission-request!
+(defn ^:experimental <handle-pending-permission-request!
   "core.async variant of `handle-pending-permission-request!`. Returns a channel."
   [session opts]
   (session/<handle-pending-permission-request! session opts))
@@ -1037,8 +1037,9 @@
    data, use `delete-session!` instead.
 
    The runtime session is destroyed before local resources are released. A
-   runtime destroy failure is rethrown and leaves the local session connected
-   so the caller can retry."
+   definite runtime rejection is rethrown and leaves the local session connected
+   so the caller can retry. An ambiguous timeout, interruption, response-channel
+   closure, or connection loss is rethrown after local teardown."
   [session]
   (session/disconnect! session))
 
@@ -1516,13 +1517,13 @@
   (tools/convert-mcp-call-tool-result result))
 
 ;; Re-export permission helpers
-(defn attributed-permission-result?
+(defn ^:experimental attributed-permission-result?
   "Return true when `result` is a well-formed attributed permission result.
    See `github.copilot-sdk.client/attributed-permission-result?`."
   [result]
   (client/attributed-permission-result? result))
 
-(defn attributed-permission-result
+(defn ^:experimental attributed-permission-result
   "Attach informational decision context to a permission-handler result.
    Reapplying attribution replaces the previous context rather than nesting it.
    See `github.copilot-sdk.client/attributed-permission-result`."

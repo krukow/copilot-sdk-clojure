@@ -225,7 +225,7 @@ kebab-case ↔ camelCase wire convention (e.g. `:working-directory` ↔
 | `:cli-path` | string | `"copilot"` | Path to CLI executable. Falls back to `COPILOT_CLI_PATH` env var when not set |
 | `:cli-args` | vector | `[]` | Extra arguments prepended before SDK-managed flags |
 | `:builtin-plugin-directories` | vector of strings | `[]` | Absolute paths to trusted plugin directories bundled by the host. The complete non-empty set is registered once after the protocol handshake and before any session or session filesystem provider. A registration failure force-stops the client and fails `start!`. Distinct from the per-session `:plugin-directories` option. ([upstream PR #2330](https://github.com/github/copilot-sdk/pull/2330)) |
-| `:cli-url` | string | nil | URL of existing CLI server (e.g., `"localhost:8080"`). When provided, no CLI process is spawned |
+| `:cli-url` | string | nil | Address of an existing CLI server (for example, `"localhost:8080"` or `"http://localhost:8080"`). The transport is plaintext TCP, so `https://` is rejected rather than silently downgraded. When provided, no CLI process is spawned |
 | `:port` | number | `0` | Server port (0 = random) |
 | `:use-stdio?` | boolean | `true` | Use stdio transport instead of TCP |
 | `:log-level` | keyword | `:info` | One of `:none` `:error` `:warning` `:info` `:debug` `:all` |
@@ -399,7 +399,7 @@ failures.
 | `:enable-file-change-tracking?` | boolean | Opt into file-change capture for cumulative session diffs. Omission sends no key; explicit `false` and `true` are preserved as `enableFileChangeTracking` on create, resume, and join. On resume, tracking starts only when the runtime still has a valid baseline and cannot reconstruct earlier untracked turns. Observe stable file-change and snapshot events through the normal event APIs; experimental low-level rewind RPCs are intentionally not exposed. |
 | `:session-limits` | map | (Experimental) Session AI-credit limits. `{:max-ai-credits <number>}` — serialized as wire `sessionLimits.maxAiCredits`. (upstream PR #1865) |
 | `:enable-managed-settings?` | boolean | Opt-in. When true, the runtime self-fetches enterprise managed settings (bypass-permissions policy) at session bootstrap using the session's `:github-token` (required; the runtime fails closed if omitted). Gated on `some?` — an explicit `false` is forwarded verbatim; an absent key is omitted. Serialized as wire `enableManagedSettings`. (upstream PR #1925) |
-| `:managed-settings` | map | Structured enterprise managed-settings payload, supplied by the caller instead of (or alongside) `:enable-managed-settings?`. Optional key `:permissions`: `{:disable-bypass-permissions-mode :disable, :deny [...], :ask [...], :allow [...]}`. The policy is a simple nonblank keyword; known values are `:disable` and `:allow-auto-only`. It is serialized as `managedSettings.permissions.disableBypassPermissionsMode`; `:deny`/`:ask`/`:allow` are vectors of non-blank permission-rule strings forwarded verbatim. Presence of this key (or `:enable-managed-settings? true`) sets the permission-handler context's `:managed-settings-enabled?` to `true` — see [`approve-all`](#approve-all). Valid on `create-session`, `resume-session`, and `join-session`. ([upstream PR #2139](https://github.com/github/copilot-sdk/pull/2139)) |
+| `:managed-settings` | map | Structured enterprise managed-settings payload, supplied by the caller instead of (or alongside) `:enable-managed-settings?`. Optional key `:permissions`: `{:disable-bypass-permissions-mode :disable, :deny [...], :ask [...], :allow [...]}`. The policy accepts any wire string or a simple keyword; strings pass through unchanged and keywords use `name`. Known values are `:disable` and `:allow-auto-only`. It is serialized as `managedSettings.permissions.disableBypassPermissionsMode`; `:deny`/`:ask`/`:allow` are vectors of non-blank permission-rule strings forwarded verbatim. Presence of this key (or `:enable-managed-settings? true`) sets the permission-handler context's `:managed-settings-enabled?` to `true` — see [`approve-all`](#approve-all). Valid on `create-session`, `resume-session`, and `join-session`. ([upstream PR #2139](https://github.com/github/copilot-sdk/pull/2139)) |
 | `:request-extensions?` | boolean | Opt into extension management tools and per-extension dispatch for this connection. Explicit `false` is preserved as `requestExtensions: false`; omission sends no wire key. Valid on create, resume, and join. Explicit `nil` is invalid. ([upstream PR #1401](https://github.com/github/copilot-sdk/pull/1401)) |
 | `:extension-sdk-path` | string | Override the `copilot-sdk/` folder injected into extension subprocesses. The runtime falls back to its bundled SDK when the path is invalid. Serialized as `extensionSdkPath` on create and resume; not accepted by `join-session` because the extension process has already started. Explicit `nil` is invalid. ([upstream PR #1494](https://github.com/github/copilot-sdk/pull/1494)) |
 | `:extension-info` | map | Stable extension identity `{:source string :name string}`. Serialized exactly as `extensionInfo.{source,name}` on create, resume, and join. Both strings are required; unknown nested keys and explicit `nil` are invalid. This config shape is distinct from the richer `session.extensions_loaded` event items. ([upstream PR #1401](https://github.com/github/copilot-sdk/pull/1401)) |
@@ -425,7 +425,7 @@ failures.
 | `:infinite-sessions` | map | Infinite session config (see below) |
 | `:reasoning-effort` | string | Reasoning effort level: `"low"`, `"medium"`, `"high"`, `"xhigh"`, or `"max"` ([upstream PR #2228](https://github.com/github/copilot-sdk/pull/2228)) |
 | `:github-token` | string | Static GitHub token for this session. Sent as `gitHubToken`; mutually exclusive with `:github-token-provider`. |
-| `:github-token-provider` | fn | Session-scoped, refreshable GitHub credential callback. Receives `{:host string :session-id string? :reason keyword}` where `:reason` is exactly `:initial` or `:refresh`. Returns `{:kind :token :access-token string :expires-in integer>=3601 :token-type string?}` or `{:kind :cancelled}`, directly or on a core.async channel. Both result variants are open to additional extension fields. Create, resume, and join configuration carries only an opaque registration ID; the callback remains local, while acquired credentials cross the JSON-RPC connection to the CLI when requested. Managed child-process stdio, SDK-managed TCP, and explicit `:cli-url` connections are supported; the Clojure-only caller-supplied testing-stream transport is rejected. Explicit `:cli-url` uses raw TCP even when written with an `http://` or `https://` prefix; use a trusted runtime and an authenticated, protected tunnel for nonlocal connections. Provider work runs on a bounded client-owned executor with a fixed 120-second deadline per callback. Callback failure, an invalid result, or timeout is returned directly to the runtime without an SDK retry. Failed create/resume/join calls roll back provisional registrations; session and client teardown remove committed registrations and cancel in-flight work. Mutually exclusive with `:github-token`. See [Authentication](../auth/index.md#session-scoped-token-provider). ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412)) |
+| `:github-token-provider` | fn | Session-scoped, refreshable GitHub credential callback. Receives `{:host string :session-id string? :reason keyword}` where `:reason` is exactly `:initial` or `:refresh`. Returns `{:kind :token :access-token string :expires-in integer>=3601 :token-type string?}` or `{:kind :cancelled}`, directly or on a core.async channel. Both result variants are open to additional extension fields. Create, resume, and join configuration carries only an opaque registration ID; the callback remains local, while acquired credentials cross the JSON-RPC connection to the CLI when requested. Managed child-process stdio, SDK-managed TCP, and explicit `:cli-url` connections are supported; the Clojure-only caller-supplied testing-stream transport is rejected. Explicit `:cli-url` uses raw TCP; `http://` is accepted as an explicit plaintext spelling and `https://` is rejected. Use a trusted runtime and an authenticated, protected tunnel for nonlocal connections. Provider work runs on a bounded client-owned executor with a fixed 120-second deadline per callback. Callback failure, an invalid result, or timeout is returned directly to the runtime without an SDK retry. Failed create/resume/join calls roll back provisional registrations; session and client teardown remove committed registrations and cancel in-flight work. Mutually exclusive with `:github-token`. See [Authentication](../auth/index.md#session-scoped-token-provider). ([upstream PR #2412](https://github.com/github/copilot-sdk/pull/2412)) |
 | `:on-user-input-request` | fn | Handler for `ask_user` requests (see below) |
 | `:ask-user-variant` | keyword | Selects the built-in `ask_user` tool shape: `:legacy` or `:elicitation`. Omission preserves the runtime default; explicit values serialize as `askUserVariant` on create/resume/join. The `:elicitation` variant requires an `:on-elicitation-request` handler when the host must answer requests. ([upstream PR #2432](https://github.com/github/copilot-sdk/pull/2432)) |
 | `:hooks` | map | Lifecycle hooks (see below) |
@@ -1184,7 +1184,8 @@ from `define-tool`). The args map accepts `:request-id` plus either `:result`
 Resolve a permission request that was not auto-handled (because
 `:on-permission-request` was omitted from the session config). The result map
 must contain a `:kind` other than `:no-result`. Sent on the wire as
-`session.permissions.handlePendingPermissionRequest`. (upstream PR #1308)
+`session.permissions.handlePendingPermissionRequest`. These helpers are
+experimental, matching their upstream annotation. (upstream PR #1308)
 
 #### `get-current-model`
 
@@ -1260,8 +1261,11 @@ Log a message to the session timeline. Returns the event ID string.
 
 Disconnect the session and free resources. This is the preferred way to close a
 session. The runtime is destroyed before local resources are released. If that
-request fails, the exception propagates and the local session remains connected
-so the caller can retry.
+request is definitely rejected, the exception propagates and the local session
+remains connected so the caller can retry. A timeout, interruption,
+response-channel closure, or connection loss is ambiguous because the runtime
+may already have destroyed the session; the exception propagates after local
+teardown. Interrupted threads retain their interrupted status.
 While one disconnect is in progress, concurrent callers wait for that operation
 without sending another runtime request. They then observe the same success or
 the identical exception instance.
@@ -3068,7 +3072,7 @@ for observability.
 Attach informational context describing how and where a permission decision was
 made. Reapplying `attributed-permission-result` replaces the previous context
 rather than nesting it. Permission behavior is determined only by the inner
-result.
+result. These helpers are experimental, matching their upstream annotation.
 
 | Context key | Allowed values |
 |-------------|----------------|

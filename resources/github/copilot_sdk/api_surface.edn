@@ -11,7 +11,7 @@
     <get-factory-run {:kind :fn, :arglists ([session run-id]), :experimental true}
     <get-factory-run-detail {:kind :fn, :arglists ([session run-id]), :experimental true}
     <get-factory-run-progress {:kind :fn, :arglists ([session run-id] [session run-id options]), :experimental true}
-    <handle-pending-permission-request! {:kind :fn, :arglists ([session opts])}
+    <handle-pending-permission-request! {:kind :fn, :arglists ([session opts]), :experimental true}
     <handle-pending-tool-call! {:kind :fn, :arglists ([session opts])}
     <list-factory-runs {:kind :fn, :arglists ([session]), :experimental true}
     <resume-factory! {:kind :fn, :arglists ([session run-id] [session run-id options]), :experimental true}
@@ -23,8 +23,8 @@
     abort! {:kind :fn, :arglists ([session])}
     approve-all {:kind :fn, :arglists ([request ctx])}
     assistant-events {:kind :value}
-    attributed-permission-result {:kind :fn, :arglists ([result decision-context])}
-    attributed-permission-result? {:kind :fn, :arglists ([result])}
+    attributed-permission-result {:kind :fn, :arglists ([result decision-context]), :experimental true}
+    attributed-permission-result? {:kind :fn, :arglists ([result]), :experimental true}
     cancel-factory-run! {:kind :fn, :arglists ([session run-id]), :experimental true}
     capabilities {:kind :fn, :arglists ([session])}
     client {:kind :fn, :arglists ([] [opts])}
@@ -57,7 +57,7 @@
     get-quota {:kind :fn, :arglists ([client]), :experimental true}
     get-session-metadata {:kind :fn, :arglists ([client session-id])}
     get-status {:kind :fn, :arglists ([client])}
-    handle-pending-permission-request! {:kind :fn, :arglists ([session opts])}
+    handle-pending-permission-request! {:kind :fn, :arglists ([session opts]), :experimental true}
     handle-pending-tool-call! {:kind :fn, :arglists ([session opts])}
     history-clear-context! {:kind :fn, :arglists ([session prompt]), :experimental true}
     input! {:kind :fn, :arglists ([session message] [session message opts])}
@@ -117,8 +117,8 @@
    {<create-session {:kind :fn, :arglists ([client config])}
     <resume-session {:kind :fn, :arglists ([client session-id config])}
     approve-all {:kind :fn, :arglists ([request ctx])}
-    attributed-permission-result {:kind :fn, :arglists ([result decision-context])}
-    attributed-permission-result? {:kind :fn, :arglists ([result])}
+    attributed-permission-result {:kind :fn, :arglists ([result decision-context]), :experimental true}
+    attributed-permission-result? {:kind :fn, :arglists ([result]), :experimental true}
     client {:kind :fn, :arglists ([] [opts])}
     connect-with-streams! {:kind :fn, :arglists ([client in out])}
     create-session {:kind :fn, :arglists ([client config])}
@@ -255,7 +255,7 @@
    {}}
   github.copilot-sdk.session
   {:vars
-   {<handle-pending-permission-request! {:kind :fn, :arglists ([session opts])}
+   {<handle-pending-permission-request! {:kind :fn, :arglists ([session opts]), :experimental true}
     <handle-pending-tool-call! {:kind :fn, :arglists ([session opts])}
     <send! {:kind :fn, :arglists ([session opts])}
     <send-and-wait! {:kind :fn, :arglists ([session opts])}
@@ -294,7 +294,7 @@
     handle-factory-execute! {:kind :fn, :arglists ([client session-id {:as params, :keys [name run-id execution-token]}])}
     handle-hooks-invoke! {:kind :fn, :arglists ([client session-id hook-type input])}
     handle-mcp-auth-request! {:kind :fn, :arglists ([client session-id request])}
-    handle-pending-permission-request! {:kind :fn, :arglists ([session {:as opts, :keys [request-id result]}])}
+    handle-pending-permission-request! {:kind :fn, :arglists ([session {:as opts, :keys [request-id result]}]), :experimental true}
     handle-pending-tool-call! {:kind :fn, :arglists ([session {:as opts, :keys [request-id result error]}])}
     handle-permission-request! {:kind :fn, :arglists ([client session-id request])}
     handle-provider-token-request! {:kind :fn, :arglists ([client session-id provider-name])}
@@ -322,6 +322,7 @@
     remote-disable {:kind :fn, :arglists ([session]), :experimental true}
     remote-enable {:kind :fn, :arglists ([session] [session opts]), :experimental true}
     remove-open-canvas! {:kind :fn, :arglists ([client session-id data])}
+    remove-session! {:kind :fn, :arglists ([client session-id])}
     respond-to-queued-command! {:kind :fn, :arglists ([session {:as params, :keys [request-id handled? stop-processing-queue?]}]), :experimental true}
     select! {:kind :fn, :arglists ([session message options])}
     send! {:kind :fn, :arglists ([session opts])}

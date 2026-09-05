@@ -26,7 +26,8 @@
                      observe-take-attempts
                      with-mock-server]]
             [github.copilot-sdk.mock-server :as mock])
-  (:import [java.util.concurrent CountDownLatch ThreadPoolExecutor TimeUnit]))
+  (:import [java.util.concurrent CountDownLatch FutureTask LinkedBlockingQueue
+            ThreadPoolExecutor TimeUnit]))
 
 (use-fixtures :each with-mock-server)
 
@@ -872,20 +873,39 @@
       (is (empty? @requests)))))
 
 (deftest test-session-github-token-provider-transport-security
-  (testing "explicit cli-url transports accept credential callbacks"
-    (doseq [url ["example.com:4444"
-                 "localhost:4444"
+  (testing "explicit loopback cli-url transports accept credential callbacks"
+    (doseq [url ["localhost:4444"
+                 "http://localhost:4444"
                  "127.0.0.1:4444"
                  "127.255.2.3:4444"
                  "[::1]:4444"
-                 "[0:0:0:0:0:0:0:1]:4444"
-                 "https://localhost:4444"]]
+                 "[0:0:0:0:0:0:0:1]:4444"]]
       (let [client (sdk/client {:cli-url url :auto-start? false})]
         (is (nil?
              (@#'client/ensure-github-token-provider-transport!
               client
               {:github-token-provider (fn [_] {:kind :cancelled})}))
             url))))
+
+  (testing "explicit non-loopback cli-url transports reject credential callbacks"
+    (doseq [url ["example.com:4444"
+                 "192.0.2.1:4444"
+                 "http://example.com:4444"]]
+      (let [client (sdk/client {:cli-url url :auto-start? false})]
+        (is (thrown-with-msg?
+             clojure.lang.ExceptionInfo
+             #"explicit non-loopback"
+             (sdk/create-session
+              client
+              {:github-token-provider (fn [_] {:kind :cancelled})}))
+            url))))
+
+  (testing "https cli-url is rejected rather than downgraded to plaintext TCP"
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo
+         #"https://"
+         (sdk/client {:cli-url "https://localhost:4444"
+                      :auto-start? false}))))
 
   (testing "SDK-owned TCP and child-process stdio transports are accepted"
     (doseq [client [(sdk/client {:auto-start? false})
@@ -1257,18 +1277,6 @@
            [{:kind :cancelled
              :reason (Object.)}
             :fields-must-be-json-values]
-           [{:kind :cancelled
-             :access-token " "}
-            :access-token-must-be-non-blank-string]
-           [{:kind :cancelled
-             :expires-in "later"}
-            :expires-in-must-be-integer]
-           [{:kind :cancelled
-             :expires-in 3600}
-            :expires-in-must-exceed-3600]
-           [{:kind :cancelled
-             :token-type " "}
-            :token-type-must-be-non-blank-string]
            [{:kind :token
              :access-token " "
              :expires-in 3601}
@@ -1415,6 +1423,11 @@
     (doseq [[result valid?]
             [[{:kind :cancelled} true]
              [{:kind :cancelled :reason :expired} true]
+             [{:kind :cancelled
+               :access-token ""
+               :expires-in "not-a-token-lifetime"
+               :token-type ""}
+              true]
              [{:kind :token :access-token "token" :expires-in 3601} true]
              [{:kind :token :access-token "token" :expires-in 3601
                :metadata {}} true]
@@ -1431,10 +1444,35 @@
       (is (= valid?
              (nil? (specs/github-token-provider-result-constraint result))))))
 
+  (testing "provider-result fields accept collections supported by the JSON writer"
+    (doseq [value [(list "repo" "read:org")
+                   (range 3)
+                   (map identity ["repo" "read:org"])
+                   #{"repo" "read:org"}]]
+      (is (s/valid?
+           ::specs/github-token-provider-result
+           {:kind :cancelled :metadata value})))
+    (is (not
+         (s/valid?
+          ::specs/github-token-provider-result
+          {:kind :cancelled :metadata {1 "not-a-json-object-key"}})))
+    (is (false?
+         (@#'specs/github-token-provider-field-value?
+          {1 "not-a-json-object-key"}))))
+
   (testing "the public result validator identifies the failed named constraint"
     (is (= :expires-in-must-exceed-3600
            (specs/github-token-provider-result-constraint
             {:kind :token :access-token "token" :expires-in 3600}))))
+
+  (testing "spec explanations identify the individual named constraint"
+    (let [explanation
+          (s/explain-data
+           ::specs/github-token-provider-result
+           {:kind :token :access-token "token" :expires-in 3600})]
+      (is (str/includes?
+           (pr-str explanation)
+           "github-token-provider-result-expires-in-minimum?"))))
 
   (testing "each provider-result constraint is total over arbitrary input"
     (doseq [predicate
@@ -1865,7 +1903,51 @@
     (finally
       (future-cancel response))))
 
+(defn- immediate-provider-executor
+  []
+  (proxy [ThreadPoolExecutor]
+         [1 1 0 TimeUnit/MILLISECONDS (LinkedBlockingQueue.)]
+    (execute [task]
+      (.run ^Runnable task))
+    (submit [task]
+      (let [future (FutureTask. ^Runnable task nil)]
+        (.run future)
+        future))))
+
 (deftest test-session-github-token-provider-invocation-cancellation
+  (testing "the FutureTask is attached before executor execution"
+    (let [client (sdk/client {:auto-start? false})
+          task-attached? (promise)
+          registration-id
+          (@#'client/register-github-token-provider!
+           client
+           (fn [_]
+             (deliver task-attached?
+                      (some?
+                       (some-> @(:state client)
+                               provider-invocations
+                               vals
+                               first
+                               :task
+                               deref)))
+             {:kind :cancelled})
+           "attach-before-execute")
+          executor (immediate-provider-executor)]
+      (try
+        (with-redefs-fn
+          {#'client/create-github-token-provider-executor
+           (constantly executor)}
+          #(is (= {:result {:kind :cancelled}}
+                  (<!!
+                   (@#'client/github-token-provider-response
+                    client
+                    {:registration-id registration-id
+                     :host "github.com"
+                     :reason "initial"})))))
+        (is (= true (deref task-attached? 1000 ::timeout)))
+        (finally
+          (@#'client/release-transport! client {:process :none})))))
+
   (testing "session teardown cancels an active channel-returning provider"
     (let [client (sdk/client {:auto-start? false})
           session-id "teardown-active-provider"
@@ -2408,6 +2490,22 @@
       (@#'client/commit-github-token-provider! client "concurrent" second-id)
       (is (= #{second-id}
              (set (keys (provider-registrations @(:state client))))))))
+
+  (testing "a concurrently purged provisional commit still replaces the committed provider"
+    (let [client (sdk/client {:auto-start? false})
+          session-id "purged-provisional"
+          old-id
+          (@#'client/register-github-token-provider!
+           client (fn [_] {:kind :cancelled}) session-id)
+          _ (@#'client/commit-github-token-provider!
+             client session-id old-id)
+          provisional-id
+          (@#'client/register-github-token-provider!
+           client (fn [_] {:kind :cancelled}) session-id)]
+      (@#'client/rollback-github-token-provider! client provisional-id)
+      (@#'client/commit-github-token-provider!
+       client session-id provisional-id)
+      (is (empty? (provider-registrations @(:state client))))))
 
   (testing "registration is rejected after client stopping begins"
     (let [client (sdk/client {:auto-start? false})]

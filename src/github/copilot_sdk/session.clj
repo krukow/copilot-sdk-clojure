@@ -622,34 +622,37 @@
      (when send-lock
        (close! send-lock)))]))
 
-(defn ^:no-doc remove-session!
+(defn ^:no-doc remove-session-registration!
+  [client session-id expected-registration-token]
+  (let [[old new]
+        (swap-vals!
+         (:state client)
+         (fn [state]
+           (let [registration-token
+                 (get-in state [:sessions session-id :registration-token])]
+             (if (or (nil? expected-registration-token)
+                     (identical? expected-registration-token registration-token))
+               (-> state
+                   (update :sessions dissoc session-id)
+                   (update :session-io dissoc session-id))
+               state))))
+        removed-session (get-in old [:sessions session-id])
+        removed?
+        (and removed-session
+             (nil? (get-in new [:sessions session-id])))]
+    (when removed?
+      (throw-cleanup-failures!
+       (release-session-resources!
+        session-id
+        removed-session
+        (get-in old [:session-io session-id]))))
+    (if removed? :removed :not-removed)))
+
+(defn remove-session!
   "Remove a session from client state. Called on RPC failure during pre-registration."
-  ([client session-id]
-   (remove-session! client session-id nil))
-  ([client session-id expected-registration-token]
-   (let [[old new]
-         (swap-vals!
-          (:state client)
-          (fn [state]
-            (let [registration-token
-                  (get-in state [:sessions session-id :registration-token])]
-              (if (or (nil? expected-registration-token)
-                      (identical? expected-registration-token registration-token))
-                (-> state
-                    (update :sessions dissoc session-id)
-                    (update :session-io dissoc session-id))
-                state))))
-         removed-session (get-in old [:sessions session-id])
-         removed?
-         (and removed-session
-              (nil? (get-in new [:sessions session-id])))]
-     (when removed?
-       (throw-cleanup-failures!
-        (release-session-resources!
-         session-id
-         removed-session
-         (get-in old [:session-io session-id]))))
-     (if removed? :removed :not-removed))))
+  [client session-id]
+  (remove-session-registration! client session-id nil)
+  nil)
 
 (defn dispatch-event!
   "Dispatch an event to all subscribers via the mult. Called by client notification router.
@@ -1073,10 +1076,12 @@
      (if-let [handle (get-in @(:state client) [:sessions session-id :factories name])]
        (if-let [execution (register-factory-execution!
                            client session-id run-id execution-token)]
-         (let [context (factory-context client session-id params execution)
-               flush! (::flush-progress! context)]
+         (let [flush!* (volatile! nil)]
            (try
-             (let [result (await-factory-value
+             (let [context (factory-context client session-id params execution)
+                   flush! (::flush-progress! context)
+                   _ (vreset! flush!* flush!)
+                   result (await-factory-value
                            ((factory/factory-run-function handle)
                             (dissoc context ::flush-progress!)))]
                (flush!)
@@ -1091,13 +1096,14 @@
                         :message (or (ex-message error) (str error))
                         :data (serializable-ex-data error)}})
              (finally
-               (try
-                 (flush!)
-                 (catch Throwable error
-                   (log/warn "Failed to flush final factory progress"
-                             {:session-id session-id
-                              :run-id run-id
-                              :error (ex-message error)})))
+               (when-let [flush! @flush!*]
+                 (try
+                   (flush!)
+                   (catch Throwable error
+                     (log/warn "Failed to flush final factory progress"
+                               {:session-id session-id
+                                :run-id run-id
+                                :error (ex-message error)}))))
                (remove-factory-execution!
                 client session-id run-id execution-token execution))))
          {:error {:code -32001
@@ -2269,7 +2275,7 @@
                    :else (assoc base :result (normalize-tool-result result)))]
       (proto/send-request conn "session.tools.handlePendingToolCall" params))))
 
-(defn handle-pending-permission-request!
+(defn ^:experimental handle-pending-permission-request!
   "Manually resolve a pending permission request (upstream PR #1308).
 
    Use this when no `:on-permission-request` handler was registered and the
@@ -2302,7 +2308,7 @@
                             :request-id request-id
                             :result normalized}))))
 
-(defn <handle-pending-permission-request!
+(defn ^:experimental <handle-pending-permission-request!
   "core.async variant of `handle-pending-permission-request!`. Returns a channel."
   [session opts]
   (let [{:keys [session-id client]} session
@@ -2395,10 +2401,18 @@
 
 (defn- ambiguous-disconnect-failure?
   [failure]
-  (or (instance? InterruptedException failure)
-      (and (instance? clojure.lang.ExceptionInfo failure)
-           (= "Request timeout" (ex-message failure))
-           (= "session.destroy" (:method (ex-data failure))))))
+  (let [{:keys [method error]} (ex-data failure)
+        message (:message error)]
+    (or (instance? InterruptedException failure)
+        (and (instance? clojure.lang.ExceptionInfo failure)
+             (= "session.destroy" method)
+             (or (= "Request timeout" (ex-message failure))
+                 (= "Response channel closed" (ex-message failure))
+                 (and (= -32000 (:code error))
+                      (or (= "Connection closed by remote" message)
+                          (and (string? message)
+                               (str/starts-with?
+                                message "Connection error: ")))))))))
 
 (defn- disconnect-registration!
   [client session-id expected-registration-token fence-registration?]
@@ -2463,9 +2477,9 @@
 
    The runtime is destroyed before local resources are released. A definite
    destroy failure is rethrown and leaves the session connected so the caller
-   can retry. A timeout or interruption is rethrown after local teardown because
-   the runtime may already have completed the request. Can be called with either
-   a CopilotSession handle or (client, session-id)."
+   can retry. A timeout, interruption, or connection loss is rethrown after local
+   teardown because the runtime may already have completed the request. Can be
+   called with either a CopilotSession handle or (client, session-id)."
   ([session]
    (disconnect-registration!
     (:client session)

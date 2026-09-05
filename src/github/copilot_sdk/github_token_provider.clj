@@ -110,8 +110,8 @@
   invocation)
 
 (defn attach-task!
-  "Attach a submitted task to its invocation, closing the cancellation race
-   between registration and executor submission."
+  "Attach a task before executor execution, closing the cancellation race
+   between registration and callback execution."
   [invocation executor future]
   (reset! (:executor invocation) executor)
   (reset! (:task invocation) future)

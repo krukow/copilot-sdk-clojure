@@ -48,12 +48,12 @@
               (extra-leaf? value))
           (recur remaining)
 
-          (vector? value)
-          (recur (into remaining value))
-
           (map? value)
           (and (every? #(or (keyword? %) (string? %)) (keys value))
                (recur (into remaining (vals value))))
+
+          (coll? value)
+          (recur (into remaining value))
 
           :else
           false)))))
@@ -1087,41 +1087,37 @@
 (defn- github-token-provider-result-access-token?
   [result]
   (and (map? result)
-       (if (= :token (:kind result))
-         (s/valid? ::non-blank-string (:access-token result))
-         (or (not (contains? result :access-token))
-             (s/valid? ::non-blank-string (:access-token result))))))
+       (or (not= :token (:kind result))
+           (s/valid? ::non-blank-string (:access-token result)))))
 
 (defn- github-token-provider-result-expires-in-integer?
   [result]
   (and (map? result)
-       (if (= :token (:kind result))
-         (integer? (:expires-in result))
-         (or (not (contains? result :expires-in))
-             (integer? (:expires-in result))))))
+       (or (not= :token (:kind result))
+           (integer? (:expires-in result)))))
 
 (defn- github-token-provider-result-expires-in-minimum?
   [result]
   (and (map? result)
-       (let [expires-in (:expires-in result)]
-         (if (and (= :cancelled (:kind result))
-                  (not (contains? result :expires-in)))
-           true
-           (and (integer? expires-in)
-                (> expires-in 3600))))))
+       (or (not= :token (:kind result))
+           (let [expires-in (:expires-in result)]
+             (and (integer? expires-in)
+                  (> expires-in 3600))))))
 
 (defn- github-token-provider-result-token-type?
   [result]
   (and
    (map? result)
-   (let [token-type-entry
-         (some (fn [[key value]]
-                 (when (and (or (keyword? key) (string? key))
-                            (= "tokenType" (wire-json-member-name key)))
-                   [key value]))
-               result)]
-     (or (nil? token-type-entry)
-         (s/valid? ::non-blank-string (second token-type-entry))))))
+   (or
+    (not= :token (:kind result))
+    (let [token-type-entry
+          (some (fn [[key value]]
+                  (when (and (or (keyword? key) (string? key))
+                             (= "tokenType" (wire-json-member-name key)))
+                    [key value]))
+                result)]
+      (or (nil? token-type-entry)
+          (s/valid? ::non-blank-string (second token-type-entry)))))))
 
 (def ^:private github-token-provider-result-constraints
   [[:result-must-be-map
@@ -1153,7 +1149,15 @@
         github-token-provider-result-constraints))
 
 (s/def ::github-token-provider-result
-  #(nil? (github-token-provider-result-constraint %)))
+  (s/and github-token-provider-result-map?
+         github-token-provider-result-kind?
+         github-token-provider-result-keys?
+         github-token-provider-result-collision-free?
+         github-token-provider-result-field-values?
+         github-token-provider-result-access-token?
+         github-token-provider-result-expires-in-integer?
+         github-token-provider-result-expires-in-minimum?
+         github-token-provider-result-token-type?))
 
 ;; Session options (upstream PR #1865) — shared by create + resume/join.
 ;; excludedBuiltinAgents: names of built-in agents to hide from the session.
@@ -1211,9 +1215,8 @@
    github-mcp-tool-config-keys))
 
 (s/def ::disable-bypass-permissions-mode
-  (s/and keyword?
-         #(nil? (namespace %))
-         #(not (str/blank? (name %)))))
+  (s/or :wire string?
+        :idiom (s/and keyword? #(nil? (namespace %)))))
 (s/def ::deny (s/coll-of ::non-blank-string :kind vector?))
 (s/def ::ask (s/coll-of ::non-blank-string :kind vector?))
 (s/def ::allow (s/coll-of ::non-blank-string :kind vector?))

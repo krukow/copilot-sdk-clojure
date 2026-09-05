@@ -47,7 +47,16 @@
                                'github.copilot-sdk.client
                                :vars
                                'list-tools
-                               :experimental]))))
+                               :experimental])))
+      (doseq [namespace ['github.copilot-sdk
+                         'github.copilot-sdk.client]
+              helper ['attributed-permission-result?
+                      'attributed-permission-result]]
+        (is (true? (get-in live [:namespaces namespace :vars helper :experimental]))
+            (str namespace "/" helper " must remain experimental"))
+        (is (contains? (get-in live [:namespaces namespace :fdefs])
+                       (symbol (str namespace) (str helper)))
+            (str namespace "/" helper " must remain instrumented"))))
     (testing "no-doc vars remain outside the supported contract"
       (is (not (contains? (get-in live [:namespaces
                                         'github.copilot-sdk.factory

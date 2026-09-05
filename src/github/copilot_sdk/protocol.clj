@@ -15,6 +15,7 @@
             [clojure.core.async :as async :refer [go-loop <! >!! <!! chan close! put!]]
             [clojure.core.async.impl.protocols :as async-protocols]
             [clojure.string :as str]
+            [github.copilot-sdk.generated.event-metadata :as event-metadata]
             [github.copilot-sdk.logging :as log]
             [github.copilot-sdk.teardown :as td]
             [github.copilot-sdk.util :as util])
@@ -444,20 +445,31 @@
       (catch RejectedExecutionException _
         (reject-request! executor (:rejected-requests conn) outgoing-ch method id)))))
 
-(defn- restore-extension-context-payloads
-  "Restore the opaque `:payload` of each `extension_context` attachment from
-   the raw (pre-`wire->clj`) attachments onto the converted attachments, so
-   source-defined payload keys aren't kebab-cased. Raw and converted
-   attachment vectors are positionally aligned (conversion preserves order
-   and count)."
-  [raw-atts conv-atts]
-  (mapv (fn [raw conv]
-          (if (and (= "extension_context" (:type raw))
-                   (contains? raw :payload))
-            (assoc conv :payload (:payload raw))
-            conv))
-        raw-atts
-        conv-atts))
+(defn- restore-opaque-path
+  [raw converted wire-path idiom-path]
+  (if (empty? wire-path)
+    raw
+    (let [wire-key (first wire-path)
+          idiom-key (first idiom-path)
+          remaining-wire (next wire-path)
+          remaining-idiom (next idiom-path)]
+      (if (= :* wire-key)
+        (if (and (sequential? raw) (sequential? converted))
+          (mapv (fn [raw-value converted-value]
+                  (restore-opaque-path raw-value converted-value
+                                       remaining-wire remaining-idiom))
+                raw
+                converted)
+          converted)
+        (if (and (map? raw)
+                 (map? converted)
+                 (contains? raw wire-key)
+                 (contains? converted idiom-key))
+          (assoc converted idiom-key
+                 (restore-opaque-path (get raw wire-key)
+                                      (get converted idiom-key)
+                                      remaining-wire remaining-idiom))
+          converted)))))
 
 (defn- preserve-event-opaque-fields
   "Given a raw wire event (pre-`wire->clj`) and a converted event, restore
@@ -466,61 +478,18 @@
    rules used by `normalize-incoming` for live notifications, so live and
     historical events share the same shape."
   [raw-event converted-event]
-  (let [raw-data (when (map? (:data raw-event))
-                   (:data raw-event))]
-    (case (:type raw-event)
-      "external_tool.requested"
-      (cond-> converted-event
-        (contains? raw-data :arguments)
-        (assoc-in [:data :arguments] (:arguments raw-data)))
-
-      "session.custom_notification"
-      (cond-> converted-event
-        (contains? raw-data :subject)
-        (assoc-in [:data :subject] (:subject raw-data))
-        (contains? raw-data :payload)
-        (assoc-in [:data :payload] (:payload raw-data)))
-
-      "assistant.message"
-      (cond-> converted-event
-        (contains? raw-data :reasoningBlocks)
-        (assoc-in [:data :reasoning-blocks]
-                  (:reasoningBlocks raw-data)))
-
-       ;; Upstream schema 1.0.52-4 (SEP-1865): MCP App invoked a tool on an MCP
-       ;; server. Both the supplied `:arguments` map and the returned `:result`
-       ;; (standard MCP CallToolResult) are source-defined opaque payloads —
-       ;; preserve their raw keys so consumers can forward them verbatim.
-      "mcp_app.tool_call_complete"
-      (cond-> converted-event
-        (contains? raw-data :arguments)
-        (assoc-in [:data :arguments] (:arguments raw-data))
-        (contains? raw-data :result)
-        (assoc-in [:data :result] (:result raw-data)))
-
-       ;; Upstream schema 1.0.57: `extension_context` attachments carry an opaque
-       ;; caller-supplied `:payload`. These appear on `user.message` attachments
-       ;; (reachable via `session.getMessages`) and on the ephemeral
-       ;; `session.extensions.attachments_pushed` event. Restore each payload so
-       ;; its source-defined keys aren't kebab-cased.
-      ("user.message" "session.extensions.attachments_pushed")
-      (cond-> converted-event
-        (seq (:attachments raw-data))
-        (assoc-in [:data :attachments]
-                  (restore-extension-context-payloads
-                   (:attachments raw-data)
-                   (get-in converted-event [:data :attachments]))))
-
-       ;; Upstream PR #1604 (schema 1.0.58+): `session.canvas.opened` carries an
-       ;; opaque caller-supplied `:input` map (`{ [k: string]: unknown }`).
-       ;; Preserve raw keys so consumers can forward them verbatim — same
-       ;; convention used for `external_tool.requested` `:arguments` etc.
-      "session.canvas.opened"
-      (cond-> converted-event
-        (contains? raw-data :input)
-        (assoc-in [:data :input] (:input raw-data)))
-
-      converted-event)))
+  (let [restored
+        (reduce
+         (fn [converted {:keys [wire idiom]}]
+           (restore-opaque-path raw-event converted wire idiom))
+         converted-event
+         (get event-metadata/opaque-json-paths (:type raw-event)))]
+    (if (and (= "session.custom_notification" (:type raw-event))
+             (map? (:data raw-event))
+             (map? (:data restored))
+             (contains? (:data raw-event) :subject))
+      (assoc-in restored [:data :subject] (get-in raw-event [:data :subject]))
+      restored)))
 
 (defn- normalize-incoming
   "Convert wire-format keys to Clojure keys, preserving opaque user data.

@@ -99,12 +99,16 @@
 (defn write-clj!
   "Write `forms` (a sequence of forms) to `path` with a generated-file header."
   [path forms]
-  (let [sw (java.io.StringWriter.)]
+  (let [sw (java.io.StringWriter.)
+        form-strings
+        (mapv
+         (fn [form]
+           (binding [*print-meta* true]
+             (pr-str form)))
+         forms)]
     (.write sw header)
     (.write sw "\n")
-    (doseq [f forms]
-      (binding [*print-meta* true]
-        (.write sw (pr-str f)))
-      (.write sw "\n\n"))
+    (.write sw (str/join "\n\n" form-strings))
+    (.write sw "\n")
     (io/make-parents path)
     (spit path (.toString sw))))
