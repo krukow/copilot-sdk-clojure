@@ -33,7 +33,10 @@
    The handler (when provided) receives:
    - args       - The parsed arguments from the LLM (no key conversion)
    - invocation - Map with :session-id, :tool-call-id, :tool-name, :arguments,
-                  and optional :available-tools current-tool metadata maps for
+                  and :cancel-chan. The cancellation channel closes when the
+                  invocation completes, the runtime reports completion, or the
+                  session is released. It may also contain optional
+                  :available-tools current-tool metadata maps for
                   `tool_search_tool`. Each metadata map has :name, :description,
                   and optional :namespaced-name, :mcp-server-name,
                   :mcp-tool-name, :input-schema, :defer-loading.
@@ -116,6 +119,9 @@
      - :metadata                - Opaque host-defined map forwarded to the runtime.
      - :is-terminal?            - When true, a successful call ends the agent turn
                                   instead of feeding the result back to the model.
+
+   The handler invocation map has the same shape documented by `define-tool`,
+   including the required `:cancel-chan` lifecycle signal.
 
    Example (with handler):
    ```clojure

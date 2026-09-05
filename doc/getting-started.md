@@ -34,7 +34,7 @@ copilot --version
 Add to your `deps.edn`:
 
 ```clojure
-{:deps {io.github.copilot-community-sdk/copilot-sdk-clojure {:mvn/version "1.0.11.0"}}}
+{:deps {io.github.copilot-community-sdk/copilot-sdk-clojure {:mvn/version "1.0.13.0"}}}
 ```
 
 Or use as a Git dependency:

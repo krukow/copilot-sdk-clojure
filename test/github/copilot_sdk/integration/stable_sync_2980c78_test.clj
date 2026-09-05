@@ -1125,7 +1125,7 @@
                      (sha256-lines (sort actual-methods))))
               (is (= expected-properties actual-properties)))))))))
 
-(deftest runtime-schema-and-version-are-exact
+(deftest historical-runtime-schema-and-version-evidence-is-exact
   (let [report (read-report)]
     (is (some? report) "The 2980c78 parity oracle must be committed")
     (when report
@@ -1136,31 +1136,29 @@
                (git-output upstream-repo "show"
                            (str (:target-commit upstream)
                                 ":nodejs/package.json"))))]
-        (note-upstream-validation-status! "runtime-schema-and-version-are-exact")
-        (is (= "1.0.83-1" (:runtime-pin schema)))
-        (is (= (:runtime-pin schema)
-               (str/trim (slurp ".copilot-schema-version"))))
-        (is (= (get-in schema [:api :sha256])
-               (sha256-file "schemas/api.schema.json")))
-        (is (= (get-in schema [:session-events :sha256])
-               (sha256-file "schemas/session-events.schema.json")))
-        (is (= (get-in schema [:generated-clojure-output :event-specs-sha256])
-               (sha256-file "src/github/copilot_sdk/generated/event_specs.clj")))
-        (is (= (get-in schema [:generated-clojure-output :event-metadata-sha256])
-               (sha256-file "src/github/copilot_sdk/generated/event_metadata.clj")))
-        (is (= (get-in schema [:generated-clojure-output :coercion-source-sha256])
-               (sha256-file "script/codegen/coercions.edn")))
-        (is (= (get-in schema [:generated-clojure-output :coerce-sha256])
-               (sha256-file "src/github/copilot_sdk/generated/coerce.clj")))
+        (note-upstream-validation-status!
+         "historical-runtime-schema-and-version-evidence-is-exact")
+        (is (= {:runtime-pin "1.0.83-1"
+                :api
+                {:source "@github/copilot-linux-x64@1.0.83-1/schemas/api.schema.json"
+                 :sha256 "c714ef6ab7f85888a5943c6fd2e577a2279f9b30d9d30caa8fb1c30dd43fbbd5"}
+                :session-events
+                {:source "@github/copilot-linux-x64@1.0.83-1/schemas/session-events.schema.json"
+                 :sha256 "11d24b4e8de44590d70e261ebf15be18d91de14d674fdcfb1f2554ad43a48169"}
+                :generated-clojure-output
+                {:event-specs-sha256
+                 "22e231082fb22aba7dc3eac4d550015c0c3fd9899675c51b822ec5ad2848afe3"
+                 :event-metadata-sha256
+                 "60a6a782830241727e6d1348c6fdee594920b7099ff93ba3c07c1018360391ac"
+                 :coercion-source-sha256
+                 "f7cb014dbbab1dfd552c2ce446bfb8e64f0f8a409bfe5e07edfbb7a019184006"
+                 :coerce-sha256
+                 "4daf61b23897a37453aec06f9e778a5ed0114e484702389cfc3c33e7b62f938e"}}
+               schema))
         (is (= {:sdk "1.0.11.0"
                 :changed? false
                 :release-required? false}
                version))
-        (is (= (:sdk version)
-               (second
-                (re-find #"\(def version \"([^\"]+)\"\)"
-                         (slurp "build.clj"))))
-            "the certification version must match the build version")
         (when package-json
           (is (= (:target-package-version upstream)
                  (get package-json "version")))

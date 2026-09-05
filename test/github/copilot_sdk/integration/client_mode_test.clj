@@ -723,12 +723,7 @@
           (mock/stop-mock-server! server))))))
 
 (deftest disconnect-concurrent-idempotent-test
-  ;; disconnect! must be idempotent under concurrent calls: only the caller that
-  ;; atomically claims :destroyed? should send session.destroy. A non-atomic
-  ;; check-then-act lets multiple concurrent callers each send the RPC. Run many
-  ;; iterations with several racing threads; the non-atomic version observes the
-  ;; race in ~45% of iterations, so requiring exactly one RPC per iteration is a
-  ;; reliable (non-flaky) regression guard.
+  ;; Concurrent callers share one detach operation and its successful outcome.
   (dotimes [_ 100]
     (let [ch (chan)
           client {:state (atom {:sessions {"s1" {:destroyed? false}}
@@ -736,7 +731,9 @@
                                 :connection-io :fake})}
           calls (atom 0)
           latch (java.util.concurrent.CountDownLatch. 1)]
-      (with-redefs [protocol/send-request! (fn [& _] (swap! calls inc) nil)]
+      (with-redefs [protocol/send-request! (fn [& _]
+                                             (swap! calls inc)
+                                             {:success true})]
         (let [threads (doall (for [_ (range 8)]
                                (future (.await latch)
                                        (try (session/disconnect! client "s1")
@@ -744,5 +741,5 @@
           (.countDown latch)
           (doseq [t threads] @t)))
       (is (= 1 @calls)
-          "exactly one concurrent disconnect! should send session.destroy")
+          "exactly one concurrent disconnect! should send session.detach")
       (is (true? (get-in @(:state client) [:sessions "s1" :destroyed?]))))))

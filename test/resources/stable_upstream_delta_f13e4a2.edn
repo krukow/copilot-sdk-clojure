@@ -1,0 +1,2564 @@
+{:upstream {:base-commit "2980c7828d35754bfc2b334831efec309ab8a2eb"
+  :target-commit "f13e4a2cc7e4e220974d2333142234e162a3252e"
+  :target-tag "v1.0.13"
+  :target-package-version "0.0.0-dev"
+  :runtime-version "1.0.83"
+  :commit-count 51
+  :commit-sequence-sha256 "817b0afc254b1b7f6d1e609253b3a541df317290c51e926f80a1289dc65b98fe"}
+ :historical-oracle {:resource "resources/stable_upstream_delta_2980c78.edn"
+  :sha256 "e8d977cb6f0b790c9736850ece9ca9030774b96e60f036a034a5a7fbccbb2374"
+  :policy "Immutable baseline evidence; this report certifies only baseline..target."}
+ :commit-classifications [{:commit "66479cbee1419039bf474a5d8a785a25d20a0204"
+   :subject "Add clientInfo connect option across all six SDKs (#2464)"
+   :classification :stable-public
+   :status :ported
+   :reason "Adds the stable CopilotClientInfo option and connect mapping across SDKs."
+   :changed-path-count 23
+   :changed-paths-sha256 "573682510de868266eb8bb971453fcd0557d7fdac4dbb0d94fbb965be70c6831"}
+   {:commit "975cf6bb97912fa9abe4a11a3a4a3a7dd9045e41"
+   :subject "ci: reduce SDK CI critical paths and runner saturation (#2480)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Changes CI scheduling and runner usage only."
+   :changed-path-count 11
+   :changed-paths-sha256 "29fdf0317198c8464cc0dd05b6fbd81e5d1d0b2286cddf933eb6d261e24e98db"}
+   {:commit "27ca965d88ea6de643398446f79ae169fd92d170"
+   :subject "build(deps): bump tsx (#2479)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Updates a JavaScript test runner used by Java tooling only."
+   :changed-path-count 2
+   :changed-paths-sha256 "01b9c64adb6ad9805da8f1b20b72f8d289d4923e1e0f1fe5b99986d8cf788deb"}
+   {:commit "aae14627ac2bf7881c433bdd8d5b9ec0ad38c9f9"
+   :subject "build(deps): bump the java-maven-deps group across 1 directory with 4 updates (#2406)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Updates Java Maven dependencies only."
+   :changed-path-count 2
+   :changed-paths-sha256 "7a8e624386caf8462dc18e8d15f5ed9ed0a4f6dd4ca7aa510395499ee06276a9"}
+   {:commit "040530f9f3a8c96099b794df6b83553b548d1dea"
+   :subject "Use application terminology for client info (#2482)"
+   :classification :stable-public
+   :status :ported
+   :reason "Renames CopilotClientInfo fields to application and integration terminology while preserving wire mapping."
+   :changed-path-count 20
+   :changed-paths-sha256 "e3f93fcc65ef1d15eda29d7d1204f25e917c1d3727fbcdcc0da642ed92382aba"}
+   {:commit "42a84e2873f64af63c8f4ec738fca915d3f8bab1"
+   :subject "Improve Rust permission confirmation reliability (#2470)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Changes Rust permission confirmation reliability only."
+   :changed-path-count 2
+   :changed-paths-sha256 "d16cc72e16c4ef96546a75b6c70ff508beb63dd87ade34d87157287f585595d6"}
+   {:commit "1cc72da6ffee11ace68cde03441d6b41ffa72fce"
+   :subject "test: update replay harness default to Claude Sonnet 5 (#2472)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Refreshes cross-language replay fixtures and harness defaults only."
+   :changed-path-count 465
+   :changed-paths-sha256 "6c2949d52e2259bdc9c0b614198ebe920cd6a7c184dd5af5990688b02c3dc836"}
+   {:commit "c1a7d5b022662a4cd4078979ef31147ac60549c8"
+   :subject "Fix unused variable warning on Windows in rust/build/in_process.rs (#2471)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Fixes a Rust Windows warning only."
+   :changed-path-count 1
+   :changed-paths-sha256 "8456023848352d6116521aedaa47b93f0929c2e001735590b5df2409532c9848"}
+   {:commit "7d86829be93cc4cd7ca3668ae56da1def45af2a2"
+   :subject "Reduce merge queue flakiness (#2484)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Reduces merge-queue and harness flakiness only."
+   :changed-path-count 9
+   :changed-paths-sha256 "3c686b73e1fd553ba076863fec2e8607434fe57e9361e1840064cb4a58aec90e"}
+   {:commit "5725e40e58a9373bfc499f5e4f36fab79b935153"
+   :subject "Update @github/copilot to 1.0.83-2 (#2483)"
+   :classification :generated-only
+   :status :regenerated
+   :reason "Updates the runtime prerelease and generated protocol/schema artifacts."
+   :changed-path-count 60
+   :changed-paths-sha256 "7021751921f8414299d54835b0dc3b03e18ab5f28ae8dc5888bd3772b61a129e"}
+   {:commit "1fa56bf14a81e95731f75a5af3a1ac3b9c61f47b"
+   :subject "Fix internal client-session handler codegen (#2494)"
+   :classification :generated-only
+   :status :reviewed-no-port
+   :reason "Fixes generated internal client-session reverse-handler declarations."
+   :changed-path-count 4
+   :changed-paths-sha256 "bf295f6c0a1be0a7983d91a3a453b15dc50a588ec4afc9039e4f5e0460108524"}
+   {:commit "c672e716473da0be4da7ad807df8d21259623640"
+   :subject "Update @github/copilot to 1.0.83-3 (#2495)"
+   :classification :generated-only
+   :status :regenerated
+   :reason "Updates the runtime prerelease and generated protocol/schema artifacts."
+   :changed-path-count 32
+   :changed-paths-sha256 "727217ad160f438bf4ef5df4afd0cb7ce2fc3a61877d3f228ec5330662623d01"}
+   {:commit "cc6d9a909cff8a62c8a5b51927c09001acae08b7"
+   :subject "build(deps-dev): bump js-yaml from 4.2.0 to 4.3.2 in /nodejs (#2487)"
+   :classification :generated-only
+   :status :reviewed-no-port
+   :reason "Updates a Node development dependency lock entry only."
+   :changed-path-count 1
+   :changed-paths-sha256 "d918d2b2d0cb25b47016cc25ca65273bc92cfa58eb3f41815d553c8fb54ebd41"}
+   {:commit "ec1c6f4b63684a70415f32c13efe336399773a05"
+   :subject "Use Copilot CLI releases for Node runtime (#2463)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Changes Node runtime artifact acquisition and packaging only."
+   :changed-path-count 81
+   :changed-paths-sha256 "1897690d88a38dfbae7f61cb039dfbd3123cdcc168ceccd19cb4618345ad51ed"}
+   {:commit "9f177560acc1f7056d1b3e255856685df9d657fc"
+   :subject "docs: update version references to 1.0.13-preview.5"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Updates Java preview documentation only."
+   :changed-path-count 2
+   :changed-paths-sha256 "354da747ec6ad569c57d155cf6495ad3b7e7c1afc122506d0ab3f8595f6003b9"}
+   {:commit "6d80bbfb79f9b5d6e2fadbd04abcd8d524bafda8"
+   :subject "[maven-release-plugin] prepare release java/v1.0.13-preview.5"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Prepares a Java Maven preview release only."
+   :changed-path-count 3
+   :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+   {:commit "a27af618465f3d40294f8710f210b07ff2c6e4fa"
+   :subject "[maven-release-plugin] prepare for next development iteration"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Advances Java Maven development versions only."
+   :changed-path-count 3
+   :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+   {:commit "54cd6738b7882156d24fcf8ea9fd4b86fc7625a2"
+   :subject "fix(go): select the host CLI package in E2E tests (#2163)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Merge commit for Go E2E host-package selection; it has no direct changed paths."
+   :changed-path-count 0
+   :changed-paths-sha256 "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"}
+   {:commit "d91189e0fb8bc015759cf432eba366979e69890c"
+   :subject "fix(rust): answer the request id when a handler panics (#2311)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Changes Rust panic response handling only."
+   :changed-path-count 2
+   :changed-paths-sha256 "d16cc72e16c4ef96546a75b6c70ff508beb63dd87ade34d87157287f585595d6"}
+   {:commit "4c72ec1f9ec702c3fa1ff7bce57d93f214b67f7f"
+   :subject "fix(go): close failed session event loops (#2360)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Changes Go and .NET failed-session event loops only."
+   :changed-path-count 7
+   :changed-paths-sha256 "1af864838c3a24dd17d3414f8c4e497f4d616c1cf27b45761b41e3aed88edbff"}
+   {:commit "08543eeba3b175728f3569f7c915ccd9b53cf310"
+   :subject "build(deps-dev): bump fast-uri from 3.1.5 to 3.1.7 in /test/harness (#2488)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Updates the cross-language test harness dependency only."
+   :changed-path-count 1
+   :changed-paths-sha256 "b3f427af38e0df58113910586657dc1a94abe8cc5bebd7e2b8dad938ad4001cd"}
+   {:commit "67f4f12bf9afd26f06209263ffdb7be4658d6761"
+   :subject "fix: support bracketed IPv6 runtime URLs (#2200)"
+   :classification :stable-public
+   :status :ported
+   :reason "Adds stable bracketed IPv6 runtime URL parsing and validation."
+   :changed-path-count 11
+   :changed-paths-sha256 "66105a23b06795330364779e03345bb442ef7a28f62a43f3e49722efd09c3ff6"}
+   {:commit "1a56149dc106ee7d212f4db86cf39e378fa119b5"
+   :subject "test: cover message identity compatibility across SDKs (#2468)"
+   :classification :stable-public
+   :status :ported
+   :reason "Adds cross-SDK tests certifying optional user message identity compatibility."
+   :changed-path-count 8
+   :changed-paths-sha256 "28e33ac9260f556f1ad2405cab0938c500d2d7372e1288117b17548d3f069c6c"}
+   {:commit "e2af6c41180473269e02731d91c0dc11d414110d"
+   :subject "Support non-object external tool arguments (#2496)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Changes .NET external-tool argument handling only."
+   :changed-path-count 2
+   :changed-paths-sha256 "02fb659899eeee32f2bd24edfe5eb73a5ce26b809f761c2fe702437a11ae1ad9"}
+   {:commit "39c027b024e00d43f99bf0a9271b026023e9ba22"
+   :subject "Fix runtime release and workflow regressions (#2501)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Fixes runtime release workflows and Node artifact packaging only."
+   :changed-path-count 31
+   :changed-paths-sha256 "84d0b19e14966237320e6d84d381a37030097f5d9818a2df1680091fa68e6314"}
+   {:commit "70fa5d311368d414bbcd156f7ae861bd9e105ccf"
+   :subject "docs: update version references to 1.0.13-preview.6"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Updates Java preview documentation only."
+   :changed-path-count 2
+   :changed-paths-sha256 "354da747ec6ad569c57d155cf6495ad3b7e7c1afc122506d0ab3f8595f6003b9"}
+   {:commit "d6791fcd66cd47d9a711a89d05d6eaf846b58a21"
+   :subject "[maven-release-plugin] prepare release java/v1.0.13-preview.6"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Prepares a Java Maven preview release only."
+   :changed-path-count 3
+   :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+   {:commit "18fba1444b522c4aae0c1984e259d96e5f02a5cf"
+   :subject "Revert \"[maven-release-plugin] prepare release java/v1.0.13-preview.6\""
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Reverts Java Maven preview release preparation only."
+   :changed-path-count 3
+   :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+   {:commit "81ffc2a77c2454a923f8dae3e74663bc49bfbd9f"
+   :subject "Revert \"docs: update version references to 1.0.13-preview.6\""
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Reverts Java preview documentation only."
+   :changed-path-count 2
+   :changed-paths-sha256 "354da747ec6ad569c57d155cf6495ad3b7e7c1afc122506d0ab3f8595f6003b9"}
+   {:commit "184e504c41048ffe7a60a6bb9ec4931321d38246"
+   :subject "Update @github/copilot to 1.0.83-4 (#2507)"
+   :classification :generated-only
+   :status :regenerated
+   :reason "Updates the runtime prerelease and generated protocol/schema artifacts."
+   :changed-path-count 86
+   :changed-paths-sha256 "1225d708fb92e48feedfaa578c26faaea084f076e282b0d053eeedbad09dc732"}
+   {:commit "3428b3655ea4cdb084650e6b566cb4793f1ea096"
+   :subject "fix(ci): address merge queue failure causes (#2515)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Fixes CI and cross-language harness failure causes only."
+   :changed-path-count 7
+   :changed-paths-sha256 "52bd5eb5341556ef18177ac2a4eb96b9eec9457fb5e1acb830be595ce9c23076"}
+   {:commit "09210291cac77d58bbdf2a0c582fd57dc49cf1d0"
+   :subject "Update @github/copilot to 1.0.83-5 (#2516)"
+   :classification :generated-only
+   :status :regenerated
+   :reason "Updates the runtime prerelease and generated protocol/schema artifacts."
+   :changed-path-count 39
+   :changed-paths-sha256 "e8554422f47f7dd69fa22867310f927ce081ea0b05035bbeda34a9d5b0f4c956"}
+   {:commit "fc4bec5ca60ef286b0558efe6655c4b9c27b2b04"
+   :subject "docs: fix six broken hook anchor links (#2519)"
+   :classification :internal
+   :status :reviewed-no-port
+   :reason "Fixes upstream hook-document anchors without changing a public SDK contract."
+   :changed-path-count 3
+   :changed-paths-sha256 "0325e0326bd90bd7b85e721f57924e8f82988b2b21858fbcc69e7ddb64100a30"}
+   {:commit "bba5abd69d87599f9a0f9d82c7c516f0cdbb3c41"
+   :subject "Expose Auto tier switching across all six SDKs (#2514)"
+   :classification :stable-public
+   :status :ported-with-exclusions
+   :reason "Changes stable resident-resume Auto-tier forwarding and adds explicitly experimental live switching APIs."
+   :changed-path-count 42
+   :changed-paths-sha256 "ec157f93eab04dc3ec36aa158691451a2a22d69aa2698a729f6efedc3bbc2ba0"}
+   {:commit "d5f95dfba2f492a41c69a8f952d1eb151141e73f"
+   :subject "docs: link runtime prerequisites instead of restating versions (#2518)"
+   :classification :internal
+   :status :reviewed-no-port
+   :reason "Changes shared runtime-prerequisite documentation only."
+   :changed-path-count 1
+   :changed-paths-sha256 "7a5677575816212158ff8fda44ff2a8e06c471e9c5b9eb4132af62f1ce640115"}
+   {:commit "de75efa95561b7b951b78eaf80f40c3c2839c6a7"
+   :subject "docs(rust): point dependency examples at the published 1.0 line (#2520)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Updates Rust dependency documentation only."
+   :changed-path-count 1
+   :changed-paths-sha256 "1bc048a91e01c8ddb8428cd90e7199a0c00ae47f3aeed95584f7f67218401d1d"}
+   {:commit "8f14e9a6123a621c88e5c67be53eb597c056f843"
+   :subject "docs(java): fix the installation section structure (#2521)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Fixes Java documentation structure only."
+   :changed-path-count 1
+   :changed-paths-sha256 "370e87c1955483a9d349769ac4e40a2d4831ef8f450d728bee0d028d20ca734d"}
+   {:commit "eb38014b8293cb93647dc81212f94a85bed950a8"
+   :subject "[Rust] Add PreparedSession for loss-free startup event subscription (#2319)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Adds a Rust-specific prepared-session API only."
+   :changed-path-count 9
+   :changed-paths-sha256 "09923ba09b96e79dfd418da05b78d440ad65152f7293bbd157c6882fa0c12994"}
+   {:commit "fcffcdf0e986f452da0346682e27ee8fcb450f83"
+   :subject "Use session detach for SDK cleanup (#2307)"
+   :classification :stable-public
+   :status :ported
+   :reason "Changes stable CopilotSession.disconnect cleanup to session.detach with bounded retry semantics."
+   :changed-path-count 39
+   :changed-paths-sha256 "1d844d219d787b97740d11bb4cab887843cb114a845f9606b60f806b22852ea6"}
+   {:commit "604c7166fca6a69f985570de27522fe73c3e080d"
+   :subject "Expose sandbox bypass across SDKs (#2372)"
+   :classification :experimental
+   :status :reviewed-no-port
+   :reason "Adds sandbox allowBypass across SDKs; explicitly excluded from this stable certification."
+   :changed-path-count 8
+   :changed-paths-sha256 "a6a024d8ef02573c10741ff252f50ab4f883fe2882239913ad95763db97a2d90"}
+   {:commit "53e74d8130bec930de139f04cf9369c7cde904e1"
+   :subject "Cancel completed host tool invocations across SDKs (#2509)"
+   :classification :stable-public
+   :status :ported
+   :reason "Adds stable AbortSignal cancellation for in-flight external tool handlers."
+   :changed-path-count 36
+   :changed-paths-sha256 "4ada1437d468458baa28e4718b616bf6afa50a9e51318ade21ddb3fb57043e2c"}
+   {:commit "570ae11bfa1c009c528b0bf697bc8643d49c448e"
+   :subject "Use GitHub Releases for SDK runtime artifacts (#2505)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Changes runtime artifact acquisition for language-specific SDK packaging."
+   :changed-path-count 33
+   :changed-paths-sha256 "fc7ebd38faf9dddac6178daa49ac383b31d9e3a87f94e86ebe1e3db3c89bfd42"}
+   {:commit "1638dca4dd08f1710290624170fc24f519856f70"
+   :subject "Java: Generate typed catalogue candidates (#2532)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Generates Java catalogue candidate types only."
+   :changed-path-count 14
+   :changed-paths-sha256 "fdfc14de882795392331c0e51353ba840a8f7d943918e067b776f2a74769a74d"}
+   {:commit "fbf3486a5de0beb92e14c713784661f433dee1fe"
+   :subject "Update Copilot CLI to 1.0.83 (#2534)"
+   :classification :generated-only
+   :status :regenerated
+   :reason "Pins the stable Copilot CLI 1.0.83 schemas and generated contracts."
+   :changed-path-count 5
+   :changed-paths-sha256 "3413939bd9f785c3033c2f8c424ad766831c42388cb190e2d39917f0496168e7"}
+   {:commit "e90856093760d95793d8211219b883dfce08862c"
+   :subject "Restore Rust bundled CLI artifact (#2535)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Restores the Rust bundled CLI artifact only."
+   :changed-path-count 6
+   :changed-paths-sha256 "477da8f51f016f69900c5bc5cf1d0f45ea803ca7f0eab6121fb7280d5761ff89"}
+   {:commit "4de05fb457bb172462c7f9f25dadc980ef3370e2"
+   :subject "Fix stale Java release preparation (#2543)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Fixes Java release automation only."
+   :changed-path-count 1
+   :changed-paths-sha256 "e67fe5d7436e2d0f353a7e98fd3a33cc4fc5c9775bdffea67bdebe8549ced9fc"}
+   {:commit "a65464ef141274e205bac70f75723c5407ce365a"
+   :subject "Add apply_patch override E2E coverage (#2542)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Adds .NET apply_patch override E2E coverage only."
+   :changed-path-count 1
+   :changed-paths-sha256 "acfe4f4454fe62bdcf24c6e53079d35765547039d78ee9b73296c2e89b39b42c"}
+   {:commit "c5607b530d549f6c93a0bbea1ff8be1545305b6f"
+   :subject "docs: update version references to 1.0.13-preview.6"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Updates Java preview documentation only."
+   :changed-path-count 2
+   :changed-paths-sha256 "354da747ec6ad569c57d155cf6495ad3b7e7c1afc122506d0ab3f8595f6003b9"}
+   {:commit "06a855cd5cad6a4eae3bea3bc1f68b17cd0c25a8"
+   :subject "[maven-release-plugin] prepare release java/v1.0.13-preview.6"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Prepares a Java Maven preview release only."
+   :changed-path-count 3
+   :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+   {:commit "2f81cb0ea5e843424dfd3469c5f06a58f49d1a86"
+   :subject "[maven-release-plugin] prepare for next development iteration"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Advances Java Maven development versions only."
+   :changed-path-count 3
+   :changed-paths-sha256 "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+   {:commit "f13e4a2cc7e4e220974d2333142234e162a3252e"
+   :subject "Harden cross-suite E2E process cleanup (#2539)"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Hardens cross-suite E2E process cleanup without changing the stable Node surface."
+   :changed-path-count 11
+   :changed-paths-sha256 "8e5b6c5460c1d9db842c27bc5df89cf86052e33bbef1c7b454ddb335ac46bb79"}]
+ :changed-paths {:count 847
+  :sha256 "74fde2db91b4ec56697a8fc158b5e4d5aee800e164dc48eb2d16cf8833c58fc1"
+  :classification-counts {:language-specific 812
+   :stable-public 18
+   :internal 4
+   :generated-only 10
+   :experimental 3}
+  :entries [{:path ".gitattributes"
+    :classification :language-specific}
+    {:path ".github/actions/setup-copilot/action.yml"
+    :classification :language-specific}
+    {:path ".github/aw/actions-lock.json"
+    :classification :language-specific}
+    {:path ".github/copilot-instructions.md"
+    :classification :language-specific}
+    {:path ".github/skills/agentic-workflows/SKILL.md"
+    :classification :language-specific}
+    {:path ".github/skills/new-java-e2e-test-yaml-and-test/SKILL.md"
+    :classification :language-specific}
+    {:path ".github/skills/new-java-e2e-test-yaml-and-test/examples.md"
+    :classification :language-specific}
+    {:path ".github/workflows/agentics-maintenance.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/cross-repo-issue-analysis.lock.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/dotnet-sdk-tests.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/go-sdk-tests.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/handle-bug.lock.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/handle-bug.md"
+    :classification :language-specific}
+    {:path ".github/workflows/handle-documentation.lock.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/handle-documentation.md"
+    :classification :language-specific}
+    {:path ".github/workflows/handle-enhancement.lock.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/handle-enhancement.md"
+    :classification :language-specific}
+    {:path ".github/workflows/handle-question.lock.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/handle-question.md"
+    :classification :language-specific}
+    {:path ".github/workflows/issue-classification.lock.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/issue-classification.md"
+    :classification :language-specific}
+    {:path ".github/workflows/issue-triage.lock.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/java-adapt-handwritten-code-to-accept-upgrade-changes.lock.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/java-adapt-handwritten-code-to-accept-upgrade-changes.md"
+    :classification :language-specific}
+    {:path ".github/workflows/java-codegen-check.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/java-codegen-fix.lock.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/java-codegen-fix.md"
+    :classification :language-specific}
+    {:path ".github/workflows/java-publish-maven.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/java-sdk-tests.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/java-smoke-test.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/nodejs-sdk-tests.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/publish.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/python-sdk-tests.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/release-changelog.lock.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/required-checks.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/rust-sdk-tests.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/sdk-canary.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/sdk-consistency-review.lock.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/sdk-consistency-review.md"
+    :classification :language-specific}
+    {:path ".github/workflows/update-copilot-dependency.yml"
+    :classification :language-specific}
+    {:path ".github/workflows/verify-compiled.yml"
+    :classification :language-specific}
+    {:path "CHANGELOG.md"
+    :classification :stable-public}
+    {:path "docs/features/README.md"
+    :classification :stable-public}
+    {:path "docs/features/client-info.md"
+    :classification :stable-public}
+    {:path "docs/features/hooks.md"
+    :classification :internal}
+    {:path "docs/features/session-persistence.md"
+    :classification :stable-public}
+    {:path "docs/features/streaming-events.md"
+    :classification :stable-public}
+    {:path "docs/getting-started.md"
+    :classification :language-specific}
+    {:path "docs/hooks/hooks-overview.md"
+    :classification :internal}
+    {:path "docs/hooks/session-lifecycle.md"
+    :classification :internal}
+    {:path "dotnet/README.md"
+    :classification :language-specific}
+    {:path "dotnet/src/Client.cs"
+    :classification :language-specific}
+    {:path "dotnet/src/Generated/Rpc.cs"
+    :classification :language-specific}
+    {:path "dotnet/src/Generated/SessionEvents.cs"
+    :classification :language-specific}
+    {:path "dotnet/src/GitHub.Copilot.SDK.csproj"
+    :classification :language-specific}
+    {:path "dotnet/src/Session.cs"
+    :classification :language-specific}
+    {:path "dotnet/src/Types.cs"
+    :classification :language-specific}
+    {:path "dotnet/src/build/GitHub.Copilot.SDK.targets"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/AutoTierE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/ClientLifecycleE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/ClientOptionsE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/CopilotRequestE2EProvider.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/CopilotRequestSessionIdE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/CopilotRequestWebSocketE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/EventFidelityE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/ExternalToolCancellationE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/McpOAuthE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/MultiClientE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/PendingWorkResumeE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/RewindE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/RpcAdditionalEdgeCasesE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/RpcExtensionsLoadedE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/RpcMcpAndSkillsE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/RpcServerE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/RpcSessionStateE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/RpcSessionStateExtrasE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/RpcShellEdgeCaseE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/SessionConfigE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/SessionE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/SessionEventLoopLeakE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/E2E/ToolsE2ETests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/Harness/E2ETestBackend.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/Harness/E2ETestBase.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/Harness/E2ETestContext.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/Unit/ClientSessionLifetimeTests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/Unit/CloneTests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/Unit/E2ETestBackendTests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/Unit/GitHubTelemetryTests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/Unit/MSBuildTargetsTests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/Unit/RuntimeConnectionUrlParsingTests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/Unit/SerializationTests.cs"
+    :classification :language-specific}
+    {:path "dotnet/test/Unit/SessionEventSerializationTests.cs"
+    :classification :language-specific}
+    {:path "go/README.md"
+    :classification :language-specific}
+    {:path "go/client.go"
+    :classification :language-specific}
+    {:path "go/client_test.go"
+    :classification :language-specific}
+    {:path "go/cmd/bundler/main.go"
+    :classification :language-specific}
+    {:path "go/cmd/bundler/main_test.go"
+    :classification :language-specific}
+    {:path "go/github_token_provider_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/auto_tier_e2e_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/client_options_e2e_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/copilot_request_helpers_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/copilot_request_session_id_e2e_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/event_fidelity_e2e_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/external_tool_cancellation_e2e_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/mcp_oauth_e2e_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/rewind_e2e_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/rpc_e2e_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/rpc_server_e2e_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/rpc_session_state_e2e_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/rpc_session_state_extras_e2e_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/rpc_shell_and_fleet_e2e_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/session_config_e2e_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/session_e2e_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/session_event_loop_leak_e2e_test.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/testharness/context.go"
+    :classification :language-specific}
+    {:path "go/internal/e2e/testharness/proxy.go"
+    :classification :language-specific}
+    {:path "go/internal/embeddedcli/embeddedcli.go"
+    :classification :language-specific}
+    {:path "go/internal/embeddedcli/embeddedcli_test.go"
+    :classification :language-specific}
+    {:path "go/rpc/generated_rpc_api_shape_test.go"
+    :classification :language-specific}
+    {:path "go/rpc/generated_rpc_union_test.go"
+    :classification :language-specific}
+    {:path "go/rpc/message_identity_test.go"
+    :classification :language-specific}
+    {:path "go/rpc/sandbox_config_test.go"
+    :classification :language-specific}
+    {:path "go/rpc/zrpc.go"
+    :classification :language-specific}
+    {:path "go/rpc/zrpc_encoding.go"
+    :classification :language-specific}
+    {:path "go/rpc/zsession_encoding.go"
+    :classification :language-specific}
+    {:path "go/rpc/zsession_events.go"
+    :classification :language-specific}
+    {:path "go/samples/chat.go"
+    :classification :language-specific}
+    {:path "go/samples/internal/sampleutil/runtime.go"
+    :classification :language-specific}
+    {:path "go/samples/manual_tool_resume/main.go"
+    :classification :language-specific}
+    {:path "go/session.go"
+    :classification :language-specific}
+    {:path "go/session_event_serialization_test.go"
+    :classification :language-specific}
+    {:path "go/session_test.go"
+    :classification :language-specific}
+    {:path "go/test.sh"
+    :classification :language-specific}
+    {:path "go/types.go"
+    :classification :language-specific}
+    {:path "go/zsession_events.go"
+    :classification :language-specific}
+    {:path "java/README.md"
+    :classification :language-specific}
+    {:path "java/copilot-native/pom.xml"
+    :classification :language-specific}
+    {:path "java/copilot-native/scripts/fetch-native.mjs"
+    :classification :language-specific}
+    {:path "java/copilot-native/scripts/fetch-native.test.mjs"
+    :classification :language-specific}
+    {:path "java/copilot-native/scripts/validate-native-artifact.mjs"
+    :classification :language-specific}
+    {:path "java/copilot-native/scripts/validate-native-artifact.test.mjs"
+    :classification :language-specific}
+    {:path "java/docs/adr/adr-007-native-bundling-strategy.md"
+    :classification :language-specific}
+    {:path "java/pom.xml"
+    :classification :language-specific}
+    {:path "java/scripts/codegen/fetch-schemas.mjs"
+    :classification :language-specific}
+    {:path "java/scripts/codegen/fetch-schemas.test.mjs"
+    :classification :language-specific}
+    {:path "java/scripts/codegen/java.test.ts"
+    :classification :language-specific}
+    {:path "java/scripts/codegen/java.ts"
+    :classification :language-specific}
+    {:path "java/scripts/codegen/package-lock.json"
+    :classification :language-specific}
+    {:path "java/scripts/codegen/package.json"
+    :classification :language-specific}
+    {:path "java/sdk/jbang-example.java"
+    :classification :language-specific}
+    {:path "java/sdk/pom.xml"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/AgentModelPolicy.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/AssistantFusionPhaseActivityEvent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/AutoTierSwitchFailureReason.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/CompletionReceiptEventRange.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/CompletionReceiptFinalTool.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/CompletionReceiptStopReason.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/CompletionReceiptToolStatus.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/CustomAgentsUpdatedAgent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/FusionPhaseActivityKind.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/FusionPhasePlanStep.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/McpServerMetadata.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/McpServersLoadedServer.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/PermissionRequestedEvent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/RemediationAction.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/SessionAutoTierSwitchFailedEvent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/SessionCompletionReceiptEvent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/SessionErrorEvent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/SessionEvent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/SessionFusionResolvedEvent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/SessionMcpServerNeedsReconnectEvent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/SessionMcpServerRemovedEvent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/SessionModelChangeEvent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/SessionWarningEvent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/SkillInvokedEvent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/SkillSource.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/SkillsLoadedSkill.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/SubagentCompletedEvent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/SubagentFailedEvent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/ToolExecutionCompleteError.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/UserMessageEvent.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/AgentInfo.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/AgentModelPolicy.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/AutopilotObjectiveCreditLimit.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/AutopilotObjectiveState.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/AutopilotObjectiveStatus.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/CapiSessionOptions.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/CatalogAiSkillCandidate.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/CatalogAiSkillCandidateProvenance.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/CatalogCandidate.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/CatalogCandidateSource.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/CatalogCandidateSourceEmbedded.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/CatalogCandidateSourceUrl.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/CatalogMcpServerCandidate.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/CatalogMcpServerCandidateProvenance.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/CatalogMcpServerInstallability.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/CatalogSearchSucceeded.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/ClientTaskCancelReason.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/ConnectParams.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/ConnectResult.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/CurrentModel.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/DiscoveredHook.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/HookOrigin.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/HookType.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/HooksDiscoverParams.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/HooksDiscoverResult.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/McpConfigRemoveParams.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/McpServer.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/McpServerMetadata.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/Model.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/ModelSwitchAutoTierStatus.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/PluginInstallStagingMode.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/PluginsInstallResult.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/QueuePendingItems.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/RemediationAction.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SandboxConfig.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SandboxConfigUserPolicyNetwork.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SandboxConfigUserPolicyNetworkProxy.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/ServerHooksApi.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/ServerManagedSettingsApi.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/ServerRpc.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/ServerSessionsApi.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionAutopilotObjectiveApi.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionAutopilotObjectiveGetStateParams.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionAutopilotObjectiveGetStateResult.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionModelApi.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionModelApplyStartupOverlayResult.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionModelGetCurrentResult.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionModelSwitchAutoTierParams.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionModelSwitchAutoTierResult.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionModelSwitchToParams.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionModelSwitchToResult.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionOpenOptions.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionOptionsUpdateParams.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionRpc.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionTasksApi.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionTasksRegisterParams.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionTasksRegisterResult.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionTasksUpdateParams.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionTasksUpdateResult.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionsReadPersistedEventsParams.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SessionsReadPersistedEventsResult.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SkillProviderDescriptor.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SkillProviderListParams.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SkillProviderListResult.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SkillProviderReadParams.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SkillProviderReadResult.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SkillSource.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SkillsInvokedSkill.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SlashCommandTimelineEntry.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/SubagentSettingsEntry.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/TaskClientExecutionMode.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/TaskClientInfo.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/TaskClientOwner.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/TaskClientOwnerKind.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/TaskClientOwnerPresence.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/TaskClientStatus.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/TaskClientType.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/TaskKind.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/TasksCancelParams.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/generated/java/com/github/copilot/generated/rpc/TasksCancelResult.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/main/java/com/github/copilot/CopilotClient.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/main/java/com/github/copilot/CopilotSession.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/main/java/com/github/copilot/JsonRpcClient.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/main/java/com/github/copilot/ffi/NativeRuntimeLoader.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/main/java/com/github/copilot/rpc/CapiSessionOptions.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/main/java/com/github/copilot/rpc/ClientInfo.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/main/java/com/github/copilot/rpc/CopilotClientOptions.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/main/java/com/github/copilot/rpc/SetModelOptions.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/AutoTierIT.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/CliServerManagerTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/ClientOptionsE2ETest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/CopilotClientTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/CopilotRequestSessionIdE2ETest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/CopilotRequestTestSupport.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/CopilotSessionTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/E2ETestContext.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/ExternalToolCancellationE2ETest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/GitHubTelemetryTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/JsonRpcClientTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/McpAndAgentsTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/McpAuthInterestRegistrationTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/RpcServerE2ETest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/RpcSessionStateExtrasE2ETest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/RpcWrappersTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/SessionAutoTierEventTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/SessionAutoTierSwitchTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/SessionConfigE2ETest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/SessionEventHandlingTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/TestUtil.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/TimeoutEdgeCaseTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/ZeroTimeoutContractTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/e2e/RewindIT.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/generated/MessageIdentitySerializationTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/generated/rpc/CatalogCandidateJacksonTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/generated/rpc/GeneratedRpcApiCoverageTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/generated/rpc/GeneratedRpcRecordsCoverageTest.java"
+    :classification :language-specific}
+    {:path "java/sdk/src/test/java/com/github/copilot/generated/rpc/SandboxConfigSerializationTest.java"
+    :classification :language-specific}
+    {:path "justfile"
+    :classification :language-specific}
+    {:path "nodejs/README.md"
+    :classification :stable-public}
+    {:path "nodejs/package-lock.json"
+    :classification :generated-only}
+    {:path "nodejs/package.json"
+    :classification :internal}
+    {:path "nodejs/samples/package-lock.json"
+    :classification :generated-only}
+    {:path "nodejs/scripts/package-sdk.ts"
+    :classification :language-specific}
+    {:path "nodejs/scripts/prepare-runtime.ts"
+    :classification :language-specific}
+    {:path "nodejs/scripts/releaseArtifacts.ts"
+    :classification :language-specific}
+    {:path "nodejs/scripts/set-cli-version.js"
+    :classification :language-specific}
+    {:path "nodejs/scripts/verify-release-packages.ts"
+    :classification :language-specific}
+    {:path "nodejs/src/cliVersion.ts"
+    :classification :language-specific}
+    {:path "nodejs/src/client.ts"
+    :classification :stable-public}
+    {:path "nodejs/src/generated/rpc.ts"
+    :classification :generated-only}
+    {:path "nodejs/src/generated/session-events.ts"
+    :classification :generated-only}
+    {:path "nodejs/src/index.ts"
+    :classification :stable-public}
+    {:path "nodejs/src/runtimeArtifacts.ts"
+    :classification :language-specific}
+    {:path "nodejs/src/session.ts"
+    :classification :stable-public}
+    {:path "nodejs/src/types.ts"
+    :classification :stable-public}
+    {:path "nodejs/test/client-api-codegen.test.ts"
+    :classification :generated-only}
+    {:path "nodejs/test/client.test.ts"
+    :classification :stable-public}
+    {:path "nodejs/test/e2e/auto_tier.e2e.test.ts"
+    :classification :experimental}
+    {:path "nodejs/test/e2e/client.e2e.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/client_options.e2e.test.ts"
+    :classification :stable-public}
+    {:path "nodejs/test/e2e/copilot_request_cancel_error.e2e.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/copilot_request_handler.e2e.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/copilot_request_session_id.e2e.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/disabled_mcp_servers.e2e.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/event_fidelity.e2e.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/extension_env_access.e2e.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/external-tool-cancellation.e2e.test.ts"
+    :classification :stable-public}
+    {:path "nodejs/test/e2e/factory.e2e.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/harness/sdkTestContext.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/harness/sdkTestHelper.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/mcp_oauth.e2e.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/rewind.e2e.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/rpc.e2e.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/rpc_server.e2e.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/rpc_session_state.e2e.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/rpc_session_state_extras.e2e.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/e2e/sandbox_bypass.e2e.test.ts"
+    :classification :experimental}
+    {:path "nodejs/test/e2e/session.e2e.test.ts"
+    :classification :stable-public}
+    {:path "nodejs/test/e2e/session_config.e2e.test.ts"
+    :classification :stable-public}
+    {:path "nodejs/test/e2e/ui_elicitation.e2e.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/external-tool-cancellation.test.ts"
+    :classification :stable-public}
+    {:path "nodejs/test/github-token-provider.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/message-identity-types.test.ts"
+    :classification :stable-public}
+    {:path "nodejs/test/runtimeArtifacts.test.ts"
+    :classification :language-specific}
+    {:path "nodejs/test/sandbox-config.test.ts"
+    :classification :experimental}
+    {:path "nodejs/test/session-event-types.test.ts"
+    :classification :stable-public}
+    {:path "python/README.md"
+    :classification :language-specific}
+    {:path "python/copilot/__init__.py"
+    :classification :language-specific}
+    {:path "python/copilot/_cli_download.py"
+    :classification :language-specific}
+    {:path "python/copilot/_cli_version.py"
+    :classification :language-specific}
+    {:path "python/copilot/_ffi_runtime_host.py"
+    :classification :language-specific}
+    {:path "python/copilot/_jsonrpc.py"
+    :classification :language-specific}
+    {:path "python/copilot/client.py"
+    :classification :language-specific}
+    {:path "python/copilot/generated/rpc.py"
+    :classification :language-specific}
+    {:path "python/copilot/generated/session_events.py"
+    :classification :language-specific}
+    {:path "python/copilot/session.py"
+    :classification :language-specific}
+    {:path "python/e2e/_copilot_request_helpers.py"
+    :classification :language-specific}
+    {:path "python/e2e/conftest.py"
+    :classification :language-specific}
+    {:path "python/e2e/test_auto_tier_e2e.py"
+    :classification :language-specific}
+    {:path "python/e2e/test_client_options_e2e.py"
+    :classification :language-specific}
+    {:path "python/e2e/test_copilot_request_session_id_e2e.py"
+    :classification :language-specific}
+    {:path "python/e2e/test_event_fidelity_e2e.py"
+    :classification :language-specific}
+    {:path "python/e2e/test_external_tool_cancellation_e2e.py"
+    :classification :language-specific}
+    {:path "python/e2e/test_mcp_oauth_e2e.py"
+    :classification :language-specific}
+    {:path "python/e2e/test_multi_client_e2e.py"
+    :classification :language-specific}
+    {:path "python/e2e/test_rewind_e2e.py"
+    :classification :language-specific}
+    {:path "python/e2e/test_rpc_e2e.py"
+    :classification :language-specific}
+    {:path "python/e2e/test_rpc_server_e2e.py"
+    :classification :language-specific}
+    {:path "python/e2e/test_rpc_server_misc_e2e.py"
+    :classification :language-specific}
+    {:path "python/e2e/test_rpc_session_state_e2e.py"
+    :classification :language-specific}
+    {:path "python/e2e/test_rpc_session_state_extras_e2e.py"
+    :classification :language-specific}
+    {:path "python/e2e/test_session_config_e2e.py"
+    :classification :language-specific}
+    {:path "python/e2e/test_session_e2e.py"
+    :classification :language-specific}
+    {:path "python/e2e/testharness/context.py"
+    :classification :language-specific}
+    {:path "python/e2e/testharness/proxy.py"
+    :classification :language-specific}
+    {:path "python/scripts/inject-cli-version.mjs"
+    :classification :language-specific}
+    {:path "python/test_cli_download.py"
+    :classification :language-specific}
+    {:path "python/test_client.py"
+    :classification :language-specific}
+    {:path "python/test_e2e_harness_cli_path.py"
+    :classification :language-specific}
+    {:path "python/test_event_forward_compatibility.py"
+    :classification :language-specific}
+    {:path "python/test_github_token_provider.py"
+    :classification :language-specific}
+    {:path "python/test_message_identity_generated.py"
+    :classification :language-specific}
+    {:path "python/test_rpc_generated.py"
+    :classification :language-specific}
+    {:path "python/test_session.py"
+    :classification :language-specific}
+    {:path "rust/Cargo.toml"
+    :classification :language-specific}
+    {:path "rust/README.md"
+    :classification :language-specific}
+    {:path "rust/build/in_process.rs"
+    :classification :language-specific}
+    {:path "rust/build/out_of_process.rs"
+    :classification :language-specific}
+    {:path "rust/scripts/snapshot-bundled-cli-version.sh"
+    :classification :language-specific}
+    {:path "rust/scripts/snapshot-bundled-in-process-version.sh"
+    :classification :language-specific}
+    {:path "rust/src/embeddedcli.rs"
+    :classification :language-specific}
+    {:path "rust/src/errors.rs"
+    :classification :language-specific}
+    {:path "rust/src/generated/api_types.rs"
+    :classification :language-specific}
+    {:path "rust/src/generated/rpc.rs"
+    :classification :language-specific}
+    {:path "rust/src/generated/session_events.rs"
+    :classification :language-specific}
+    {:path "rust/src/jsonrpc.rs"
+    :classification :language-specific}
+    {:path "rust/src/lib.rs"
+    :classification :language-specific}
+    {:path "rust/src/router.rs"
+    :classification :language-specific}
+    {:path "rust/src/session.rs"
+    :classification :language-specific}
+    {:path "rust/src/types.rs"
+    :classification :language-specific}
+    {:path "rust/tests/api_types_test.rs"
+    :classification :language-specific}
+    {:path "rust/tests/cli_resolution_test.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/auto_tier.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/client.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/client_options.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/copilot_request_handler.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/external_tool_cancellation.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/mcp_oauth.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/rewind.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/rpc_additional_edge_cases.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/rpc_mcp_config.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/rpc_server.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/rpc_session_state.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/rpc_session_state_extras.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/rpc_shell_edge_cases.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/rpc_tasks_and_handlers.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/session.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/session_config.rs"
+    :classification :language-specific}
+    {:path "rust/tests/e2e/support.rs"
+    :classification :language-specific}
+    {:path "rust/tests/prepared_session_test.rs"
+    :classification :language-specific}
+    {:path "rust/tests/protocol_version_test.rs"
+    :classification :language-specific}
+    {:path "rust/tests/session_events_test.rs"
+    :classification :language-specific}
+    {:path "rust/tests/session_test.rs"
+    :classification :language-specific}
+    {:path "scripts/codegen/go.ts"
+    :classification :generated-only}
+    {:path "scripts/codegen/python.ts"
+    :classification :generated-only}
+    {:path "scripts/codegen/rust.ts"
+    :classification :generated-only}
+    {:path "scripts/codegen/typescript.ts"
+    :classification :generated-only}
+    {:path "scripts/codegen/utils.ts"
+    :classification :generated-only}
+    {:path "test/harness/capturingHttpProxy.test.ts"
+    :classification :language-specific}
+    {:path "test/harness/capturingHttpProxy.ts"
+    :classification :language-specific}
+    {:path "test/harness/connectProxy.test.ts"
+    :classification :language-specific}
+    {:path "test/harness/connectProxy.ts"
+    :classification :language-specific}
+    {:path "test/harness/modelProtocolAdapters.test.ts"
+    :classification :language-specific}
+    {:path "test/harness/package-lock.json"
+    :classification :language-specific}
+    {:path "test/harness/package.json"
+    :classification :language-specific}
+    {:path "test/harness/replayingCapiProxy.test.ts"
+    :classification :language-specific}
+    {:path "test/harness/replayingCapiProxy.ts"
+    :classification :language-specific}
+    {:path "test/harness/test-mcp-oauth-server.mjs"
+    :classification :language-specific}
+    {:path "test/snapshots/abort/should_abort_during_active_streaming.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/abort/should_abort_during_active_tool_execution.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/agent_and_compact_rpc/should_compact_session_history_after_messages.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/ask_user/ask_user_does_not_block_sibling_tool_call_in_same_turn.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/ask_user/should_handle_freeform_user_input_response.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/ask_user/should_invoke_user_input_handler_when_model_uses_ask_user_tool.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/ask_user/should_receive_choices_in_user_input_request.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/auto_tier/should_preserve_auto_tier_when_set_model_omits_it.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/auto_tier/should_stage_and_reset_auto_tier_preference.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/builtin_tools/should_capture_exit_code_in_output.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/builtin_tools/should_capture_stderr_output.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/builtin_tools/should_create_a_new_file.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/builtin_tools/should_edit_a_file_successfully.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/builtin_tools/should_find_files_by_pattern.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/builtin_tools/should_handle_nonexistent_file_gracefully.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/builtin_tools/should_read_file_with_line_range.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/builtin_tools/should_search_for_patterns_in_files.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/canvas/canvas_list_discovers_declared_canvases.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/client/listmodels_withcustomhandler_callshandler.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/client/should_force_stop_client.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/client/should_get_authenticated_status.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/client/should_get_status.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/client/should_list_models_when_authenticated.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/client/should_start_ping_and_stop_stdio_client.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/client/should_start_ping_and_stop_tcp_client.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/client/should_stop_client_with_active_session.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/client_api/should_delete_session_by_id.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/client_api/should_track_last_session_id_after_session_created.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/client_lifecycle/should_emit_session_lifecycle_events.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/client_lifecycle/should_receive_session_deleted_lifecycle_event_when_deleted.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/client_lifecycle/should_return_last_session_id_after_sending_a_message.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/client_options/should_listen_on_configured_tcp_port.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/client_options/should_use_client_cwd_for_default_workingdirectory.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/combinedconfiguration/accept_mcp_servers_and_custom_agents.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/commands/session_with_commands_creates_successfully.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/commands/session_with_commands_resumes_successfully.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/commands/session_with_no_commands_creates_successfully.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/compaction/should_not_emit_compaction_events_when_infinite_sessions_disabled.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/compaction/should_trigger_compaction_with_low_threshold_and_emit_events.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/customagents/accept_custom_agent_config_on_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/customagents/accept_custom_agent_config_on_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/elicitation/confirm_returns_false_when_handler_declines.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/elicitation/confirm_returns_true_when_handler_accepts.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/elicitation/defaults_capabilities_when_not_provided.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/elicitation/elicitation_returns_all_action_shapes.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/elicitation/elicitation_throws_when_capability_is_missing.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/elicitation/input_returns_freeform_value.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/elicitation/select_returns_selected_option.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/elicitation/sends_requestelicitation_when_handler_provided.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/elicitation/session_without_elicitationhandler_creates_successfully.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/elicitation/should_report_elicitation_capability_based_on_handler_presence.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/event_fidelity/should_emit_assistant_message_with_messageid.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/event_fidelity/should_emit_assistant_usage_event_after_model_call.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/event_fidelity/should_emit_events_in_correct_order_for_tool_using_conversation.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/event_fidelity/should_emit_pending_messages_modified_event_when_message_queue_changes.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/event_fidelity/should_emit_session_usage_info_event_after_model_call.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/event_fidelity/should_emit_tool_execution_events_with_correct_fields.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/event_fidelity/should_include_valid_fields_on_all_events.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/event_fidelity/should_preserve_message_order_in_getmessages_after_tool_use.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/external_tool_cancellation/should_cancel_tool_handler_when_session_disconnects.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/external_tool_cancellation/should_cancel_tool_handler_when_session_disposes.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks/deny_tool_execution_when_pre_tool_use_returns_deny.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks/invoke_both_hooks_for_single_tool_call.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks/invoke_post_tool_use_hook_after_model_runs_a_tool.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks/invoke_pre_tool_use_hook_when_model_runs_a_tool.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks/should_deny_tool_execution_when_pretooluse_returns_deny.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks/should_invoke_both_pretooluse_and_posttooluse_hooks_for_a_single_tool_call.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks/should_invoke_both_pretooluse_and_posttooluse_hooks_for_single_tool_call.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks/should_invoke_posttooluse_hook_after_model_runs_a_tool.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks/should_invoke_pretooluse_hook_when_model_runs_a_tool.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks_extended/should_allow_posttooluse_to_return_modifiedresult.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks_extended/should_allow_pretooluse_to_return_modifiedargs_and_suppressoutput.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks_extended/should_invoke_agentstop_hook_and_apply_block_response.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks_extended/should_invoke_onerroroccurred_hook_when_error_occurs.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks_extended/should_invoke_onsessionend_hook_when_session_is_disconnected.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks_extended/should_invoke_onsessionstart_hook_on_new_session.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks_extended/should_invoke_onuserpromptsubmitted_hook_when_sending_a_message.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks_extended/should_invoke_posttoolusefailure_hook_for_failed_tool_result.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks_extended/should_invoke_sessionend_hook.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks_extended/should_invoke_sessionstart_hook.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks_extended/should_invoke_userpromptsubmitted_hook_and_modify_prompt.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks_extended/should_invoke_userprompttransformed_hook_and_modify_transformed_prompt.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/hooks_extended/should_register_erroroccurred_hook.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp-and-agents/should_accept_both_mcp_servers_and_custom_agents.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp-and-agents/should_accept_custom_agent_configuration_on_session_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp-and-agents/should_accept_custom_agent_configuration_on_session_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp-and-agents/should_accept_mcp_server_configuration_on_session_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp-and-agents/should_accept_mcp_server_configuration_on_session_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/accept_custom_agent_config_on_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/accept_custom_agent_config_on_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/accept_mcp_server_config_on_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/accept_mcp_server_config_on_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/accept_mcp_server_config_without_args.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/accept_mcp_servers_and_custom_agents.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/should_accept_both_mcp_servers_and_custom_agents.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/should_accept_custom_agent_configuration_on_session_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/should_accept_custom_agent_configuration_on_session_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/should_accept_defaultagent_configuration_on_session_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/should_accept_mcp_server_configuration_on_session_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/should_accept_mcp_server_configuration_on_session_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/should_accept_mcp_server_configuration_without_args.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/should_handle_custom_agent_with_mcp_servers.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/should_handle_custom_agent_with_tools_configuration.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/should_handle_multiple_custom_agents.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/should_handle_multiple_mcp_servers.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/should_hide_excluded_tools_from_default_agent.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/should_pass_literal_env_values_to_mcp_server_subprocess.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcp_and_agents/should_round_trip_mcp_server_elicitation_request.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcpservers/accept_mcp_server_config_on_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mcpservers/accept_mcp_server_config_on_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mode_empty/empty_mode_append_caller_instruction_takes_effect_and_env_context_stripped.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mode_empty/empty_mode_builtin_star_exposes_all_built_in_tools.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mode_empty/empty_mode_excluded_tools_subtracts_from_available_tools.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mode_empty/empty_mode_isolated_set_shell_tool_is_not_exposed.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mode_empty/empty_mode_strips_environment_context_from_the_system_message_by_default.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mode_empty/empty_mode_system_message_replace_llm_follows_caller_content_verbatim.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mode_handlers/should_invoke_auto_mode_switch_handler_when_rate_limited.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/mode_handlers/should_invoke_exit_plan_mode_handler_when_model_uses_tool.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/multi_client/both_clients_see_tool_request_and_completion_events.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/multi_client/disconnecting_client_removes_its_tools.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/multi_client/one_client_approves_permission_and_both_see_the_result.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/multi_client/one_client_rejects_permission_and_both_see_the_result.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/multi_client/two_clients_register_different_tools_and_agent_uses_both.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/multi_provider_registry/should_register_multiple_providers_with_custom_agents_bound_to_their_models.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/multi_turn/should_handle_file_creation_then_reading_across_turns.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/multi_turn/should_use_tool_results_from_previous_turns.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/pending_work_resume/should_continue_parallel_pending_external_tool_requests_after_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/pending_work_resume/should_continue_pending_external_tool_request_after_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/pending_work_resume/should_continue_pending_permission_request_after_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/pending_work_resume/should_keep_pending_external_tool_handleable_on_cold_resume_when_continuependingwork_is_false.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/pending_work_resume/should_keep_pending_external_tool_handleable_on_warm_resume_when_continuependingwork_is_false.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/pending_work_resume/should_report_continuependingwork_true_in_resume_event.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/pending_work_resume/should_resume_successfully_when_no_pending_work_exists.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/per-session-auth/session_auth_status_is_unauthenticated_without_token.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/per-session-auth/session_fails_with_invalid_token.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/per-session-auth/session_token_overrides_client_token.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/per-session-auth/session_uses_client_token_when_no_session_token_is_supplied.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/async_permission_handler.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/deny_permission.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/permission_handler_errors.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/permission_handler_for_shell_commands.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/permission_handler_for_write_operations.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/resume_session_with_permission_handler.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/should_deny_permission_when_handler_returns_denied.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/should_deny_permission_with_noresult_kind.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/should_deny_tool_operations_when_handler_explicitly_denies.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/should_deny_tool_operations_when_handler_explicitly_denies_after_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/should_handle_async_permission_handler.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/should_handle_concurrent_permission_requests_from_parallel_tools.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/should_handle_permission_handler_errors_gracefully.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/should_honor_a_decision_annotated_with_decisioncontext.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/should_invoke_permission_handler_for_write_operations.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/should_receive_toolcallid_in_permission_requests.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/should_resume_session_with_permission_handler.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/should_short_circuit_permission_handler_when_set_approve_all_enabled.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/should_wait_for_slow_permission_handler.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/should_work_with_approve_all_permission_handler.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/permissions/tool_call_id_in_permission_requests.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/pre_mcp_tool_call_hook/should_remove_meta_via_premcptoolcall_hook.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/pre_mcp_tool_call_hook/should_replace_meta_via_premcptoolcall_hook.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/pre_mcp_tool_call_hook/should_set_meta_via_premcptoolcall_hook.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/resume_mcp_oauth/should_resume_a_persisted_session_with_mcp_auth_handler.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rewind/should_restore_tracked_file_and_conversation.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_additional_edge_cases/mode_set_to_same_value_multiple_times_stays_stable.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_additional_edge_cases/name_set_with_unicode_round_trips.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_additional_edge_cases/permissions_reset_session_approvals_on_fresh_session_is_noop.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_additional_edge_cases/permissions_set_approve_all_toggle_round_trips.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_additional_edge_cases/plan_delete_when_none_exists_is_idempotent.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_additional_edge_cases/plan_update_with_empty_content_then_read_returns_empty.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_additional_edge_cases/shell_exec_with_zero_timeout_does_not_kill_long_running_command.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_additional_edge_cases/usage_get_metrics_on_fresh_session_returns_zero_tokens.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_additional_edge_cases/workspaces_create_file_with_empty_content_round_trips.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_additional_edge_cases/workspaces_create_file_with_large_content_round_trips.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_additional_edge_cases/workspaces_create_file_with_unicode_content_round_trips.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_additional_edge_cases/workspaces_createfile_then_listfiles_returns_sorted_or_stable_order.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_additional_edge_cases/workspaces_getworkspace_returns_stable_result_across_calls.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_agents/should_call_agent_reload.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_agents/should_deselect_current_agent.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_agents/should_emit_subagent_selected_and_deselected_events.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_agents/should_list_available_custom_agents.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_agents/should_return_empty_list_when_no_custom_agents_configured.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_agents/should_return_null_when_no_agent_is_selected.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_agents/should_select_and_get_current_agent.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_event_side_effects/should_allow_session_use_after_truncate.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_event_side_effects/should_emit_mode_changed_event_when_mode_set.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_event_side_effects/should_emit_plan_changed_event_for_update_and_delete.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_event_side_effects/should_emit_plan_changed_update_operation_on_second_update.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_event_side_effects/should_emit_snapshot_rewind_event_and_remove_events_on_truncate.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_event_side_effects/should_emit_title_changed_event_when_name_set.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_event_side_effects/should_emit_workspace_file_changed_event_when_file_created.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_and_skills/should_list_and_toggle_session_skills.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_and_skills/should_list_extensions.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_and_skills/should_list_mcp_servers_with_configured_server.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_and_skills/should_list_plugins.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_and_skills/should_reload_session_skills.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_and_skills/should_report_error_when_extensions_are_not_available.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_and_skills/should_report_error_when_mcp_host_is_not_initialized.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_and_skills/should_report_error_when_mcp_oauth_server_is_not_configured.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_and_skills/should_report_error_when_mcp_oauth_server_is_not_remote.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_config/should_call_server_mcp_config_rpcs.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_config/should_round_trip_http_mcp_oauth_config_rpc.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_lifecycle/should_configure_github_mcp_server.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_lifecycle/should_list_tools_and_report_running_status_for_connected_server.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_lifecycle/should_reload_mcp_servers_with_config.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_lifecycle/should_start_and_restart_mcp_server.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_lifecycle/should_stop_running_mcp_server.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_mcp_lifecycle/should_throw_when_listing_tools_for_unconnected_server.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server/should_call_rpc_account_get_quota_when_authenticated.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server/should_call_rpc_models_list_with_typed_result.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server/should_call_rpc_ping_with_typed_params_and_result.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server/should_call_rpc_tools_list_with_typed_result.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server/should_discover_server_mcp_and_skills.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_misc/should_get_set_and_clear_user_settings.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_misc/should_login_list_getcurrentauth_and_logout_account.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_misc/should_reject_send_attachments_from_non_extension_connection.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_misc/should_reload_user_settings.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_misc/should_report_agent_registry_spawn_gate_closed.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_misc/should_report_not_found_when_opening_session_without_context.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_misc/should_shut_down_owned_runtime.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_plugins/should_enable_and_disable_marketplace_plugin.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_plugins/should_install_direct_local_plugin_with_deprecation_warning.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_plugins/should_install_list_and_uninstall_plugin_from_local_marketplace.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_plugins/should_list_browse_refresh_and_remove_local_marketplace.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_plugins/should_reload_mcp_config_cache.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_plugins/should_update_all_installed_plugins.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_plugins/should_update_single_marketplace_plugin.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_remote_control/should_reach_runtime_when_starting_remote_control_for_unknown_session.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_remote_control/should_reject_transfer_when_off_with_compare_and_swap.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_remote_control/should_report_not_stopped_when_remote_control_is_off.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_remote_control/should_report_remote_control_status_as_off.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_server_remote_control/should_treat_set_steering_as_no_op_when_off.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_call_session_rpc_model_getcurrent.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_call_session_rpc_model_switchto.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_call_session_usage_and_permission_rpcs.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_call_workspace_file_rpc_methods.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_compact_session_history_after_messages.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_create_workspace_file_with_nested_path_auto_creating_dirs.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_emit_title_changed_event_each_time_name_set_is_called.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_fork_session_to_event_id_excluding_boundary_event.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_fork_session_with_persisted_messages.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_get_and_set_session_metadata.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_get_and_set_session_mode.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_handle_forking_session_without_persisted_events.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_read_update_and_delete_plan.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_reject_empty_or_whitespace_session_name.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_reject_workspace_file_path_traversal.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_report_error_reading_nonexistent_workspace_file.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_report_error_when_forking_session_to_unknown_event_id.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_report_implemented_errors_for_unsupported_session_rpc_paths.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_report_processing_and_context_metadata.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_set_and_get_each_session_mode_value.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state/should_update_existing_workspace_file_with_update_operation.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state_extras/should_add_byok_provider_and_model_at_runtime.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state_extras/should_get_and_set_allowall_permissions.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state_extras/should_get_context_attribution_and_heaviest_messages_after_turn.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state_extras/should_get_current_tool_metadata_after_initialization.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state_extras/should_get_telemetry_engagement_id.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state_extras/should_list_models_for_session.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state_extras/should_read_empty_sql_todos_for_fresh_session.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state_extras/should_reload_session_plugins.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state_extras/should_report_session_activity_when_idle.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state_extras/should_report_visibility_as_unsynced_for_local_session.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state_extras/should_return_empty_completions_when_host_does_not_provide_them.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_session_state_extras/should_update_and_clear_live_subagent_settings.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_shell_and_fleet/should_execute_shell_command.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_shell_and_fleet/should_kill_shell_process.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_shell_and_fleet/should_start_fleet_and_complete_custom_tool_task.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_shell_edge_cases/shell_exec_with_custom_cwd_honors_override.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_shell_edge_cases/shell_exec_with_large_stdout_cleans_up.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_shell_edge_cases/shell_exec_with_nonexistent_command_returns_processid_and_cleans_up.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_shell_edge_cases/shell_exec_with_stderr_output_cleans_up.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_shell_edge_cases/shell_exec_with_timeout_kills_long_running_command.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_shell_edge_cases/shell_kill_cleans_up_after_terminating_signal.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_shell_edge_cases/shell_kill_unknown_processid_returns_false.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_shell_user_requested/should_cancel_user_requested_shell_command.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_shell_user_requested/should_execute_user_requested_shell_command.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_tasks_and_handlers/should_list_task_state_and_return_false_for_missing_task_operations.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_tasks_and_handlers/should_report_implemented_error_for_invalid_task_agent_model.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_tasks_and_handlers/should_report_implemented_error_for_missing_task_agent_type.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_tasks_and_handlers/should_return_expected_results_for_missing_pending_handler_requestids.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_tasks_and_handlers/should_start_background_agent_and_report_task_details.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rpc_ui_ephemeral_query/should_answer_ephemeral_query.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rust_multi_client/both_clients_see_tool_request_and_completion_events.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rust_multi_client/disconnecting_client_removes_its_tools.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/rust_multi_client/two_clients_register_different_tools_and_agent_uses_both.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/sandbox_bypass/approves_a_blocked_search_and_executes_it_outside_the_sandbox.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/disposeasync_from_handler_does_not_deadlock.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/handler_exception_does_not_halt_event_delivery.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/resumes_a_persisted_session_from_a_new_client_when_an_mcp_oauth_handler_is_configured.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/send_returns_immediately_while_events_stream_in_background.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/sendandwait_blocks_until_session_idle_and_returns_final_assistant_message.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/sendandwait_throws_on_timeout.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/sendandwait_throws_operationcanceledexception_when_token_cancelled.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_abort_a_session.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_accept_blob_attachments.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_create_a_session_with_appended_systemmessage_config.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_create_a_session_with_availabletools.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_create_a_session_with_customized_systemmessage_config.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_create_a_session_with_defaultagent_excludedtools.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_create_a_session_with_excludedtools.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_create_a_session_with_replaced_systemmessage_config.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_create_session_with_custom_config_dir.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_create_session_with_custom_tool.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_delete_session.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_get_last_session_id.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_get_session_metadata.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_get_session_metadata_by_id.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_have_stateful_conversation.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_list_sessions.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_list_sessions_with_context.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_log_messages_at_various_levels.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_receive_session_events.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_recover_marker_after_cold_resume_with_explicit_session_id.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_resume_a_session_using_a_new_client.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_resume_a_session_using_the_same_client.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_send_with_custom_requestheaders.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_send_with_directory_attachment.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_send_with_file_attachment.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_send_with_github_reference_attachment.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_send_with_mode_property.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_send_with_selection_attachment.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_set_model_on_existing_session.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session/should_set_model_with_reasoningeffort.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_accept_blob_attachments.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_accept_message_attachments.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_all_reasoning_effort_values_on_session_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_availabletools_on_session_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_excluded_built_in_agents_on_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_excluded_built_in_agents_on_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_github_mcp_tool_config_on_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_instruction_directories_on_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_instruction_directories_on_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_instructiondirectories_on_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_instructiondirectories_on_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_instructiondirectories_on_session_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_instructiondirectories_on_session_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_reasoning_effort_on_session_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_session_limits_on_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_session_limits_on_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_systemmessage_on_session_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_apply_workingdirectory_on_session_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_create_session_with_custom_provider_config.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_forward_clientname_in_user_agent.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_forward_clientname_in_useragent.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_forward_custom_provider_headers_on_create.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_forward_custom_provider_headers_on_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_use_custom_session_id.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_use_provider_model_id_as_wire_model.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/should_use_workingdirectory_for_tool_execution.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/vision_disabled_then_enabled_via_setmodel.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_config/vision_enabled_then_disabled_via_setmodel.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_fs/should_load_session_data_from_fs_provider_on_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_fs/should_map_large_output_handling_into_sessionfs.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_fs/should_persist_plan_md_via_sessionfs.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_fs/should_reject_setprovider_when_sessions_already_exist.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_fs/should_route_file_operations_through_the_session_fs_provider.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_fs/should_succeed_with_compaction_while_using_sessionfs.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_fs/should_write_workspace_metadata_via_sessionfs.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_fs_sqlite/should_allow_subagents_to_use_sql_tool_via_inherited_sessionfs.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_fs_sqlite/should_route_sql_queries_through_the_sessionfs_sqlite_handler.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_lifecycle/should_delete_session_permanently.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_lifecycle/should_isolate_events_between_concurrent_sessions.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_lifecycle/should_list_created_sessions_after_sending_a_message.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_lifecycle/should_return_events_via_getmessages_after_conversation.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_lifecycle/should_support_multiple_concurrent_sessions.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/session_todos_changed/fires_session_todos_changed_and_exposes_rows_and_dependencies.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/skills/should_allow_agent_with_skills_to_invoke_skill.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/skills/should_load_and_apply_skill_from_skilldirectories.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/skills/should_not_apply_skill_when_disabled_via_disabledskills.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/skills/should_not_provide_skills_to_agent_without_skills_field.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/streaming_fidelity/should_emit_assistantmessagestart_before_deltas_with_matching_messageid.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/streaming_fidelity/should_not_produce_deltas_after_session_resume_with_streaming_disabled.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/streaming_fidelity/should_not_produce_deltas_when_streaming_is_disabled.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/streaming_fidelity/should_produce_delta_events_when_streaming_is_enabled.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/streaming_fidelity/should_produce_deltas_after_session_resume.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/subagent_hooks/should_invoke_pretooluse_and_posttooluse_hooks_for_sub_agent_tool_calls.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/suspend/should_allow_resume_and_continue_conversation_after_suspend.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/suspend/should_cancel_pending_permission_request_when_suspending.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/suspend/should_reject_pending_external_tool_when_suspending.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/suspend/should_suspend_idle_session_without_throwing.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/system_message_sections/should_use_replaced_identity_section_in_response.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/system_message_sections/should_use_replaced_preamble_section_in_response.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/system_message_transform/should_apply_transform_modifications_to_section_content.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/system_message_transform/should_invoke_transform_callbacks_with_section_content.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/system_message_transform/should_work_with_static_overrides_and_transforms_together.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/telemetry/should_export_file_telemetry_for_sdk_interactions.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tool_results/should_handle_structured_toolresultobject_from_custom_tool.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tool_results/should_handle_tool_result_with_denied_resulttype.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tool_results/should_handle_tool_result_with_failure_resulttype.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tool_results/should_handle_tool_result_with_rejected_resulttype.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tool_results/should_pass_validated_zod_parameters_to_tool_handler.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tool_results/should_preserve_tooltelemetry_and_not_stringify_structured_results_for_llm.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tools/can_receive_and_return_complex_types.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tools/clears_context_from_a_terminal_tool_and_starts_the_seeded_turn.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tools/denies_custom_tool_when_permission_denied.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tools/ergonomic_tool_arity0.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tools/ergonomic_tool_arity2.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tools/ergonomic_tool_definition.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tools/handles_tool_calling_errors.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tools/invokes_built_in_tools.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tools/invokes_custom_tool.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tools/invokes_custom_tool_with_permission_handler.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tools/low_level_tool_definition.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tools/overrides_built_in_tool_with_custom_tool.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tools/should_execute_multiple_custom_tools_in_parallel_single_turn.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tools/should_respect_availabletools_and_excludedtools_combined.yaml"
+    :classification :language-specific}
+    {:path "test/snapshots/tools/skippermission_sent_in_tool_definition.yaml"
+    :classification :language-specific}]
+  :classification-basis {:stable-public "Node public source, stable behavior tests, or documentation for certified stable deltas."
+   :experimental "Tests dedicated to explicitly experimental public behavior."
+   :internal "Repository or package implementation material that is not a public SDK contract."
+   :generated-only "Generated protocol/schema artifacts and their generation checks."
+   :language-specific "Other SDK implementations, packaging, CI, fixtures, and harness maintenance."}}
+ :target-public-surface {:package-root {:path "nodejs/src/index.ts"
+   :explicit-symbol-count 198
+   :explicit-symbols-sha256 "3c04436d0eb413eaf0f86d44f458f66d8a03241fa8eb381085ed4a8144f932f1"
+   :star-exports [{:module "./generated/session-events.js"
+     :path "nodejs/src/generated/session-events.ts"
+     :symbol-count 529
+     :symbols-sha256 "89c603979efe106904751acd486988d398e1f11d8dfdb248c02b3fd473547d34"}]
+   :symbol-count 718
+   :symbols-sha256 "3673ab058758552650f19dbb8a38dbc6902dd159382c20a87e4be1ab3e38b1bd"
+   :classification-counts {:stable-public 563
+    :experimental 150
+    :internal 5}
+   :delta {:stable-public #{"AgentModelPolicy" "CopilotClientInfo" "McpServerMetadata" "McpServerNeedsReconnectData" "McpServerNeedsReconnectEvent" "McpServerRemovedData" "McpServerRemovedEvent" "RemediationAction"}
+    :experimental #{"AssistantFusionPhaseActivityEvent" "AutoTierSwitchFailedData" "AutoTierSwitchFailedEvent" "AutoTierSwitchFailureReason" "CompletionReceiptData" "CompletionReceiptEvent" "CompletionReceiptEventRange" "CompletionReceiptFinalTool" "CompletionReceiptStopReason" "CompletionReceiptToolStatus" "CurrentModel" "FusionPhaseActivityData" "FusionPhaseActivityKind" "FusionPhasePlanStep" "ModelSwitchAutoTierResult" "ModelSwitchAutoTierStatus"}
+    :removed #{}}
+   :provenance {:baseline-resource "resources/stable_upstream_delta_2980c78.edn"
+    :baseline-symbol-count 694}}
+  :types {:path "nodejs/src/types.ts"
+   :symbol-count 206
+   :symbols-sha256 "67046b4b2c57a7c6c9c8f4c057889dea9a34c94b177b2993907194b316378982"
+   :delta {:stable-public #{"CopilotClientInfo"}
+    :experimental #{"CurrentModel" "ModelSwitchAutoTierResult" "ModelSwitchAutoTierStatus"}
+    :removed #{}}}
+  :classes {:client {:path "nodejs/src/client.ts"
+    :class-name "CopilotClient"
+    :methods {:stable-public #{"[Symbol.asyncDispose]" "constructor" "createSession" "deleteSession" "forceStop" "getAuthStatus" "getForegroundSessionId" "getLastSessionId" "getSessionMetadata" "getStatus" "listModels" "listSessions" "onLifecycle" "ping" "resumeSession" "rpc" "setForegroundSessionId" "start" "stop"}
+     :internal #{"resumeSessionForExtension"}
+     :experimental #{}}
+    :method-count 20
+    :methods-sha256 "bcf31a8e931df3230402c11670d9e14dd03b90564fb6e7192356d746edd273e6"}
+   :session {:path "nodejs/src/session.ts"
+    :class-name "CopilotSession"
+    :methods {:stable-public #{"[Symbol.asyncDispose]" "abort" "capabilities" "disconnect" "getEvents" "log" "on" "openCanvases" "rpc" "send" "sendAndWait" "setModel" "ui" "workspacePath"}
+     :experimental #{"setAutoTier"}
+     :internal #{"_dispatchEvent" "_handleAutoModeSwitchRequest" "_handleElicitationRequest" "_handleExitPlanModeRequest" "_handleHooksInvoke" "_handleSystemMessageTransform" "_handleUserInputRequest" "_markDisconnected" "_runOnDisconnected" "_setOnDisconnected" "constructor" "getToolHandler" "registerAutoModeSwitchHandler" "registerBearerTokenProviders" "registerCanvases" "registerCommands" "registerElicitationHandler" "registerExitPlanModeHandler" "registerFactories" "registerHooks" "registerPermissionHandler" "registerTools" "registerTransformCallbacks" "registerUserInputHandler" "setCapabilities" "setOpenCanvases"}}
+    :method-count 41
+    :methods-sha256 "e3d8d11b11ae017b7485e25197283d41f64aac2be2a582c73cc96be3685480bb"
+    :properties {:stable-public #{"sessionId"}
+     :experimental #{"factory"}
+     :internal #{"clientSessionApis"}}}}
+  :extension {:path "nodejs/src/extension.ts"
+   :base-blob "ac0ccdb7ce3102cabc98e8457f4c7f684b76fa28"
+   :target-blob "ac0ccdb7ce3102cabc98e8457f4c7f684b76fa28"
+   :symbol-count 39
+   :symbols-sha256 "13316e0859171d9c8be79a0bdbe2626b9c21a1947dae04a24fc51ddede17b52c"
+   :stable-public #{"ExtensionInfo" "JoinSessionConfig" "JsonValue" "joinSession"}}
+  :tool-set {:path "nodejs/src/toolSet.ts"
+   :base-blob "559e9234e5b178036d88a7045a632bd16a97f534"
+   :target-blob "559e9234e5b178036d88a7045a632bd16a97f534"
+   :symbol-count 2
+   :symbols-sha256 "99ef0910d8d65bfb0074e664122cd7d9642aa6c89d8d476bb26d0a9ce1d748ca"
+   :stable-public #{"BuiltInTools" "ToolSet"}}
+  :generated-rpc-delta {:path "nodejs/src/generated/rpc.ts"
+   :experimental #{"AutopilotObjectiveCreditLimit" "AutopilotObjectiveGetStateResult" "AutopilotObjectiveState" "AutopilotObjectiveStatus" "ClientTaskCancelReason" "ClientTaskCancelRequest" "ClientTaskCancelResult" "DiscoveredHook" "HookOrigin" "HooksDiscoverRequest" "HooksDiscoverResult" "ModelSwitchAutoTierRequest" "ModelSwitchAutoTierResult" "ModelSwitchAutoTierStatus" "PluginInstallStagingMode" "SessionsReadPersistedEventsRequest" "SkillProviderDescriptor" "SkillProviderListRequest" "TaskClientActiveStatus" "TaskClientExecutionMode" "TaskClientInfo" "TaskClientOwner" "TaskClientOwnerKind" "TaskClientOwnerPresence" "TaskClientProgress" "TaskClientStatus" "TaskClientType" "TaskClientUpdate" "TaskKind" "TasksHandler" "TasksRegisterRequest" "TasksRegisterResult" "TasksUpdateRequest" "TasksUpdateResult"}
+   :internal #{"SkillProviderListResult" "SkillProviderReadRequest" "SkillProviderReadResult"}}
+  :event-interface-fields {"ToolExecutionCompleteError" {:stable-public #{"remediation"}}
+   "SubagentFailedData" {:stable-public #{"modelOverrideReason"}}
+   "UserMessageData" {:stable-public #{"messageId"}}
+   "PermissionRequestedData" {:stable-public #{"agentMode"}}
+   "ErrorData" {:stable-public #{"remediation"}}
+   "CustomAgentsUpdatedAgent" {:stable-public #{"modelPolicy" "models"}}
+   "WarningData" {:stable-public #{"remediation"}}
+   "SkillInvokedData" {:stable-public #{"disableModelInvocation"}}
+   "SubagentCompletedData" {:stable-public #{"modelOverrideReason"}}
+   "McpServersLoadedServer" {:stable-public #{"serverMetadata"}}
+   "ModelChangeData" {:experimental #{"autoTier" "previousAutoTier"}}
+   "FusionResolvedData" {:experimental #{"phasePlan"}}}
+  :relevant-stable-tests ["nodejs/test/client.test.ts"
+    "nodejs/test/external-tool-cancellation.test.ts"
+    "nodejs/test/e2e/external-tool-cancellation.e2e.test.ts"
+    "nodejs/test/message-identity-types.test.ts"
+    "nodejs/test/session-event-types.test.ts"
+    "nodejs/test/e2e/session.e2e.test.ts"
+    "nodejs/test/e2e/session_config.e2e.test.ts"]
+  :upstream-test-evidence
+  {"nodejs/test/client.test.ts"
+   ["forwards capi options %j in session.create and session.resume"
+    "forwards a declared client identity on the connect handshake"
+    "omits clientInfo from the handshake when the host declares none"
+    "drops empty fields and omits an all-empty identity"]
+   "nodejs/test/external-tool-cancellation.test.ts"
+   ["cancels a blocked external tool when completion arrives"
+    "does not respond when a cancelled handler returns a late result"
+    "remains retryable when disconnect fails"
+    "cancels tool-search metadata preflight before invoking the handler"
+    "invokes duplicate request IDs only once"]
+   "nodejs/test/message-identity-types.test.ts"
+   ["generated message identity types"]
+   "nodejs/test/session-event-types.test.ts"
+   ["Session event type exports (#1156)"]}}
+ :stable-delta-ids #{:client/bracketed-ipv6 :client/client-info :events/stable-1.0.83-additions :session/auto-tier-resident-resume :session/disconnect-detach :tools/external-abort-signal}
+ :stable-deltas [{:id :client/client-info
+   :classification :stable-public
+   :status :ported
+   :evidence [:client-info-type
+     :client-info-option
+     :client-info-mapping
+     :client-info-omission
+     :connect-client-info]
+   :inventory-items [[:exported-symbol
+      "nodejs/src/index.ts"
+      "CopilotClientInfo"]
+     [:exported-symbol
+      "nodejs/src/types.ts"
+      "CopilotClientInfo"]
+     [:interface-field
+      "CopilotClientOptions"
+      "clientInfo"]]
+   :clojure-paths ["src/github/copilot_sdk/specs.clj"
+     "src/github/copilot_sdk/client.clj"]
+   :tests ["test/github/copilot_sdk/integration/telemetry_callbacks_test.clj"]
+   :contract "Optional application/integration strings map to editor/extension wire names; empty leaves and an all-empty object are omitted from server.connect."}
+   {:id :client/bracketed-ipv6
+   :classification :stable-public
+   :status :ported
+   :evidence [:ipv6-parser
+     :ipv6-validation]
+   :inventory-items [[:changed-declaration
+      "nodejs/src/client.ts"
+      "CopilotClient.parseCliUrl"]]
+   :clojure-paths ["src/github/copilot_sdk/client.clj"]
+   :tests ["test/github/copilot_sdk/integration/schema_provider_test.clj"]
+   :contract "Canonical [ipv6]:port URLs are accepted only for syntactically valid IPv6 literals and valid ports."}
+   {:id :session/disconnect-detach
+   :classification :stable-public
+   :status :ported
+   :evidence [:disconnect-method
+     :disconnect-retry
+     :disconnect-detach
+     :disconnect-state]
+   :inventory-items [[:class-method
+      "CopilotSession"
+      "disconnect"]]
+   :clojure-paths ["src/github/copilot_sdk/session.clj"]
+   :tests ["test/github/copilot_sdk/force_stop_test.clj"]
+   :contract "disconnect calls session.detach, retries exactly once only after success:false, and marks local state disconnected only after success; exceptions and two false results preserve local state."}
+   {:id :tools/external-abort-signal
+   :classification :stable-public
+   :status :ported
+   :evidence [:tool-signal-type
+     :external-tool-registry
+     :external-tool-completed
+     :external-tool-duplicate
+     :external-tool-preflight
+     :external-tool-late-result
+     :external-tool-disconnect]
+   :inventory-items [[:interface-field
+      "ToolInvocation"
+      "signal"]]
+   :clojure-paths ["src/github/copilot_sdk/tools.clj"
+     "src/github/copilot_sdk/session.clj"]
+   :tests ["test/github/copilot_sdk/integration/hooks_handlers_test.clj"]
+   :contract "Each accepted request gets an AbortSignal; completed events and successful disconnect abort it, metadata preflight races cancellation, duplicate in-flight request IDs are ignored, and late results are suppressed."}
+   {:id :session/auto-tier-resident-resume
+   :classification :stable-public
+   :status :ported
+   :evidence [:auto-tier-type
+     :create-capi-forwarding
+     :resume-capi-forwarding
+     :resident-auto-tier-doc
+     :join-resume-forwarding]
+   :inventory-items [[:interface-field
+      "CapiSessionOptions"
+      "autoTier"]
+     [:builder
+      "CopilotClient.createSession"
+      "capi"]
+     [:builder
+      "CopilotClient.resumeSession"
+      "capi"]
+     [:builder
+      "joinSession"
+      "capi"]]
+   :clojure-paths ["src/github/copilot_sdk/specs.clj"
+     "src/github/copilot_sdk/client.clj"]
+   :tests ["test/github/copilot_sdk/integration/stable_sync_f13e4a2_test.clj"]
+   :contract "capi.autoTier remains stable on create, cold resume, resident resume, and extension join; resident resume may forward a changed tier for a safe switch."}
+   {:id :events/stable-1.0.83-additions
+   :classification :stable-public
+   :status :ported
+   :evidence [:remediation-action
+     :user-message-id
+     :skill-source-sdk
+     :skill-disable-model-invocation
+     :agent-model-policy
+     :custom-agent-models
+     :custom-agent-model-policy
+     :subagent-model-override-completed
+     :subagent-model-override-failed
+     :permission-agent-mode
+     :mcp-server-metadata
+     :mcp-instructions-nullable
+     :mcp-server-removed
+     :mcp-server-needs-reconnect]
+   :inventory-items [[:generated-export
+      "RemediationAction"]
+     [:event-field
+      "UserMessageData"
+      "messageId"]
+     [:event-enum-value
+      "SkillSource"
+      "sdk"]
+     [:event-field
+      "SkillInvokedData"
+      "disableModelInvocation"]
+     [:generated-export
+      "AgentModelPolicy"]
+     [:event-fields
+      "CustomAgentsUpdatedAgent"
+      ["modelPolicy"
+       "models"]]
+     [:event-field
+      "SubagentCompletedData"
+      "modelOverrideReason"]
+     [:event-field
+      "SubagentFailedData"
+      "modelOverrideReason"]
+     [:event-field
+      "PermissionRequestedData"
+      "agentMode"]
+     [:generated-export
+      "McpServerMetadata"]
+     [:event
+      "session.mcp_server_removed"]
+     [:event
+      "session.mcp_server_needs_reconnect"]]
+   :clojure-paths ["src/github/copilot_sdk.clj"
+     "src/github/copilot_sdk/generated/event_specs.clj"
+     "src/github/copilot_sdk/generated/event_metadata.clj"
+     "src/github/copilot_sdk/specs.clj"]
+   :tests ["test/github/copilot_sdk/integration/stable_sync_f13e4a2_test.clj"]
+   :contract "The stable 1.0.83 event additions retain exact optionality, enum values, nullable MCP instructions, and curated public lifecycle event membership."}]
+ :intentional-exclusions [{:id :session/live-auto-tier-switching
+   :classification :experimental
+   :decision :exclude
+   :status :approved
+   :evidence [:set-auto-tier-method
+     :set-model-null-auto-tier
+     :current-model-type
+     :auto-tier-switch-failed]
+   :reason "setAutoTier, nullable reset through setModel, CurrentModel, switch result/status types, and session.auto_tier_switch_failed are explicitly experimental and are not certified as stable API."}
+   {:id :events/completion-receipt
+   :classification :experimental
+   :decision :exclude
+   :status :approved
+   :evidence [:completion-receipt-event]
+   :reason "The completion receipt event family is marked experimental and remains generated wire evidence only."}
+   {:id :events/fusion-phase-routing
+   :classification :experimental
+   :decision :exclude
+   :status :approved
+   :evidence [:fusion-phase-activity
+     :fusion-phase-plan]
+   :reason "HydraFusion phase activity, phase-plan, and routing additions remain explicitly experimental."}
+   {:id :sandbox/allow-bypass
+   :classification :experimental
+   :decision :exclude
+   :status :approved
+   :evidence [:sandbox-allow-bypass]
+   :reason "sandbox.allowBypass is part of the explicitly experimental SandboxConfig surface and remains outside stable exact-pin certification."}
+   {:id :connect/client-task-kind
+   :classification :internal
+   :decision :exclude
+   :status :approved
+   :evidence [:supported-task-kinds
+     :task-kind-client
+     :client-task-handler]
+   :reason "supportedTaskKinds is an experimental internal connection-handshake capability describing observer decoding support, not stable SDK surface. The Clojure SDK therefore does not expose or advertise the generated client task kind."}
+   {:id :generated/rpc-only-declarations
+   :classification :generated-only
+   :decision :exclude
+   :status :approved
+   :evidence [:task-client-rpc
+     :hook-discovery-rpc
+     :skill-provider-rpc
+     :persisted-events-rpc]
+   :reason "Task-client, hook-discovery, skill-provider, persisted-event, objective, staging, and other generated RPC declarations do not create stable SDK surface by themselves."}
+   {:id :runtime/node-artifact-materialization
+   :classification :language-specific
+   :decision :exclude
+   :status :approved
+   :evidence [:runtime-bundle-materialization]
+   :reason "Node runtime artifact download, cache, packaging, and native materialization are language-specific implementation details."}]
+ :local-test-evidence
+ {:client/client-info
+  {:path "test/github/copilot_sdk/integration/telemetry_callbacks_test.clj"
+   :symbols ["(deftest test-client-info-on-connect-handshake"]}
+  :client/bracketed-ipv6
+  {:path "test/github/copilot_sdk/integration/schema_provider_test.clj"
+   :symbols ["bracketed cli-url hosts must be valid IPv6 literals"]}
+  :session/disconnect-detach
+  {:path "test/github/copilot_sdk/force_stop_test.clj"
+   :symbols
+   ["(deftest disconnect-notifies-runtime-before-releasing-local-resources"
+    "(deftest disconnect-preserves-local-resources-after-runtime-failure"
+    "(deftest disconnect-retries-one-unsuccessful-detach-response"
+    "(deftest disconnect-surfaces-the-second-unsuccessful-detach-response"]}
+  :tools/external-abort-signal
+  {:path "test/github/copilot_sdk/integration/hooks_handlers_test.clj"
+   :symbols
+   ["(deftest test-external-tool-completion-cancels-in-flight-handler"
+    "(deftest test-duplicate-external-tool-request-is-handled-once"
+    "(deftest test-tool-search-metadata-preflight-races-cancellation"
+    "(deftest test-disconnect-cancels-tools-only-after-successful-detach"]}
+  :session/auto-tier-resident-resume
+  {:path "test/github/copilot_sdk/integration/stable_sync_f13e4a2_test.clj"
+   :symbols
+   ["(deftest auto-tier-wire-contract-covers-create-cold-resume-resident-resume-and-join"]}
+  :events/stable-1.0.83-additions
+  {:path "test/github/copilot_sdk/integration/stable_sync_f13e4a2_test.clj"
+   :symbols
+   ["(deftest remediation-and-message-identity-event-contracts"
+    "(deftest skill-agent-and-permission-event-contracts"
+    "(deftest stable-mcp-lifecycle-event-contracts"]}}
+ :source-evidence {:client-info-type {:path "nodejs/src/types.ts"
+   :symbol "export interface CopilotClientInfo {"
+   :kind :added}
+  :client-info-option {:path "nodejs/src/types.ts"
+   :symbol "clientInfo?: CopilotClientInfo;"
+   :kind :added}
+  :client-info-mapping {:path "nodejs/src/client.ts"
+   :symbol "if (info.applicationName) wire.editorName = info.applicationName;"
+   :kind :added}
+  :client-info-omission {:path "nodejs/src/client.ts"
+   :symbol "return Object.keys(wire).length > 0 ? wire : undefined;"
+   :kind :added}
+  :connect-client-info {:path "nodejs/src/client.ts"
+   :symbol "connectParams.clientInfo = clientInfo;"
+   :kind :added}
+  :ipv6-parser {:path "nodejs/src/client.ts"
+   :symbol "const ipv6Match = cleanUrl.match(/^\\[([^\\]]+)\\]:(\\d+)$/);"
+   :kind :added}
+  :ipv6-validation {:path "nodejs/src/client.ts"
+   :symbol "if (!isIPv6(host)) {"
+   :kind :added}
+  :disconnect-method {:path "nodejs/src/session.ts"
+   :symbol "async disconnect(): Promise<void> {"
+   :kind :target}
+  :disconnect-retry {:path "nodejs/src/session.ts"
+   :symbol "for (let attempt = 0; attempt < 2 && !response.success; attempt++) {"
+   :kind :added}
+  :disconnect-detach {:path "nodejs/src/session.ts"
+   :symbol "response = (await this.connection.sendRequest(\"session.detach\", {"
+   :kind :added}
+  :disconnect-state {:path "nodejs/src/session.ts"
+   :symbol "this._markDisconnected();"
+   :kind :target}
+  :tool-signal-type {:path "nodejs/src/types.ts"
+   :symbol "signal?: AbortSignal;"
+   :kind :added}
+  :external-tool-registry {:path "nodejs/src/session.ts"
+   :symbol "private pendingExternalTools: Map<string, AbortController> = new Map();"
+   :kind :added}
+  :external-tool-completed {:path "nodejs/src/session.ts"
+   :symbol "} else if (event.type === \"external_tool.completed\") {"
+   :kind :added}
+  :external-tool-duplicate {:path "nodejs/src/session.ts"
+   :symbol "if (this.disconnected || this.pendingExternalTools.has(requestId)) {"
+   :kind :added}
+  :external-tool-preflight {:path "nodejs/src/session.ts"
+   :symbol "const metadata = await Promise.race(["
+   :kind :added}
+  :external-tool-late-result {:path "nodejs/src/session.ts"
+   :symbol "if (!this._claimExternalTool(requestId, controller)) {"
+   :kind :added}
+  :external-tool-disconnect {:path "nodejs/src/session.ts"
+   :symbol "for (const controller of this.pendingExternalTools.values()) {"
+   :kind :added}
+  :auto-tier-type {:path "nodejs/src/types.ts"
+   :symbol "autoTier?: AutoTier;"
+   :kind :target}
+  :create-capi-forwarding {:path "nodejs/src/client.ts"
+   :symbol "capi: config.capi,"
+   :kind :target}
+  :resume-capi-forwarding {:path "nodejs/src/client.ts"
+   :symbol "capi: config.capi,"
+   :kind :target}
+  :resident-auto-tier-doc {:path "nodejs/src/types.ts"
+   :symbol "resume, a different tier requests a safe switch"
+   :kind :added}
+  :join-resume-forwarding {:path "nodejs/src/extension.ts"
+   :symbol "...rest,"
+   :kind :unchanged}
+  :remediation-action {:path "nodejs/src/generated/session-events.ts"
+   :symbol "export type RemediationAction ="
+   :kind :added}
+  :user-message-id {:path "nodejs/src/generated/session-events.ts"
+   :symbol "messageId?: string;"
+   :kind :added}
+  :skill-source-sdk {:path "nodejs/src/generated/session-events.ts"
+   :symbol "| \"sdk\";"
+   :declaration "SkillSource"
+   :kind :declaration-added-value}
+  :skill-disable-model-invocation {:path "nodejs/src/generated/session-events.ts"
+   :symbol "disableModelInvocation?: boolean;"
+   :kind :added}
+  :agent-model-policy {:path "nodejs/src/generated/session-events.ts"
+   :symbol "export type AgentModelPolicy ="
+   :kind :added}
+  :custom-agent-models {:path "nodejs/src/generated/session-events.ts"
+   :symbol "models?: string[];"
+   :kind :added}
+  :custom-agent-model-policy {:path "nodejs/src/generated/session-events.ts"
+   :symbol "modelPolicy?: AgentModelPolicy;"
+   :kind :added}
+  :subagent-model-override-completed {:path "nodejs/src/generated/session-events.ts"
+   :symbol "modelOverrideReason?: string;"
+   :kind :added}
+  :subagent-model-override-failed {:path "nodejs/src/generated/session-events.ts"
+   :symbol "modelOverrideReason?: string;"
+   :kind :added}
+  :permission-agent-mode {:path "nodejs/src/generated/session-events.ts"
+   :symbol "agentMode?: SessionMode;"
+   :kind :added}
+  :mcp-server-metadata {:path "nodejs/src/generated/session-events.ts"
+   :symbol "export interface McpServerMetadata {"
+   :kind :added}
+  :mcp-instructions-nullable {:path "nodejs/src/generated/session-events.ts"
+   :symbol "instructions: string | null;"
+   :kind :added}
+  :mcp-server-removed {:path "nodejs/src/generated/session-events.ts"
+   :symbol "type: \"session.mcp_server_removed\";"
+   :kind :added}
+  :mcp-server-needs-reconnect {:path "nodejs/src/generated/session-events.ts"
+   :symbol "type: \"session.mcp_server_needs_reconnect\";"
+   :kind :added}
+  :set-auto-tier-method {:path "nodejs/src/session.ts"
+   :symbol "async setAutoTier(autoTier: AutoTier | null): Promise<ModelSwitchAutoTierResult> {"
+   :kind :added}
+  :set-model-null-auto-tier {:path "nodejs/src/session.ts"
+   :symbol "autoTier?: AutoTier | null;"
+   :kind :added}
+  :current-model-type {:path "nodejs/src/generated/rpc.ts"
+   :symbol "export interface CurrentModel {"
+   :kind :target}
+  :auto-tier-switch-failed {:path "nodejs/src/generated/session-events.ts"
+   :symbol "type: \"session.auto_tier_switch_failed\";"
+   :kind :added}
+  :completion-receipt-event {:path "nodejs/src/generated/session-events.ts"
+   :symbol "type: \"session.completion_receipt\";"
+   :kind :added}
+  :fusion-phase-activity {:path "nodejs/src/generated/session-events.ts"
+   :symbol "type: \"assistant.fusion_phase_activity\";"
+   :kind :added}
+  :fusion-phase-plan {:path "nodejs/src/generated/session-events.ts"
+   :symbol "phasePlan?: FusionPhasePlanStep[];"
+   :kind :added}
+  :sandbox-allow-bypass {:path "nodejs/src/generated/rpc.ts"
+   :symbol "allowBypass?: boolean;"
+   :kind :added}
+  :supported-task-kinds {:path "nodejs/src/client.ts"
+   :symbol "supportedTaskKinds: [\"agent\", \"client\", \"shell\"],"
+   :kind :added}
+  :task-kind-client {:path "nodejs/src/generated/rpc.ts"
+   :symbol "| \"client\";"
+   :declaration "TaskKind"
+   :kind :declaration-added-value}
+  :client-task-handler {:path "nodejs/src/generated/rpc.ts"
+   :symbol "export interface TasksHandler {"
+   :kind :added}
+  :task-client-rpc {:path "nodejs/src/generated/rpc.ts"
+   :symbol "export interface TaskClientInfo {"
+   :kind :added}
+  :hook-discovery-rpc {:path "nodejs/src/generated/rpc.ts"
+   :symbol "export interface HooksDiscoverRequest {"
+   :kind :added}
+  :skill-provider-rpc {:path "nodejs/src/generated/rpc.ts"
+   :symbol "export interface SkillProviderDescriptor {"
+   :kind :added}
+  :persisted-events-rpc {:path "nodejs/src/generated/rpc.ts"
+   :symbol "export interface SessionsReadPersistedEventsRequest {"
+   :kind :added}
+  :runtime-bundle-materialization {:path "nodejs/src/runtimeArtifacts.ts"
+   :symbol "export async function ensureRuntimeBundle("
+   :kind :added}}
+ :schema-source-proof {:npm-package "@github/copilot-linux-x64"
+  :npm-version "1.0.83"
+  :official-release "github/copilot-cli v1.0.83"
+  :release-asset "github-copilot-1.0.83-linux-x64.tgz"
+  :release-archive-sha256 "888f8fbb4575c335afba4a8863c647ef04f81e5124c7c794bdcaee90c5fa4503"
+  :schema-manifest-file-count 2
+  :schema-manifest-sha256 "0fd2a836d536c0c8bb25362114e55f8e776fb42c4815ca7fe6071b651f86022a"
+  :relationship :byte-identical}
+ :local-artifacts {:source-version "1.0.13.0"
+  :schema-version "1.0.83"
+  :historical-oracle-sha256 "e8d977cb6f0b790c9736850ece9ca9030774b96e60f036a034a5a7fbccbb2374"
+  :api-schema-sha256 "0d4416b3e042bf0064d5349dc2a30e40f2755f0ece0d9ef046fbbcfebaf4de42"
+  :session-events-schema-sha256 "bea5ebe5060d68b70ce366f46b866d8dd19c252ef1df6445905cd2377954458e"
+  :event-specs-sha256 "d0864948ce76021e5ddd5b09436407b6ddb71fdab931a9aafa98db10fbf49fc8"
+  :event-metadata-sha256 "60a6a782830241727e6d1348c6fdee594920b7099ff93ba3c07c1018360391ac"
+  :coerce-sha256 "4daf61b23897a37453aec06f9e778a5ed0114e484702389cfc3c33e7b62f938e"}}

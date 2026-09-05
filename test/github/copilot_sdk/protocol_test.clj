@@ -1,5 +1,6 @@
 (ns github.copilot-sdk.protocol-test
   (:require [clojure.core.async :as async :refer [>!! <!!]]
+            [clojure.core.async.impl.protocols :as async-protocols]
             [clojure.data.json :as json]
             [clojure.test :refer [deftest is testing]]
             [github.copilot-sdk.protocol :as protocol])
@@ -93,6 +94,14 @@
         (finally
           (protocol/disconnect conn))))))
 
+(deftest test-cancel-request-does-not-recreate-a-released-connection
+  (let [state-atom (atom {:connection nil})
+        response-ch (async/chan 1)
+        conn {:state-atom state-atom}]
+    (is (nil? (protocol/cancel-request! conn response-ch)))
+    (is (= {:connection nil} @state-atom))
+    (async/close! response-ch)))
+
 (deftest test-send-request-with-nil-timeout-waits-unbounded
   (testing "nil disables the blocking request deadline"
     (let [state-atom (atom {:connection (protocol/initial-connection-state)})
@@ -131,6 +140,206 @@
           (is (= {:method "ping" :timeout-ms 10}
                  (get-in result [:error :data]))))
         (is (empty? (get-in @state-atom [:connection :pending-requests])))
+        (finally
+          (protocol/disconnect conn))))))
+
+(deftest test-send-request-timeout-awaits-reader-owned-response
+  (testing "A blocking timeout cannot discard a response already claimed by the reader"
+    (let [state-atom (atom {:connection (protocol/initial-connection-state)})
+          in (PipedInputStream.)
+          server-out (PipedOutputStream. in)
+          out (ByteArrayOutputStream.)
+          conn (protocol/connect in out state-atom)
+          callback-entered (promise)
+          release-callback (promise)
+          timeout-signal (async/chan 1)
+          cancel-attempt (promise)
+          real-cancel-request! protocol/cancel-request!]
+      (try
+        (with-redefs [async/timeout (fn [^long _timeout-ms] timeout-signal)
+                      protocol/cancel-request!
+                      (fn [connection response-ch]
+                        (let [removed? (real-cancel-request! connection response-ch)]
+                          (deliver cancel-attempt {:removed? removed?})
+                          removed?))]
+          (let [result
+                (future
+                  (protocol/send-request!
+                   conn
+                   "mutate"
+                   {}
+                   10
+                   {:on-response-inline
+                    (fn [_]
+                      (deliver callback-entered true)
+                      @release-callback)}))]
+            (is (true? (wait-for #(seq (get-in @state-atom
+                                               [:connection :pending-requests]))
+                                 500)))
+            (let [request-id (first (keys (get-in @state-atom
+                                                  [:connection :pending-requests])))]
+              (write-framed-json! server-out
+                                  {:jsonrpc "2.0"
+                                   :id request-id
+                                   :result {:messageId "reader-owned"}}))
+            (is (true? (deref callback-entered 500 false)))
+            (>!! timeout-signal :timeout)
+            (is (= {:removed? nil}
+                   (deref cancel-attempt 500 ::timeout)))
+            (is (false? (realized? result)))
+            (deliver release-callback true)
+            (is (= {:message-id "reader-owned"}
+                   (deref result 1000 ::timeout)))))
+        (finally
+          (deliver release-callback true)
+          (.close server-out)
+          (protocol/disconnect conn))))))
+
+(deftest test-async-timeout-awaits-reader-owned-response
+  (testing "An async timeout cannot replace a response already claimed by the reader"
+    (let [state-atom (atom {:connection (protocol/initial-connection-state)})
+          in (PipedInputStream.)
+          server-out (PipedOutputStream. in)
+          out (ByteArrayOutputStream.)
+          conn (protocol/connect in out state-atom)
+          callback-entered (promise)
+          release-callback (promise)
+          timeout-signal (async/chan 1)
+          cancel-attempt (promise)
+          real-cancel-request! protocol/cancel-request!]
+      (try
+        (with-redefs [async/timeout (fn [^long _timeout-ms] timeout-signal)
+                      protocol/cancel-request!
+                      (fn [connection response-ch]
+                        (let [removed? (real-cancel-request! connection response-ch)]
+                          (deliver cancel-attempt {:removed? removed?})
+                          removed?))]
+          (let [result-ch
+                (protocol/send-request-with-timeout
+                 conn
+                 "mutate"
+                 {}
+                 10
+                 {:on-response-inline
+                  (fn [_]
+                    (deliver callback-entered true)
+                    @release-callback)})]
+            (is (true? (wait-for #(seq (get-in @state-atom
+                                               [:connection :pending-requests]))
+                                 500)))
+            (let [request-id (first (keys (get-in @state-atom
+                                                  [:connection :pending-requests])))]
+              (write-framed-json! server-out
+                                  {:jsonrpc "2.0"
+                                   :id request-id
+                                   :result {:messageId "reader-owned"}}))
+            (is (true? (deref callback-entered 500 false)))
+            (>!! timeout-signal :timeout)
+            (is (= {:removed? nil}
+                   (deref cancel-attempt 500 ::timeout)))
+            (is (nil? (async/poll! result-ch)))
+            (deliver release-callback true)
+            (is (= {:result {:message-id "reader-owned"}}
+                   (deref (future (<!! result-ch)) 1000 ::timeout)))))
+        (finally
+          (deliver release-callback true)
+          (.close server-out)
+          (protocol/disconnect conn))))))
+
+(deftest test-reader-normalization-failure-completes-blocking-request
+  (let [state-atom (atom {:connection (protocol/initial-connection-state)})
+        in (PipedInputStream.)
+        server-out (PipedOutputStream. in)
+        out (ByteArrayOutputStream.)
+        conn (protocol/connect in out state-atom)
+        timeout-signal (async/chan 1)]
+    (try
+      (with-redefs [async/timeout (fn [^long _timeout-ms] timeout-signal)]
+        (let [result
+              (future
+                (try
+                  (protocol/send-request!
+                   conn "session.resume" {} 10)
+                  (catch Throwable failure
+                    failure)))]
+          (is (true? (wait-for #(seq (get-in @state-atom
+                                             [:connection :pending-requests]))
+                               500)))
+          (let [request-id
+                (first
+                 (keys
+                  (get-in @state-atom
+                          [:connection :pending-requests])))]
+            (write-framed-json! server-out
+                                {:jsonrpc "2.0"
+                                 :id request-id
+                                 :result "malformed"}))
+          (is (true? (wait-for #(empty? (get-in @state-atom
+                                                [:connection :pending-requests]))
+                               500)))
+          (>!! timeout-signal :timeout)
+          (let [failure (deref result 500 ::timeout)]
+            (is (instance? clojure.lang.ExceptionInfo failure))
+            (is (= -32603
+                   (get-in (ex-data failure) [:error :code])))
+            (future-cancel result))))
+      (finally
+        (.close server-out)
+        (protocol/disconnect conn)))))
+
+(deftest test-reader-normalization-failure-completes-async-request
+  (let [state-atom (atom {:connection (protocol/initial-connection-state)})
+        in (PipedInputStream.)
+        server-out (PipedOutputStream. in)
+        out (ByteArrayOutputStream.)
+        conn (protocol/connect in out state-atom)
+        timeout-signal (async/chan 1)]
+    (try
+      (with-redefs [async/timeout (fn [^long _timeout-ms] timeout-signal)]
+        (let [result-ch
+              (protocol/send-request-with-timeout
+               conn "session.resume" {} 10)
+              result
+              (future (<!! result-ch))]
+          (is (true? (wait-for #(seq (get-in @state-atom
+                                             [:connection :pending-requests]))
+                               500)))
+          (let [request-id
+                (first
+                 (keys
+                  (get-in @state-atom
+                          [:connection :pending-requests])))]
+            (write-framed-json! server-out
+                                {:jsonrpc "2.0"
+                                 :id request-id
+                                 :result "malformed"}))
+          (is (true? (wait-for #(empty? (get-in @state-atom
+                                                [:connection :pending-requests]))
+                               500)))
+          (>!! timeout-signal :timeout)
+          (let [response (deref result 500 ::timeout)]
+            (is (= -32603 (get-in response [:error :code])))
+            (future-cancel result))))
+      (finally
+        (.close server-out)
+        (protocol/disconnect conn)))))
+
+(deftest test-cancel-request-clears-exact-pending-response
+  (testing "cancellation atomically removes and closes only the matching request"
+    (let [state-atom (atom {:connection (protocol/initial-connection-state)})
+          in (PipedInputStream.)
+          _ (PipedOutputStream. in)
+          out (ByteArrayOutputStream.)
+          conn (protocol/connect in out state-atom)
+          response-ch (protocol/send-request conn "ping" {})]
+      (try
+        (is (true? (wait-for #(seq (get-in @state-atom
+                                           [:connection :pending-requests]))
+                             500)))
+        (is (true? (protocol/cancel-request! conn response-ch)))
+        (is (async-protocols/closed? response-ch))
+        (is (empty? (get-in @state-atom [:connection :pending-requests])))
+        (is (nil? (protocol/cancel-request! conn response-ch)))
         (finally
           (protocol/disconnect conn))))))
 

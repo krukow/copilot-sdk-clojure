@@ -160,6 +160,22 @@ Disable specific servers for a session without removing their `:mcp-servers` ent
 
 Passing `[]` explicitly differs on the wire from omitting the key: `[]` sends an empty `disabledMcpServers` vector, while omission sends no field. Supported identically on `create-session`, `resume-session`, and `join-session` (which resumes internally).
 
+### Observing MCP Server Lifecycle
+
+Session subscriptions expose MCP status through curated events:
+
+| Event | Data |
+|-------|------|
+| `:copilot/session.mcp_servers_loaded` | `{:servers [...]}` snapshot. Each server includes `:name` and `:status`, and may include source/plugin identity, `:error`, and `:server-metadata {:instructions <string-or-nil>}`. |
+| `:copilot/session.mcp_server_status_changed` | `{:server-name "..." :status "..."}` |
+| `:copilot/session.mcp_server_removed` | `{:server-name "..."}` |
+| `:copilot/session.mcp_server_needs_reconnect` | `{:server-name "..."}` |
+
+Statuses are `"connected"`, `"failed"`, `"needs-auth"`, `"pending"`,
+`"disabled"`, `"stopped"`, or `"not_configured"`. Treat
+`mcp_server_needs_reconnect` as a host-facing signal; the runtime does not imply
+that the SDK reconfigures or restarts the server automatically.
+
 ### Built-in GitHub MCP Tool Configuration
 
 `:github-mcp-tool-config` tunes the runtime's **built-in** GitHub MCP server. It is independent of manually configuring a `"github"` entry under `:mcp-servers`, as in [Remote MCP Server (HTTP)](#remote-mcp-server-http) above:

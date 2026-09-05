@@ -283,21 +283,34 @@
     ;; Atomically claim the pending entry so a concurrent drain-pending!
     ;; (disconnect / EOF) can never also deliver to this response channel.
     (when-let [{:keys [ch on-response-inline method]} (pop-pending! state-atom id)]
-      (let [msg (normalize-response method raw-msg)]
-        (if-let [error (:error msg)]
-          (do
-            (log/debug "Response error: " error)
-            (put! ch {:error error})
-            (close! ch))
-          (let [result (:result msg)]
-            (log/debug "Response success for id=" id)
-            (when on-response-inline
-              (try
-                (on-response-inline result)
-                (catch Throwable t
-                  (log/error t "on-response-inline callback threw for id=" id))))
-            (put! ch {:result result})
-            (close! ch)))))))
+      (try
+        (let [msg (normalize-response method raw-msg)]
+          (if-let [error (:error msg)]
+            (do
+              (log/debug "Response error: " error)
+              (put! ch {:error error})
+              (close! ch))
+            (let [result (:result msg)]
+              (log/debug "Response success for id=" id)
+              (when on-response-inline
+                (try
+                  (on-response-inline result)
+                  (catch Throwable t
+                    (log/error t "on-response-inline callback threw for id=" id))))
+              (put! ch {:result result})
+              (close! ch))))
+        (catch Throwable failure
+          (log/error failure
+                     "Failed to process response"
+                     {:id id :method method})
+          (put! ch
+                {:error
+                 {:code -32603
+                  :message "Failed to process response"
+                  :data {:id id :method method}}})
+          (close! ch)
+          (when-not (instance? Exception failure)
+            (throw failure)))))))
 
 (defn- preserve-outgoing-opaque-fields
   "Per-method outgoing escape hatch: after recursive kebab→camelCase
@@ -830,6 +843,39 @@
         (log/warn "Reverse request handler pool did not terminate within 1000ms; "
                   (.getActiveCount executor) " handler(s) still running")))))
 
+(defn ^:no-doc release-disconnected-connection!
+  "Release resources for a connection whose shared state is already stopped.
+
+   `connection-state` must be the snapshot for this exact connection. Passing
+   the snapshot keeps cleanup from touching thread references belonging to a
+   later connection that reuses the same client state atom."
+  [conn connection-state]
+  (shutdown-request-executor! (:request-executor conn))
+  (close! (:outgoing-ch conn))
+  (let [failures
+        (td/collect
+         [(when-let [^Thread writer (:writer-thread connection-state)]
+            (td/attempt {:operation :join :resource :writer-thread}
+                        (.interrupt writer)
+                        (.join writer 500)))
+
+          (when-let [^Thread thread (:notification-thread connection-state)]
+            (td/attempt {:operation :join :resource :notification-thread}
+                        (.interrupt thread)
+                        (.join thread 500)))
+
+          (td/attempt {:operation :close :resource :read-channel}
+                      (.close ^ReadableByteChannel (:read-channel conn)))
+          (td/attempt {:operation :close :resource :write-channel}
+                      (.close ^WritableByteChannel (:write-channel conn)))
+
+          (when-let [^Thread thread (:read-thread conn)]
+            (td/attempt {:operation :join :resource :read-thread}
+                        (.interrupt thread)
+                        (.join thread 1000)))])]
+    (log/debug "JSON-RPC connection closed")
+    failures))
+
 (defn disconnect
   "Close the connection gracefully.
    Closes NIO channels which causes reader thread to exit via AsynchronousCloseException.
@@ -848,54 +894,41 @@
     ;; clearing :running? so a concurrent send-request fails fast rather than
     ;; registering a new entry we'd miss.
     (drain-pending! state-atom {:code -32000 :message "Connection closed"})
+    (release-disconnected-connection! conn (conn-state state-atom))))
 
-    ;; Interrupt running handlers and abandon queued reverse requests before
-    ;; closing outgoing-ch. A request rejected during this shutdown window gets
-    ;; a best-effort connection-closed response.
-    (shutdown-request-executor! (:request-executor conn))
-
-    ;; Close outgoing channel first to stop write go-loop
-    (close! (:outgoing-ch conn))
-
-    (let [failures
-          (td/collect
-           [;; Interrupt writer thread if it exists
-            (when-let [^Thread writer (:writer-thread (conn-state state-atom))]
-              (td/attempt {:operation :join :resource :writer-thread}
-                          (.interrupt writer)
-                          (.join writer 500)))
-
-            ;; Interrupt notification dispatcher thread
-            (when-let [^Thread thread (:notification-thread (conn-state state-atom))]
-              (td/attempt {:operation :join :resource :notification-thread}
-                          (.interrupt thread)
-                          (.join thread 500)))
-
-            ;; Close NIO channels - this unblocks any blocked reads
-            (td/attempt {:operation :close :resource :read-channel}
-                        (.close ^ReadableByteChannel (:read-channel conn)))
-            (td/attempt {:operation :close :resource :write-channel}
-                        (.close ^WritableByteChannel (:write-channel conn)))
-
-            ;; Wait for read thread to exit
-            (when-let [^Thread thread (:read-thread conn)]
-              (td/attempt {:operation :join :resource :read-thread}
-                          (.interrupt thread)
-                          (.join thread 1000)))])]
-      (log/debug "JSON-RPC connection closed")
-      failures)))
-
-(defn- remove-pending-by-chan!
-  "Remove a pending request entry by channel identity."
+(defn- pop-pending-by-chan!
+  "Atomically remove and return a pending request entry by channel identity."
   [state-atom target-ch]
-  (update-conn! state-atom update :pending-requests
-                (fn [pending]
-                  (reduce-kv (fn [m id {:keys [ch] :as entry}]
-                               (if (identical? ch target-ch)
-                                 m
-                                 (assoc m id entry)))
-                             {}
-                             pending))))
+  (let [[old _]
+        (swap-vals!
+         state-atom
+         (fn [state]
+           (if (:connection state)
+             (update-in
+              state
+              [:connection :pending-requests]
+              (fn [pending]
+                (reduce-kv (fn [m id {:keys [ch] :as entry}]
+                             (if (identical? ch target-ch)
+                               m
+                               (assoc m id entry)))
+                           {}
+                           pending)))
+             state)))]
+    (some (fn [[_ {:keys [ch] :as entry}]]
+            (when (identical? ch target-ch)
+              entry))
+          (get-in old [:connection :pending-requests]))))
+
+(defn ^:no-doc cancel-request!
+  "Cancel a pending request by response-channel identity.
+
+   Returns true only when this call atomically removed the pending request.
+   A response already claimed by the reader remains deliverable."
+  [conn response-ch]
+  (when (pop-pending-by-chan! (:state-atom conn) response-ch)
+    (close! response-ch)
+    true))
 
 (defn- preserve-outgoing-request-opaque-fields
   [method raw-params wire-params]
@@ -960,9 +993,9 @@
                  ;; dropped, so resolve the pending entry with an error rather
                  ;; than leaving the caller blocked.
                  (when-not enqueued?
-                   (remove-pending-by-chan! state-atom ch)
-                   (put! ch {:error {:code -32000 :message "Connection closed"}})
-                   (close! ch))))
+                   (when (pop-pending-by-chan! state-atom ch)
+                     (put! ch {:error {:code -32000 :message "Connection closed"}})
+                     (close! ch)))))
          (do
            (put! ch {:error {:code -32000 :message "Connection closed"}})
            (close! ch)))
@@ -970,27 +1003,28 @@
 
 (defn send-request-with-timeout
   "Send a JSON-RPC request and return a channel for its bounded response.
-   A timeout delivers a JSON-RPC-shaped error and removes the pending request.
+   A timeout delivers a JSON-RPC-shaped error only when it atomically removes
+   the pending request. If the reader already claimed the response, this waits
+   for that response instead of reporting an ambiguous timeout.
 
    The 5-arity form accepts the same opts as `send-request`."
   ([conn method params timeout-ms]
    (send-request-with-timeout conn method params timeout-ms {}))
   ([conn method params timeout-ms opts]
-   (let [state-atom (:state-atom conn)
-         response-ch (send-request conn method params opts)
+   (let [response-ch (send-request conn method params opts)
          result-ch (chan 1)
          timeout-ch (async/timeout timeout-ms)]
      (async/go
-       (let [[result port] (async/alts! [response-ch timeout-ch])]
+       (let [[result port] (async/alts! [response-ch timeout-ch] :priority true)]
          (if (= port timeout-ch)
-           (do
-             (remove-pending-by-chan! state-atom response-ch)
-             (close! response-ch)
+           (if (cancel-request! conn response-ch)
              (async/>! result-ch
                        {:error
                         {:code -32000
                          :message "Request timeout"
-                         :data {:method method :timeout-ms timeout-ms}}}))
+                         :data {:method method :timeout-ms timeout-ms}}})
+             (when-let [claimed-response (async/<! response-ch)]
+               (async/>! result-ch claimed-response)))
            (when (some? result)
              (async/>! result-ch result)))
          (close! result-ch)))
@@ -1008,18 +1042,21 @@
   ([conn method params timeout-ms]
    (send-request! conn method params timeout-ms {}))
   ([conn method params timeout-ms opts]
-   (let [state-atom (:state-atom conn)
-         response-ch (send-request conn method params opts)
+   (let [response-ch (send-request conn method params opts)
          timeout-ch (when timeout-ms (async/timeout timeout-ms))
-         [result port] (async/alts!! (cond-> [response-ch]
-                                       timeout-ch (conj timeout-ch)))]
+         [initial-result port]
+         (async/alts!! (cond-> [response-ch]
+                         timeout-ch (conj timeout-ch))
+                       :priority true)
+         result
+         (if (and timeout-ch (= port timeout-ch))
+           (if (cancel-request! conn response-ch)
+             (throw
+              (ex-info "Request timeout"
+                       {:method method :timeout-ms timeout-ms}))
+             (<!! response-ch))
+           initial-result)]
      (cond
-       (and timeout-ch (= port timeout-ch))
-       (do
-         (remove-pending-by-chan! state-atom response-ch)
-         (close! response-ch)
-         (throw (ex-info "Request timeout" {:method method :timeout-ms timeout-ms})))
-
        (nil? result)
        (throw (ex-info "Response channel closed" {:method method}))
 

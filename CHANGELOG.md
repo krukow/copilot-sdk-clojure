@@ -3,6 +3,53 @@ All notable changes to this project will be documented in this file. This change
 
 ## [Unreleased]
 
+### Added (v1.0.13 sync)
+- Added stable `:client-info` identity on the connection handshake, with
+  independent omission of empty application and integration fields.
+  ([upstream PR #2464](https://github.com/github/copilot-sdk/pull/2464),
+  [upstream PR #2482](https://github.com/github/copilot-sdk/pull/2482))
+- Added host-facing cancellation channels for external tool handlers. Pending
+  invocations are owned by request ID, so distinct requests may share a tool-call
+  ID without stealing cancellation or completion state. Ownership remains
+  deterministic across handler completion, runtime completion notifications,
+  duplicate request IDs, metadata lookup, session teardown, unexpected
+  connection loss, and late results.
+  ([upstream PR #2509](https://github.com/github/copilot-sdk/pull/2509))
+- Added stable event fields for remediation guidance, user-message identity,
+  SDK-provided skills, custom-agent model policy, subagent override reasons,
+  permission agent mode, and MCP server metadata. Added the stable
+  `session.mcp_server_removed` and `session.mcp_server_needs_reconnect` events.
+  Skill inventory sources use the closed upstream source set, including
+  `"sdk"`; `skill.invoked` preserves its open string source, including
+  runtime-provided values such as `"remote"`.
+  ([upstream PR #2468](https://github.com/github/copilot-sdk/pull/2468),
+  [upstream PR #2534](https://github.com/github/copilot-sdk/pull/2534))
+
+### Changed (v1.0.13 sync)
+- **BREAKING:** `disconnect!` now uses non-destructive `session.detach`.
+  Unsuccessful responses are retried exactly once, transport failures are not
+  retried, and failed detach attempts preserve local session resources while
+  the transport remains live. Local teardown follows successful detach or
+  client-wide connection cleanup.
+  ([upstream PR #2307](https://github.com/github/copilot-sdk/pull/2307))
+- Auto-tier configuration supplied while resuming a resident session may
+  request a safe runtime tier switch. Omission continues to restore the
+  persisted preference. Experimental live setters, nullable reset, status
+  types, and switch-failure events remain intentionally excluded.
+  ([upstream PR #2514](https://github.com/github/copilot-sdk/pull/2514))
+- Updated the runtime and schema pin to `1.0.83` and recertified the complete
+  stable Node SDK public surface through upstream commit
+  [`f13e4a2cc7e4e220974d2333142234e162a3252e`](https://github.com/github/copilot-sdk/commit/f13e4a2cc7e4e220974d2333142234e162a3252e).
+  Experimental live Auto-tier APIs, completion receipts, Fusion additions,
+  sandbox-bypass controls, generated-only RPCs, internal implementation
+  details, and language-specific changes remain intentionally excluded.
+
+### Fixed (v1.0.13 sync)
+- Bracketed runtime hosts are now accepted only when they contain a syntactically
+  valid IPv6 literal, including IPv4-mapped and scoped forms; malformed bracketed
+  names and bracketed IPv4 addresses fail validation.
+  ([upstream PR #2200](https://github.com/github/copilot-sdk/pull/2200))
+
 ### Added (post-v1.0.13-preview.4 sync)
 - Added session-scoped `:github-token-provider` authentication for create,
   resume, and join, with initial and refresh callbacks, core.async results,
@@ -56,23 +103,6 @@ All notable changes to this project will be documented in this file. This change
   `:judge-recommendation` / `"judge_recommendation"` to the pinned public schema's
   `:assisted-approval` / `"assisted_approval"`.
   ([upstream PR #2294](https://github.com/github/copilot-sdk/pull/2294))
-- **BREAKING:** `disconnect!` now destroys the runtime session before releasing
-  local resources. Definite runtime rejection leaves the local session connected
-  for retry. A timeout or interruption is ambiguous, so it is rethrown after
-  local teardown instead of leaving a potentially destroyed runtime session
-  registered locally. Concurrent disconnect callers join the same operation and
-  observe its identical success or failure. Lifecycle macros keep a body failure
-  primary and attach concurrent cleanup failures as suppressed exceptions;
-  client shutdown still force-releases local session resources.
-- Updated the runtime and schema pin to `1.0.83-1` and recertified the complete
-  stable Node SDK public surface through upstream commit
-  [`2980c7828d35754bfc2b334831efec309ab8a2eb`](https://github.com/github/copilot-sdk/commit/2980c7828d35754bfc2b334831efec309ab8a2eb).
-  Experimental Agent Factory additions and HydraFusion routing/phase events,
-  private runtime launch internals, generated-only RPCs, and language-specific
-  changes remain intentionally excluded. Stable HydraFusion handoff and
-  commit-start events remain internal.
-  ([upstream PR #2467](https://github.com/github/copilot-sdk/pull/2467))
-
 ### Fixed (post-v1.0.13-preview.4 sync)
 - Generated wire specs now enforce referenced-object requirements, enums, and
   closed-key contracts recursively while preserving open event data maps for

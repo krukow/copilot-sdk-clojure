@@ -135,6 +135,66 @@
       (is (not-any? #(contains? % :enableGitHubTelemetryForwarding) @seen)
           "connect must not stamp the flag without a handler"))))
 
+(deftest test-client-info-on-connect-handshake
+  (testing "client identity is mapped to the runtime handshake"
+    (with-telemetry-client*
+      {:client-info {:application-name "My IDE"
+                     :application-version "2.4.0"
+                     :integration-name "copilot-sdk-clojure"
+                     :integration-version "1.0.13.0"}}
+      (fn [server client]
+        (let [seen (atom [])
+              _ (mock/set-request-hook! server (fn [method params]
+                                                 (when (= "connect" method)
+                                                   (swap! seen conj params))))
+              _ (#'client/verify-protocol-version! client)]
+          (is (= {:editorName "My IDE"
+                  :editorVersion "2.4.0"
+                  :extensionName "copilot-sdk-clojure"
+                  :extensionVersion "1.0.13.0"}
+                 (:clientInfo (last @seen))))))))
+
+  (testing "empty client identity fields are omitted independently"
+    (with-telemetry-client*
+      {:client-info {:application-name "My IDE"
+                     :application-version ""
+                     :integration-name ""
+                     :integration-version "2.4.0"}}
+      (fn [server client]
+        (let [seen (atom [])
+              _ (mock/set-request-hook! server (fn [method params]
+                                                 (when (= "connect" method)
+                                                   (swap! seen conj params))))
+              _ (#'client/verify-protocol-version! client)]
+          (is (= {:editorName "My IDE"
+                  :extensionVersion "2.4.0"}
+                 (:clientInfo (last @seen))))))))
+
+  (testing "an absent or all-empty client identity omits clientInfo"
+    (doseq [client-info [nil {} {:application-name ""
+                                 :application-version ""
+                                 :integration-name ""
+                                 :integration-version ""}]]
+      (with-telemetry-client*
+        (cond-> {}
+          (some? client-info) (assoc :client-info client-info))
+        (fn [server client]
+          (let [seen (atom [])
+                _ (mock/set-request-hook! server (fn [method params]
+                                                   (when (= "connect" method)
+                                                     (swap! seen conj params))))
+                _ (#'client/verify-protocol-version! client)]
+            (is (not (contains? (last @seen) :clientInfo))))))))
+
+  (testing "client identity is a closed string-valued map"
+    (doseq [client-info [{:application-name 1}
+                         {:application-name "My IDE" :unknown "value"}]]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"Invalid client options"
+           (sdk/client {:auto-start? false
+                        :client-info client-info}))))))
+
 (deftest test-enable-managed-settings-forwarded
   (testing "enableManagedSettings forwarded on session.create + session.resume wire params (upstream PR #1925)"
     (let [create @#'client/build-create-session-params

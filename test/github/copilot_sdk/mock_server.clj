@@ -211,6 +211,9 @@
     (swap! (:sessions server) dissoc session-id)
     {:success true}))
 
+(defn- handle-session-detach [_server _params]
+  {:success true})
+
 (defn- handle-session-abort [server params]
   (let [session-id (:sessionId params)]
     {:success true}))
@@ -332,6 +335,7 @@
                  "session.resume" (handle-session-resume server params)
                  "session.mcp.reloadWithConfig" {}
                  "session.send" (handle-session-send server params)
+                 "session.detach" (handle-session-detach server params)
                  "session.destroy" (handle-session-destroy server params)
                  "session.abort" (handle-session-abort server params)
                  "session.getMessages" (handle-session-get-messages server params)
@@ -619,6 +623,7 @@
    sync with the case dispatch in
    `github.copilot-sdk.client/handle-v3-broadcast-event!`."
   #{"external_tool.requested"
+    "external_tool.completed"
     "permission.requested"
     "command.execute"
     "elicitation.requested"

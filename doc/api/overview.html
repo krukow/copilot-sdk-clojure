@@ -144,6 +144,20 @@
 </table>
 <p><code>:disabled-mcp-servers</code> names servers that are not started or authenticated when creating or cold-resuming a session. Supplying it on a <strong>resident</strong> (warm) resume cannot stop servers that are already running — only <code>create-session</code> or a cold resume actually prevent startup.</p>
 <p>Passing <code>[]</code> explicitly differs on the wire from omitting the key: <code>[]</code> sends an empty <code>disabledMcpServers</code> vector, while omission sends no field. Supported identically on <code>create-session</code>, <code>resume-session</code>, and <code>join-session</code> (which resumes internally).</p>
+<h3><a href="#observing-mcp-server-lifecycle" id="observing-mcp-server-lifecycle"></a>Observing MCP Server Lifecycle</h3>
+<p>Session subscriptions expose MCP status through curated events:</p>
+<table>
+<thead>
+<tr><th> Event </th><th> Data </th></tr>
+</thead>
+<tbody>
+<tr><td> <code>:copilot/session.mcp_servers_loaded</code> </td><td> <code>{:servers [...]}</code> snapshot. Each server includes <code>:name</code> and <code>:status</code>, and may include source/plugin identity, <code>:error</code>, and <code>:server-metadata {:instructions &lt;string-or-nil&gt;}</code>. </td></tr>
+<tr><td> <code>:copilot/session.mcp_server_status_changed</code> </td><td> <code>{:server-name "..." :status "..."}</code> </td></tr>
+<tr><td> <code>:copilot/session.mcp_server_removed</code> </td><td> <code>{:server-name "..."}</code> </td></tr>
+<tr><td> <code>:copilot/session.mcp_server_needs_reconnect</code> </td><td> <code>{:server-name "..."}</code> </td></tr>
+</tbody>
+</table>
+<p>Statuses are <code>"connected"</code>, <code>"failed"</code>, <code>"needs-auth"</code>, <code>"pending"</code>, <code>"disabled"</code>, <code>"stopped"</code>, or <code>"not_configured"</code>. Treat <code>mcp_server_needs_reconnect</code> as a host-facing signal; the runtime does not imply that the SDK reconfigures or restarts the server automatically.</p>
 <h3><a href="#built-in-github-mcp-tool-configuration" id="built-in-github-mcp-tool-configuration"></a>Built-in GitHub MCP Tool Configuration</h3>
 <p><code>:github-mcp-tool-config</code> tunes the runtime’s <strong>built-in</strong> GitHub MCP server. It is independent of manually configuring a <code>"github"</code> entry under <code>:mcp-servers</code>, as in <a href="#remote-mcp-server-http">Remote MCP Server (HTTP)</a> above:</p>
 <pre><code class="language-clojure">(copilot/with-client-session [session

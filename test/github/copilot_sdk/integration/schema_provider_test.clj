@@ -915,6 +915,33 @@
          (sdk/client {:cli-url "https://localhost:4444"
                       :auto-start? false}))))
 
+  (testing "bracketed cli-url hosts must be valid IPv6 literals"
+    (doseq [url ["[not-ipv6]:4444"
+                 "[127.0.0.1]:4444"
+                 "[2001:db8:::1]:4444"
+                 "[ ::1]:4444"
+                 "[1:: ]:4444"
+                 "[192.0.2.1::]:4444"
+                 "[2001:db8:192.0.2.1::]:4444"
+                 "[1:2:3:4:5:192.0.2.1]:4444"
+                 "[1:2:3:4:5:6::192.0.2.1]:4444"
+                 "[::ffff:127.0.0.01]:4444"]]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"IPv6"
+           (sdk/client {:cli-url url :auto-start? false}))
+          url)))
+
+  (testing "bracketed cli-url accepts syntactically valid mapped and scoped IPv6 literals"
+    (doseq [url ["[::ffff:127.0.0.1]:4444"
+                 "[::ffff:192.168.1.1]:4444"
+                 "[::192.0.2.1]:4444"
+                 "[1:2:3:4:5::192.0.2.1]:4444"
+                 "[1:2:3:4:5:6:192.0.2.1]:4444"
+                 "[fe80::1%definitely-not-an-interface]:4444"]]
+      (is (some? (sdk/client {:cli-url url :auto-start? false}))
+          url)))
+
   (testing "SDK-owned TCP and child-process stdio transports are accepted"
     (doseq [client [(sdk/client {:auto-start? false})
                     (sdk/client {:use-stdio? false :auto-start? false})
@@ -2439,7 +2466,55 @@
                          (nil? (provider-executor %)))
                    "GitHub token provider cleanup after notification closure"
                    1000)
-      (is (.isShutdown ^ThreadPoolExecutor executor)))))
+      (await-atom! (:state *test-client*)
+                   (fn [_]
+                     (.isShutdown ^ThreadPoolExecutor executor))
+                   "GitHub token provider executor shutdown"
+                   1000))))
+
+(deftest test-unexpected-connection-close-detaches-provider-executor-before-cleanup
+  (let [generation (provider-generation @(:state *test-client*))
+        executor
+        (:executor
+         (@#'client/github-token-provider-executor!
+          *test-client* generation))
+        terminate-entered (promise)
+        release-termination (CountDownLatch. 1)
+        real-terminate
+        (var-get #'client/terminate-github-token-provider-executor!)]
+    (try
+      (with-redefs-fn
+        {(var client/terminate-github-token-provider-executor!)
+         (fn [c captured-executor]
+           (deliver terminate-entered captured-executor)
+           (.await release-termination 1 TimeUnit/SECONDS)
+           (real-terminate c captured-executor))}
+        #(do
+           (close! (protocol/notifications
+                    (:connection-io @(:state *test-client*))))
+           (is (identical? executor
+                           (await-value! terminate-entered
+                                         "provider executor cleanup"
+                                         1000)))
+           (is (nil? (provider-executor @(:state *test-client*))))
+           (let [replacement
+                 (:executor
+                  (@#'client/github-token-provider-executor!
+                   *test-client*
+                   (provider-generation @(:state *test-client*))))]
+             (is (not (identical? executor replacement)))
+             (.countDown release-termination)
+             (await-atom! (:state *test-client*)
+                          (fn [state]
+                            (or (.isShutdown ^ThreadPoolExecutor executor)
+                                (not (identical? executor
+                                                 (provider-executor state)))))
+                          "old provider executor termination"
+                          1000)
+             (@#'client/release-github-token-provider-runtime!
+              *test-client*))))
+      (finally
+        (.countDown release-termination)))))
 
 (deftest test-session-github-token-provider-lifecycle
   (testing "resume rotates providers only on success and omission clears the previous provider"
@@ -2533,13 +2608,18 @@
   (testing "failed setup preserves a provider committed after its snapshot"
     (let [client (sdk/client {:auto-start? false})
           session-id "concurrent-provider-setup"
+          _ (swap! (:state client)
+                   assoc
+                   :status :connected
+                   :connection {:running? true})
           _ (session/create-session client session-id {})
           old-id
           (@#'client/register-github-token-provider!
            client (constantly {:kind :token :access-token "old"}) session-id)
           _ (@#'client/commit-github-token-provider!
              client session-id old-id)
-          setup-token (@#'client/claim-session-setup! client session-id)
+          setup-token
+          (@#'client/claim-session-setup! client session-id nil)
           snapshot (@#'client/session-registration-snapshot client session-id)
           registration-token
           (get-in @(:state client)
@@ -2855,7 +2935,11 @@
 
 (deftest same-session-id-cannot-be-set-up-concurrently
   (let [session-id "concurrent-session-setup"
-        setup-token (@#'client/claim-session-setup! *test-client* session-id)
+        setup-token
+        (@#'client/claim-session-setup!
+         *test-client*
+         session-id
+         (:connection-io @(:state *test-client*)))
         rpc-calls (atom 0)]
     (try
       (mock/set-request-hook!
@@ -2883,6 +2967,10 @@
 
 (deftest cloud-inline-setup-failure-rolls-back-before-callback-return
   (let [client (sdk/client {:auto-start? false})
+        _ (swap! (:state client)
+                 assoc
+                 :status :connected
+                 :connection {:running? true})
         session-id "cloud-inline-rollback"
         assigned-session-id (atom nil)
         setup-context (atom nil)
@@ -2890,6 +2978,7 @@
         callback
         (@#'client/make-create-session-inline-callback
          client
+         nil
          {:on-permission-request sdk/approve-all}
          {}
          nil
@@ -2903,8 +2992,78 @@
       #(callback {:session-id session-id}))
     (let [failure (deref result-promise 1000 ::timeout)]
       (is (instance? clojure.lang.ExceptionInfo failure))
-      (is (= "inline setup failed" (ex-message failure))))
+      (is (= "inline setup failed" (ex-message failure)))
+      (is (contains? (:session-setups @(:state client)) session-id))
+      (@#'client/fail-session-setup!
+       client @setup-context failure))
     (is (= session-id @assigned-session-id))
     (is (not (contains? (:sessions @(:state client)) session-id)))
     (is (not (contains? (:session-io @(:state client)) session-id)))
     (is (not (contains? (:session-setups @(:state client)) session-id)))))
+
+(deftest cloud-inline-failure-retains-setup-fence-through-remote-cleanup
+  (doseq [async? [false true]]
+    (testing (str (if async? "async" "sync")
+                  " cloud cleanup blocks a same-ID replacement")
+      (let [session-id (str "cloud-cleanup-fence-" async?)
+            cleanup-entered (promise)
+            release-cleanup (CountDownLatch. 1)
+            real-send-request! (var-get #'protocol/send-request!)
+            result (promise)]
+        (mock/set-request-hook!
+         *mock-server*
+         (fn [method _]
+           (when (= "session.create" method)
+             {::mock/merge-response {:sessionId session-id}})))
+        (with-redefs-fn
+          {#'client/install-session-fs-handler!
+           (fn [& _]
+             (throw
+              (ex-info "inline setup failed"
+                       {:phase :session-fs})))
+           #'protocol/send-request!
+           (fn [connection-io method params & args]
+             (when (= "session.destroy" method)
+               (deliver cleanup-entered true)
+               (.await release-cleanup 1 TimeUnit/SECONDS))
+             (apply real-send-request!
+                    connection-io method params args))}
+          (fn []
+            (try
+              (future
+                (deliver
+                 result
+                 (try
+                   (if async?
+                     (<!! (sdk/<create-session
+                           *test-client*
+                           {:cloud {}
+                            :on-permission-request sdk/approve-all}))
+                     (sdk/create-session
+                      *test-client*
+                      {:cloud {}
+                       :on-permission-request sdk/approve-all}))
+                   (catch Throwable failure
+                     failure))))
+              (is (true? (await-value! cleanup-entered
+                                       "cloud setup cleanup"
+                                       1000)))
+              (let [replacement-failure
+                    (try
+                      (sdk/resume-session
+                       *test-client*
+                       session-id
+                       {:on-permission-request sdk/approve-all})
+                      nil
+                      (catch Throwable failure
+                        failure))]
+                (is (= :session-setup-in-progress
+                       (some-> replacement-failure ex-data :type))))
+              (finally
+                (.countDown release-cleanup)))))
+        (is (instance? Throwable
+                       (await-value! result
+                                     "cloud setup failure"
+                                     1000)))
+        (is (not (contains? (:session-setups @(:state *test-client*))
+                            session-id)))))))

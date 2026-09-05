@@ -119,6 +119,8 @@
     :copilot/session.skills_loaded
     :copilot/session.mcp_servers_loaded
     :copilot/session.mcp_server_status_changed
+    :copilot/session.mcp_server_removed
+    :copilot/session.mcp_server_needs_reconnect
     :copilot/session.extensions_loaded
     :copilot/session.custom_agents_updated
     :copilot/session.custom_notification
@@ -224,6 +226,8 @@
     :copilot/session.skills_loaded
     :copilot/session.mcp_servers_loaded
     :copilot/session.mcp_server_status_changed
+    :copilot/session.mcp_server_removed
+    :copilot/session.mcp_server_needs_reconnect
     :copilot/session.extensions_loaded
     :copilot/session.custom_agents_updated
     :copilot/session.custom_notification
@@ -1036,10 +1040,13 @@
    later resumption via `resume-session`. To permanently remove all session
    data, use `delete-session!` instead.
 
-   The runtime session is destroyed before local resources are released. A
-   definite runtime rejection is rethrown and leaves the local session connected
-   so the caller can retry. An ambiguous timeout, interruption, response-channel
-   closure, or connection loss is rethrown after local teardown."
+   The runtime session is detached before local resources are released. An
+   unsuccessful response is retried exactly once. A second unsuccessful response
+   or transport failure is rethrown. The local session remains connected for a
+   retry only while the client transport remains live; connection loss performs
+   client-wide local cleanup. No client-side timeout is applied because an
+   ambiguous timeout cannot prove whether runtime ownership was detached; use
+   force-stop! when a wedged transport prevents graceful shutdown."
   [session]
   (session/disconnect! session))
 

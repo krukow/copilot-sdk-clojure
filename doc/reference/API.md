@@ -225,7 +225,8 @@ kebab-case ↔ camelCase wire convention (e.g. `:working-directory` ↔
 | `:cli-path` | string | `"copilot"` | Path to CLI executable. Falls back to `COPILOT_CLI_PATH` env var when not set |
 | `:cli-args` | vector | `[]` | Extra arguments prepended before SDK-managed flags |
 | `:builtin-plugin-directories` | vector of strings | `[]` | Absolute paths to trusted plugin directories bundled by the host. The complete non-empty set is registered once after the protocol handshake and before any session or session filesystem provider. A registration failure force-stops the client and fails `start!`. Distinct from the per-session `:plugin-directories` option. ([upstream PR #2330](https://github.com/github/copilot-sdk/pull/2330)) |
-| `:cli-url` | string | nil | Address of an existing CLI server (for example, `"localhost:8080"` or `"http://localhost:8080"`). The transport is plaintext TCP, so `https://` is rejected rather than silently downgraded. When provided, no CLI process is spawned |
+| `:cli-url` | string | nil | Address of an existing CLI server (for example, `"localhost:8080"`, `"http://localhost:8080"`, or `"[::1]:8080"`). The transport is plaintext TCP, so `https://` is rejected rather than silently downgraded. Bracketed hosts must be valid IPv6 literals. When provided, no CLI process is spawned |
+| `:client-info` | map | nil | Application and integration identity sent on the `connect` handshake. Optional string keys: `:application-name`, `:application-version`, `:integration-name`, and `:integration-version`. Empty fields are omitted independently; the entire wire `clientInfo` object is omitted when no non-empty field remains. |
 | `:port` | number | `0` | Server port (0 = random) |
 | `:use-stdio?` | boolean | `true` | Use stdio transport instead of TCP |
 | `:log-level` | keyword | `:info` | One of `:none` `:error` `:warning` `:info` `:debug` `:all` |
@@ -392,7 +393,7 @@ failures.
 | `:provider` | map | Provider config for BYOK (see [BYOK docs](../auth/byok.md)). Required key: `:base-url`. Optional: `:provider-type` (`:openai`/`:azure`/`:anthropic`), `:wire-api` (`:completions`/`:responses`), `:api-key`, `:bearer-token`, `:azure-options`, `:headers` (map of HTTP header name→value, sent with each provider request — upstream PR #1094), `:model-id` (string — the model identifier to send to the provider; overrides session `:model`), `:wire-model` (string — model name as sent on the provider wire when it differs from `:model-id`), `:max-input-tokens` (integer — input/prompt token cap; serialized as wire `maxPromptTokens`), `:max-output-tokens` (integer — output token cap), `:transport` (`:http`/`:websockets` — provider transport; serialized as wire `transport` — upstream PR #1711), `:bearer-token-provider` (fn — dynamic bearer-token callback, see [BYOK docs](../auth/byok.md#dynamic-bearer-tokens) — upstream PR #1748). The four override fields were added in upstream PR #966 |
 | `:providers` | vector | (Experimental) Multi-provider BYOK registry — a vector of named providers. Each entry takes the connection fields of `:provider` — `:base-url` (required), `:provider-type`, `:wire-api`, `:api-key`, `:bearer-token`, `:azure-options`, `:headers`, `:bearer-token-provider` — plus a required `:name` (the registry key, no `/`). Unlike the singular `:provider`, a named provider does **not** accept `:transport` or the inline model-override fields (`:model-id`, `:wire-model`, `:max-input-tokens`, `:max-output-tokens`); model overrides are declared in `:models` instead. Pairs with `:models` to declare a model catalog. Cannot be combined with the singular `:provider`. (upstream PR #1718) |
 | `:models` | vector | (Experimental) Model catalog referencing the `:providers` registry. Each entry: `:id` (required, provider-local model id), `:provider` (required, a `:name` in `:providers`), and optional override fields (`:model-id`, `:wire-model`, `:capabilities`, `:max-input-tokens`, `:max-context-window-tokens`, `:max-output-tokens`). Prefer the canonical `:capabilities` idiom documented for `:model-capabilities`; exact string-keyed wire maps remain accepted as a deprecated compatibility escape hatch. The full model selection id is `"providerName/id"`. Cannot be combined with the singular `:provider`. (upstream PR #1718) |
-| `:capi` | map | CAPI (Copilot API) session options. Optional keys: `:enable-web-socket-responses` (boolean) and `:auto-tier` (`:efficiency`, `:balance`, or `:intelligence`). The tier is serialized as `capi.autoTier`; omission leaves routing selection to the runtime. Auto-tier applies on create and cold resume, but cannot change an already-resident warm session. ([upstream PR #2437](https://github.com/github/copilot-sdk/pull/2437)) |
+| `:capi` | map | CAPI (Copilot API) session options. Optional keys: `:enable-web-socket-responses` (boolean) and `:auto-tier` (`:efficiency`, `:balance`, or `:intelligence`). The tier is serialized as `capi.autoTier`; omission uses or restores the runtime's persisted preference. Supplying a different tier while resuming a resident session requests a safe runtime switch. Experimental live setters, nullable reset, and tier-status APIs are not exposed. ([upstream PR #2437](https://github.com/github/copilot-sdk/pull/2437), [upstream PR #2514](https://github.com/github/copilot-sdk/pull/2514)) |
 | `:feature-flags` | map | Host-resolved feature flag overrides as string keys and boolean values. Omission sends no wire key; an explicit `{}` is forwarded and remains distinct from omission. Valid on create, resume, and join. ([upstream PR #2451](https://github.com/github/copilot-sdk/pull/2451)) |
 | `:excluded-builtin-agents` | vector | Names of built-in agents to hide/exclude from the session. Serialized as wire `excludedBuiltinAgents`. (upstream PR #1865) |
 | `:enable-citations` | boolean | (Experimental) Opt into native model citations. Gated on `some?` — an explicit `false` is forwarded; an absent key is omitted. Serialized as wire `enableCitations`. (upstream PR #1865) |
@@ -1259,16 +1260,22 @@ Log a message to the session timeline. Returns the event ID string.
 (copilot/disconnect! session)
 ```
 
-Disconnect the session and free resources. This is the preferred way to close a
-session. The runtime is destroyed before local resources are released. If that
-request is definitely rejected, the exception propagates and the local session
-remains connected so the caller can retry. A timeout, interruption,
-response-channel closure, or connection loss is ambiguous because the runtime
-may already have destroyed the session; the exception propagates after local
-teardown. Interrupted threads retain their interrupted status.
+Disconnect the SDK from the session without destroying the runtime session.
+The runtime is detached before local resources are released. An unsuccessful
+response is retried exactly once; a second unsuccessful response throws and
+keeps the local session connected for an explicit retry.
+
+Transport exceptions are not retried automatically. A timeout, interruption,
+or other detach failure leaves local resources connected only while the client
+transport remains live. Actual connection loss performs client-wide local
+cleanup, so retry requires reconnecting and resuming the runtime session.
+`disconnect!` intentionally applies no client-side timeout because an ambiguous
+timeout cannot determine whether runtime ownership was detached. Use
+`force-stop!` when a wedged transport prevents graceful client shutdown.
+Interrupted threads retain their interrupted status.
 While one disconnect is in progress, concurrent callers wait for that operation
-without sending another runtime request. They then observe the same success or
-the identical exception instance.
+without sending another runtime request, then observe the same result or
+exception instance.
 
 #### `destroy!` *(deprecated)*
 
@@ -1806,7 +1813,7 @@ nested schema objects marked closed by upstream reject unknown keys.
 |------------|-------------|
 | `:copilot/session.start` | Session created |
 | `:copilot/session.resume` | Session resumed |
-| `:copilot/session.error` | Session error occurred; data: `{:error-type "..." :message "..." :stack "..." :status-code 429 :provider-call-id "..." :url "..."}` (`:stack`, `:status-code`, `:provider-call-id`, `:url` optional) |
+| `:copilot/session.error` | Session error occurred; data requires `:error-type` and `:message`, with optional `:stack`, `:status-code`, `:provider-call-id`, `:url`, and `:remediation`. Remediation values are `"sign_in"`, `"switch_account"`, `"show_account"`, `"review_sandbox_policy"`, and `"allow_sandbox_outbound"`. |
 | `:copilot/session.idle` | Session finished processing. When the event's `:data` includes `:mode "autopilot"`, this idle is a nonterminal turn boundary rather than the end of processing — see [`send-and-wait!`](#send-and-wait), [`query-seq!`](#query-seq), and [`query-chan`](#query-chan) for how the SDK's blocking/streaming helpers treat autopilot idle events. |
 | `:copilot/session.info` | Informational session update |
 | `:copilot/session.model_change` | Session model changed; data requires `:new-model` and may include `:previous-model`, `:previous-reasoning-effort`, `:reasoning-effort`, and `:source`. Known sources include `"model_command"`, `"config_command"`, `"model_picker"`, `"automatic"`, `"startup"`, `"managed_settings"`, `"agent"`, and `"sdk"`. |
@@ -1814,7 +1821,7 @@ nested schema objects marked closed by upstream reject unknown keys.
 | `:copilot/session.usage_info` | Token usage information |
 | `:copilot/session.context_changed` | Session context (cwd, repo, branch) changed |
 | `:copilot/session.title_changed` | Session title updated |
-| `:copilot/session.warning` | Session warning (e.g., quota limits) |
+| `:copilot/session.warning` | Session warning; data requires `:warning-type` and `:message`, with optional `:url` and the same `:remediation` values as `session.error`. |
 | `:copilot/session.shutdown` | Session is shutting down. Optional `:agent-metrics` maps agent keywords to `{:model-metrics {...} :total-api-duration-ms N :total-nano-aiu N}` plus optional `:agent-name` and `:agent-display-name`, enabling per-agent accounting alongside the session totals. |
 | `:copilot/session.truncation` | Context window truncated |
 | `:copilot/session.snapshot_rewind` | Session state rolled back |
@@ -1839,8 +1846,8 @@ nested schema objects marked closed by upstream reject unknown keys.
 | `:copilot/session.schedule_rearmed` | Self-paced schedule re-armed for its next run |
 | `:copilot/session.binary_asset` | Canonical bytes for a content-addressed binary asset shared by reference across events |
 | `:copilot/session.extensions.attachments_pushed` | Extension pushed attachments into the session |
-| `:copilot/skill.invoked` | Skill invocation triggered; data includes :name, :path, :content, optional :description, :plugin-name, :plugin-version |
-| `:copilot/user.message` | User message added; data requires `:content` and may include the correlation field `:turn-id` plus `:interaction-id`, `:source`, `:transformed-content`, and `:is-autopilot-continuation`. |
+| `:copilot/skill.invoked` | Skill invocation triggered; data requires `:name`, `:path`, and `:content`, with optional `:description`, `:allowed-tools`, `:plugin-name`, `:plugin-version`, `:disable-model-invocation`, and string `:source`. Known source values include `"project"`, `"inherited"`, `"personal-copilot"`, `"personal-agents"`, `"plugin"`, `"custom"`, `"builtin"`, `"remote"`, and `"sdk"`; the field remains open for additional runtime-provided identifiers. SDK-provided skills may use an empty path. |
+| `:copilot/user.message` | User message added; data requires `:content` and may include correlation fields `:message-id`, `:turn-id`, and `:interaction-id`, plus `:source`, `:transformed-content`, and `:is-autopilot-continuation`. |
 | `:copilot/pending_messages.modified` | Pending message queue updated |
 | `:copilot/assistant.turn_start` | Assistant turn started |
 | `:copilot/assistant.intent` | Assistant intent update |
@@ -1862,12 +1869,12 @@ nested schema objects marked closed by upstream reject unknown keys.
 | `:copilot/tool.execution_start` | Tool execution started; data includes `:tool-call-id`, `:tool-name`, optional `:arguments` (an opaque JSON object with source-defined, non-kebab-cased keys), `:parent-tool-call-id`, `:mcp-server-name`, `:mcp-tool-name`, `:model` |
 | `:copilot/tool.execution_progress` | Tool execution progress update |
 | `:copilot/tool.execution_partial_result` | Tool execution partial result |
-| `:copilot/tool.execution_complete` | Tool execution completed; data may include optional `:structured-content` (arbitrary structured tool result) (upstream schema 1.0.63) and `:result` (recursive opaque JSON). Generated wire validation still enforces known result variants, including the shell-exit variant's `:exit-code`/`:shell-id`/`:type "shell_exit"` and optional `:cwd`/`:output-file-path`/`:output-preview`/`:output-truncated`; `:output-file-path` was added in upstream schema 1.0.83-1. |
+| `:copilot/tool.execution_complete` | Tool execution completed; data may include optional `:structured-content` (arbitrary structured tool result) (upstream schema 1.0.63) and `:result` (recursive opaque JSON). An error may include `:message`, `:code`, and the same `:remediation` values as `session.error`. Generated wire validation still enforces known result variants, including the shell-exit variant's `:exit-code`/`:shell-id`/`:type "shell_exit"` and optional `:cwd`/`:output-file-path`/`:output-preview`/`:output-truncated`; `:output-file-path` was added in upstream schema 1.0.83-1. |
 | `:copilot/tool_search.activated` | Persisted generic client-side tool activations restored when a session resumes. Data: `{:strategy <string> :tool-names [<string> ...]}`. |
 | `:copilot/subagent.started` | Subagent started; data includes `:tool-call-id`, `:agent-name`, `:agent-display-name`, and `:agent-description`, with optional `:factory-run-id`, `:model`, `:resumable` (boolean), `:agent-type` (string), `:execution-mode` (string), `:parent-id` (string — task-registry id of the spawning subagent; unrelated to the envelope-level `:parent-id`) (subagent lifecycle additions upstream schema 1.0.83-1) ([upstream PR #2072](https://github.com/github/copilot-sdk/pull/2072)) |
 | `:copilot/subagent.configured` | Effective subagent execution configuration; data requires string `:model` and boolean `:multi-turn`, with optional string `:reasoning-effort` and `:context-tier`. The payload remains open for additive runtime fields. |
-| `:copilot/subagent.completed` | Subagent completed; data includes `:tool-call-id`, `:agent-name`, `:agent-display-name`, and optional `:cancelled`, `:model`, `:total-tool-calls`, `:total-tokens`, `:duration-ms`, `:first-dispatched-model`, `:configured-model-preference`, `:explicit-model-override` (strings), `:explicit-model-matches-preference`, `:configured-model-matches-actual` (booleans; model-tracking fields upstream schema 1.0.83-1). `:cancelled true` means cancellation tore down the subagent; cancellation still reports completion rather than failure. |
-| `:copilot/subagent.failed` | Subagent failed; data includes `:tool-call-id`, `:agent-name`, `:agent-display-name`, `:error`, optional `:model`, `:total-tool-calls`, `:total-tokens`, `:duration-ms`, `:first-dispatched-model`, `:configured-model-preference`, `:explicit-model-override` (strings), `:explicit-model-matches-preference`, `:configured-model-matches-actual` (booleans; model-tracking fields upstream schema 1.0.83-1) |
+| `:copilot/subagent.completed` | Subagent completed; data includes `:tool-call-id`, `:agent-name`, `:agent-display-name`, and optional `:cancelled`, `:model`, `:total-tool-calls`, `:total-tokens`, `:duration-ms`, `:first-dispatched-model`, `:configured-model-preference`, `:explicit-model-override`, `:model-override-reason` (strings), `:explicit-model-matches-preference`, and `:configured-model-matches-actual` (booleans). `:cancelled true` means cancellation tore down the subagent; cancellation still reports completion rather than failure. |
+| `:copilot/subagent.failed` | Subagent failed; data includes `:tool-call-id`, `:agent-name`, `:agent-display-name`, `:error`, optional `:model`, `:total-tool-calls`, `:total-tokens`, `:duration-ms`, `:first-dispatched-model`, `:configured-model-preference`, `:explicit-model-override`, `:model-override-reason` (strings), `:explicit-model-matches-preference`, and `:configured-model-matches-actual` (booleans). |
 | `:copilot/subagent.selected` | Subagent selected |
 | `:copilot/subagent.deselected` | Subagent deselected |
 | `:copilot/hook.start` | Hook invocation started; data requires `:hook-invocation-id`, `:hook-type`, with optional `:parent-tool-call-id` (upstream schema 1.0.83-1) |
@@ -1875,7 +1882,7 @@ nested schema objects marked closed by upstream reject unknown keys.
 | `:copilot/hook.end` | Hook invocation finished; data requires `:hook-invocation-id`, `:hook-type`, and `:success`, with optional `:parent-tool-call-id` and closed `:error` map. The error requires string `:message`, permits optional string `:stack` and `:source`, and rejects other keys (upstream schema 1.0.83-1). |
 | `:copilot/system.message` | System message emitted |
 | `:copilot/system.notification` | System notification with a structured `:kind` discriminator: `agent_completed`, `agent_idle`, `new_inbox_message`, `shell_completed`, `shell_detached_completed`, `instruction_discovered`, `factory_completed`, or `unclassified`. Each known kind validates its required and optional fields; agent kinds may include `:display-name`. |
-| `:copilot/permission.requested` | Permission request initiated; data includes `:resolved-by-hook` when already handled by a hook. For the MCP tool-permission variant (`:server-name`/`:tool-name`/`:tool-title` present), an optional `:can-offer-server-wide-approval` (boolean) indicates the host may offer a server-wide approval option, not just per-tool or per-session (upstream schema 1.0.83-1). |
+| `:copilot/permission.requested` | Permission request initiated; optional `:agent-mode` identifies the requesting mode (`"interactive"`, `"plan"`, or `"autopilot"`), and `:resolved-by-hook` indicates a hook already handled it. For the MCP tool-permission variant (`:server-name`/`:tool-name`/`:tool-title` present), optional `:can-offer-server-wide-approval` indicates the host may offer a server-wide approval option. |
 | `:copilot/permission.completed` | Permission request resolved. Approved nested `:result` values may include `:managed-approval-handled`, indicating that managed policy handled the request. |
 | `:copilot/user_input.requested` | User input requested from agent |
 | `:copilot/user_input.completed` | User input received |
@@ -1901,10 +1908,12 @@ nested schema objects marked closed by upstream reject unknown keys.
 | `:copilot/session.tools_updated` | Session tools list updated (e.g., after model change) |
 | `:copilot/session.background_tasks_changed` | Background tasks status changed |
 | `:copilot/session.skills_loaded` | Skills loaded for the session |
-| `:copilot/session.mcp_servers_loaded` | MCP servers loaded for the session |
+| `:copilot/session.mcp_servers_loaded` | MCP servers loaded for the session. Each server may include `:source`, plugin identity, `:error`, and `:server-metadata {:instructions <string-or-nil>}`. |
 | `:copilot/session.mcp_server_status_changed` | MCP server status changed |
+| `:copilot/session.mcp_server_removed` | MCP server was removed; data: `{:server-name "..."}` |
+| `:copilot/session.mcp_server_needs_reconnect` | MCP server requires reconnection; data: `{:server-name "..."}` |
 | `:copilot/session.extensions_loaded` | Extensions loaded for the session |
-| `:copilot/session.custom_agents_updated` | Custom agents list updated |
+| `:copilot/session.custom_agents_updated` | Custom agents list updated. Agent entries may include ordered `:models` preferences and `:model-policy` (`"preferred"` or `"required"`). |
 | `:copilot/session.custom_notification` | Custom Skill notification (Notify block); ephemeral. Data: `{:source "<ext-id>" :name "<event>" :payload <any> :subject {<k> <v>} :version <pos-int>}` (`:subject` and `:version` are optional; `:subject` keys are preserved verbatim — see PR #1292, CLI 1.0.48) |
 | `:copilot/sampling.requested` | MCP sampling request initiated; ephemeral |
 | `:copilot/sampling.completed` | MCP sampling request completed; ephemeral |
@@ -2320,6 +2329,7 @@ The handler invocation map contains:
 | `:tool-call-id` | string | yes | Tool call identifier |
 | `:tool-name` | string | yes | Invoked tool name |
 | `:arguments` | any | yes | Parsed arguments, without key conversion |
+| `:cancel-chan` | core.async channel | yes | Closes when the handler finishes, the runtime reports the call complete, successful session teardown cancels the invocation, or the client connection closes unexpectedly |
 | `:available-tools` | vector | no | Current tool metadata snapshot, provided only to the `tool_search_tool` handler |
 | `:traceparent` | string | no | W3C trace parent |
 | `:tracestate` | string | no | W3C trace state |
@@ -2338,6 +2348,13 @@ Each `:available-tools` entry contains:
 
 Failure to fetch the current metadata snapshot does not fail the tool call. The
 SDK invokes `tool_search_tool` without `:available-tools` instead.
+
+Handlers that launch asynchronous work should stop it when `:cancel-chan`
+closes. Completion and cancellation race atomically: once cancellation wins,
+the SDK suppresses any late handler result or error. A failed `disconnect!`
+does not cancel pending invocations because local session ownership is
+preserved. Unexpected connection loss disconnects every local session and
+cancels its pending invocations.
 
 **Declaration-only tools (manual resolution):**
 
