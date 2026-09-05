@@ -2465,7 +2465,8 @@
   [config]
   (when-not (s/valid? ::specs/session-config config)
     (let [safe-config (redact-secrets config)
-          unknown (specs/unknown-keys config specs/session-config-keys)
+          unknown (when (map? config)
+                    (specs/unknown-keys config specs/session-config-keys))
           explain (s/explain-data ::specs/session-config safe-config)
           msg (cond
                 (seq unknown)

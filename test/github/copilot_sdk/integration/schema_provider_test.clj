@@ -872,6 +872,14 @@
                               (invoke))))
       (is (empty? @requests)))))
 
+(deftest test-session-github-token-provider-conflict-validation-is-total
+  (testing "invalid non-map configs retain the intended validation error"
+    (doseq [config [nil "invalid" 42]]
+      (is (false? (util/github-token-auth-conflict? config)))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"Invalid session config"
+                            (@#'client/validate-session-config! config))))))
+
 (deftest test-session-github-token-provider-transport-security
   (testing "explicit loopback cli-url transports accept credential callbacks"
     (doseq [url ["localhost:4444"

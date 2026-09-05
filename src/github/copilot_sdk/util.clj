@@ -5,7 +5,8 @@
 
 (defn ^:no-doc github-token-auth-conflict?
   [config]
-  (and (contains? config :github-token)
+  (and (map? config)
+       (contains? config :github-token)
        (contains? config :github-token-provider)))
 
 ;; -----------------------------------------------------------------------------
