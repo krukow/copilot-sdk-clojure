@@ -29,11 +29,11 @@ Add to your `deps.edn`:
 
 ```clojure
 ;; From Maven Central
-io.github.copilot-community-sdk/copilot-sdk-clojure {:mvn/version "1.0.11.0"}
+io.github.copilot-community-sdk/copilot-sdk-clojure {:mvn/version "1.0.13.0"}
 
 ;; Or git dependency
 io.github.copilot-community-sdk/copilot-sdk-clojure {:git/url "https://github.com/copilot-community-sdk/copilot-sdk-clojure.git"
-                              :git/sha "97d3e4803ca3868a04e2cf65f4d82973c2c4e880"}
+                              :git/sha "ef8099ffbda6b4cdd6eb2c28c620f09ff8f576e2"}
 ```
 
 > **Note:** The Clojars artifact `net.clojars.krukow/copilot-sdk` is deprecated.

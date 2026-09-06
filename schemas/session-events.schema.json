@@ -254,6 +254,76 @@
       "title": "AgentInterruptedEvent",
       "visibility": "internal"
     },
+    "AgentModelPolicy": {
+      "type": "string",
+      "enum": [
+        "preferred",
+        "required"
+      ],
+      "description": "Whether configured models are advisory preferences or required constraints",
+      "title": "AgentModelPolicy",
+      "x-enumDescriptions": {
+        "preferred": "Treat the authored models as advisory preferences that callers may override.",
+        "required": "Require subagent execution to use one of the authored models."
+      }
+    },
+    "AssistantFusionPhaseActivityEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true for events that are transient and not persisted to the session event log on disk."
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "assistant.fusion_phase_activity",
+          "description": "Type discriminator. Always \"assistant.fusion_phase_activity\"."
+        },
+        "data": {
+          "$ref": "#/definitions/FusionPhaseActivityData",
+          "description": "Experimental content-safe activity signal for a running HydraFusion phase."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "ephemeral",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"assistant.fusion_phase_activity\". Experimental content-safe activity signal for a running HydraFusion phase.",
+      "title": "AssistantFusionPhaseActivityEvent",
+      "stability": "experimental"
+    },
     "AssistantFusionPhaseCompletedEvent": {
       "type": "object",
       "properties": {
@@ -3364,6 +3434,111 @@
         "intelligence": "Optimize for intelligence."
       }
     },
+    "AutoTierSwitchFailedData": {
+      "type": "object",
+      "properties": {
+        "effectiveAutoTier": {
+          "$ref": "#/definitions/AutoTier",
+          "description": "Auto preference that remains effective after the failed request."
+        },
+        "requestedAutoTier": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AutoTier",
+              "description": "Routing preference used when the session model is `auto`."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Auto preference that failed to activate, or null when returning to provider-default routing failed."
+        },
+        "reason": {
+          "$ref": "#/definitions/AutoTierSwitchFailureReason",
+          "description": "Low-cardinality failure outcome reported by Auto resolution."
+        }
+      },
+      "required": [
+        "requestedAutoTier",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "description": "A transient Auto preference failure emitted when the runtime cannot mint or accept a usable model and token pair. The previously effective preference remains active, so SDK clients can surface a non-blocking failure without changing their committed-tier state. This event is ephemeral and is not persisted or replayed on resume.",
+      "title": "AutoTierSwitchFailedData"
+    },
+    "AutoTierSwitchFailedEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true for events that are transient and not persisted to the session event log on disk."
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "session.auto_tier_switch_failed",
+          "description": "Type discriminator. Always \"session.auto_tier_switch_failed\"."
+        },
+        "data": {
+          "$ref": "#/definitions/AutoTierSwitchFailedData",
+          "description": "A transient Auto preference failure emitted when the runtime cannot mint or accept a usable model and token pair. The previously effective preference remains active, so SDK clients can surface a non-blocking failure without changing their committed-tier state. This event is ephemeral and is not persisted or replayed on resume."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "ephemeral",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"session.auto_tier_switch_failed\". A transient Auto preference failure emitted when the runtime cannot mint or accept a usable model and token pair. The previously effective preference remains active, so SDK clients can surface a non-blocking failure without changing their committed-tier state. This event is ephemeral and is not persisted or replayed on resume.",
+      "title": "AutoTierSwitchFailedEvent"
+    },
+    "AutoTierSwitchFailureReason": {
+      "type": "string",
+      "enum": [
+        "policy_rejected",
+        "request_failed",
+        "setup_failed",
+        "unsupported"
+      ],
+      "description": "Terminal reason an Auto preference activation failed.",
+      "title": "AutoTierSwitchFailureReason",
+      "x-enumDescriptions": {
+        "policy_rejected": "The candidate model was rejected by model policy.",
+        "request_failed": "The Auto routing request failed or returned an unusable response.",
+        "setup_failed": "The runtime could not prepare the Auto routing request.",
+        "unsupported": "The provider does not support Auto routing."
+      }
+    },
     "BackgroundTasksChangedData": {
       "type": "object",
       "properties": {},
@@ -5267,6 +5442,197 @@
         "model_switch": "Compaction requested while switching to a model with a smaller context window."
       }
     },
+    "CompletionReceiptData": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Version of the completion receipt payload."
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "One-based accepted completion receipt ordinal in the durable session history."
+        },
+        "sourceEventId": {
+          "type": "string",
+          "description": "Identifier of the assistant turn-end event that supplied the accepted completion boundary. This is the receipt's idempotency key, and always equals eventRange.endEventId."
+        },
+        "eventRange": {
+          "$ref": "#/definitions/CompletionReceiptEventRange",
+          "description": "Inclusive durable event range summarized by this receipt."
+        },
+        "stopReason": {
+          "$ref": "#/definitions/CompletionReceiptStopReason",
+          "description": "Runtime reason the completion decision was accepted."
+        },
+        "finalTool": {
+          "$ref": "#/definitions/CompletionReceiptFinalTool",
+          "description": "Final structured tool completion in the covered range, when one exists."
+        },
+        "successfulToolCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of successful structured tool completions in the covered range."
+        },
+        "failedToolCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of failed structured tool completions in the covered range."
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "attempt",
+        "sourceEventId",
+        "eventRange",
+        "stopReason",
+        "successfulToolCount",
+        "failedToolCount"
+      ],
+      "additionalProperties": false,
+      "description": "Behavior-neutral record of structured runtime facts present when an agent completion decision is accepted.",
+      "title": "CompletionReceiptData",
+      "stability": "experimental"
+    },
+    "CompletionReceiptEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "description": "When true, the event is transient and not persisted to the session event log on disk"
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "session.completion_receipt",
+          "description": "Type discriminator. Always \"session.completion_receipt\"."
+        },
+        "data": {
+          "$ref": "#/definitions/CompletionReceiptData",
+          "description": "Behavior-neutral record of structured runtime facts present when an agent completion decision is accepted."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"session.completion_receipt\". Behavior-neutral record of structured runtime facts present when an agent completion decision is accepted.",
+      "title": "CompletionReceiptEvent",
+      "stability": "experimental"
+    },
+    "CompletionReceiptEventRange": {
+      "type": "object",
+      "properties": {
+        "startEventId": {
+          "type": "string",
+          "description": "Identifier of the user message that starts the covered exchange."
+        },
+        "endEventId": {
+          "type": "string",
+          "description": "Identifier of the assistant turn-end event that ends the covered exchange. Always equals the receipt's sourceEventId, so either field is a valid join key."
+        }
+      },
+      "required": [
+        "startEventId",
+        "endEventId"
+      ],
+      "additionalProperties": false,
+      "description": "Inclusive durable event range summarized by a completion receipt.",
+      "title": "CompletionReceiptEventRange"
+    },
+    "CompletionReceiptFinalTool": {
+      "type": "object",
+      "properties": {
+        "toolCallId": {
+          "type": "string",
+          "description": "Unique identifier of the completed tool call."
+        },
+        "toolName": {
+          "type": "string",
+          "description": "Tool name from the matching tool execution start event, when available."
+        },
+        "status": {
+          "$ref": "#/definitions/CompletionReceiptToolStatus",
+          "description": "Structured success or failure status from the tool completion event."
+        },
+        "exitCode": {
+          "type": "integer",
+          "description": "Process exit code from a structured shell result, when available."
+        }
+      },
+      "required": [
+        "toolCallId",
+        "status"
+      ],
+      "additionalProperties": false,
+      "description": "Final structured tool completion in the covered event range.",
+      "title": "CompletionReceiptFinalTool"
+    },
+    "CompletionReceiptStopReason": {
+      "type": "string",
+      "enum": [
+        "natural",
+        "terminal_tool",
+        "agent_stop_block_limit"
+      ],
+      "description": "Runtime reason the completion decision was accepted.",
+      "title": "CompletionReceiptStopReason",
+      "x-enumDescriptions": {
+        "natural": "The model reached a natural terminal response.",
+        "terminal_tool": "A terminal tool ended the interaction.",
+        "agent_stop_block_limit": "The configured agentStop continuation limit was reached."
+      }
+    },
+    "CompletionReceiptToolStatus": {
+      "type": "string",
+      "enum": [
+        "success",
+        "failure",
+        "timeout",
+        "rejected",
+        "denied"
+      ],
+      "description": "Structured terminal status from a tool completion event.",
+      "title": "CompletionReceiptToolStatus",
+      "x-enumDescriptions": {
+        "success": "The tool completed successfully.",
+        "failure": "The tool failed without a more specific structured status.",
+        "timeout": "The tool exceeded its time budget.",
+        "rejected": "The user rejected the tool call.",
+        "denied": "The permissions service denied the tool call."
+      }
+    },
     "ContextChangedEvent": {
       "type": "object",
       "properties": {
@@ -5452,6 +5818,17 @@
         "model": {
           "type": "string",
           "description": "Model override for this agent, if set"
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Authored model ids in priority order, if configured"
+        },
+        "modelPolicy": {
+          "$ref": "#/definitions/AgentModelPolicy",
+          "description": "Whether authored models are preferences or required constraints"
         }
       },
       "required": [
@@ -5464,7 +5841,7 @@
         "userInvocable"
       ],
       "additionalProperties": false,
-      "description": "A single loaded custom agent in `session.custom_agents_updated`, with identity, source, tools, invocability, and model override.",
+      "description": "A single loaded custom agent in `session.custom_agents_updated`, with identity, source, tools, invocability, and authored model configuration.",
       "title": "CustomAgentsUpdatedAgent"
     },
     "CustomAgentsUpdatedData": {
@@ -5474,7 +5851,7 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/CustomAgentsUpdatedAgent",
-            "description": "A single loaded custom agent in `session.custom_agents_updated`, with identity, source, tools, invocability, and model override."
+            "description": "A single loaded custom agent in `session.custom_agents_updated`, with identity, source, tools, invocability, and authored model configuration."
           },
           "description": "Array of loaded custom agent metadata"
         },
@@ -5972,6 +6349,10 @@
         "message": {
           "type": "string",
           "description": "Human-readable error message"
+        },
+        "remediation": {
+          "$ref": "#/definitions/RemediationAction",
+          "description": "What the user must do to recover, when the runtime knows of an action. The `message` never names a client affordance, so a client that offers one — a slash command, a settings pane, a link — renders it from this value."
         },
         "stack": {
           "type": "string",
@@ -7459,6 +7840,77 @@
       },
       "stability": "experimental"
     },
+    "FusionPhaseActivityData": {
+      "type": "object",
+      "properties": {
+        "fusionId": {
+          "type": "string",
+          "description": "Identifier of the HydraFusion turn containing the phase."
+        },
+        "phaseId": {
+          "type": "string",
+          "description": "Stable identifier for the concrete phase."
+        },
+        "phaseKind": {
+          "$ref": "#/definitions/FusionPhaseKind",
+          "description": "Kind of phase currently executing."
+        },
+        "pattern": {
+          "$ref": "#/definitions/FusionPattern",
+          "description": "HydraFusion orchestration pattern containing the phase."
+        },
+        "role": {
+          "type": "string",
+          "description": "Semantic role assigned to the phase."
+        },
+        "conversationScope": {
+          "$ref": "#/definitions/FusionConversationScope",
+          "description": "Conversation scope in which the phase executes."
+        },
+        "activity": {
+          "$ref": "#/definitions/FusionPhaseActivityKind",
+          "description": "Kind of real activity observed."
+        },
+        "totalResponseSizeBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Cumulative private response bytes observed for this model call. The event never includes response text."
+        },
+        "toolCallId": {
+          "type": "string",
+          "description": "Opaque hashed correlation token for matching tool-started and tool-completed activity within this Fusion activity stream. It is not the tool call identifier exposed by tool lifecycle events."
+        }
+      },
+      "required": [
+        "fusionId",
+        "phaseId",
+        "phaseKind",
+        "pattern",
+        "role",
+        "conversationScope",
+        "activity"
+      ],
+      "additionalProperties": false,
+      "description": "Experimental content-safe activity signal for a running HydraFusion phase.",
+      "title": "FusionPhaseActivityData",
+      "stability": "experimental"
+    },
+    "FusionPhaseActivityKind": {
+      "type": "string",
+      "enum": [
+        "model_output",
+        "tool_started",
+        "tool_completed"
+      ],
+      "description": "Content-safe activity observed while a HydraFusion phase is running.",
+      "title": "FusionPhaseActivityKind",
+      "x-enumDescriptions": {
+        "model_output": "The provider produced additional private output bytes.",
+        "tool_started": "A tool began executing inside the phase.",
+        "tool_completed": "A tool finished executing inside the phase."
+      },
+      "stability": "experimental"
+    },
     "FusionPhaseCompletedData": {
       "type": "object",
       "properties": {
@@ -7636,6 +8088,37 @@
         "revision": "Critique-pattern revision phase.",
         "follow_up": "Follow-up phase continuing from the resolved model."
       },
+      "stability": "experimental"
+    },
+    "FusionPhasePlanStep": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/FusionPhaseKind",
+          "description": "Kind of phase that may execute."
+        },
+        "role": {
+          "type": "string",
+          "description": "Semantic role assigned to the phase."
+        },
+        "scope": {
+          "$ref": "#/definitions/FusionConversationScope",
+          "description": "Conversation scope in which the phase executes."
+        },
+        "conditional": {
+          "type": "boolean",
+          "description": "Whether the phase executes only when an earlier phase requests it."
+        }
+      },
+      "required": [
+        "kind",
+        "role",
+        "scope",
+        "conditional"
+      ],
+      "additionalProperties": false,
+      "description": "Presentation-neutral phase planned for a HydraFusion turn.",
+      "title": "FusionPhasePlanStep",
       "stability": "experimental"
     },
     "FusionPhaseStartedData": {
@@ -7823,6 +8306,15 @@
         "pattern": {
           "$ref": "#/definitions/FusionPattern",
           "description": "Validated orchestration pattern selected for the turn."
+        },
+        "phasePlan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FusionPhasePlanStep",
+            "description": "Presentation-neutral phase planned for a HydraFusion turn."
+          },
+          "description": "Presentation-neutral phase plan for clients that render workflow progress.",
+          "stability": "experimental"
         },
         "primaryModel": {
           "type": "string",
@@ -9851,6 +10343,166 @@
       "description": "Session event \"mcp.resources.list_changed\". Payload identifying the MCP server associated with a list change.",
       "title": "McpResourcesListChangedEvent"
     },
+    "McpServerMetadata": {
+      "type": "object",
+      "properties": {
+        "instructions": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Non-empty natural-language guidance for using the server, or null when the server omitted instructions or advertised an empty string."
+        }
+      },
+      "required": [
+        "instructions"
+      ],
+      "additionalProperties": false,
+      "description": "Server-advertised metadata learned through modern discovery or legacy initialization.",
+      "title": "McpServerMetadata"
+    },
+    "McpServerNeedsReconnectData": {
+      "type": "object",
+      "properties": {
+        "serverName": {
+          "type": "string",
+          "description": "Name of the MCP server that needs to reconnect"
+        }
+      },
+      "required": [
+        "serverName"
+      ],
+      "additionalProperties": false,
+      "description": "Payload of `session.mcp_server_needs_reconnect` identifying an MCP server whose connection must be re-established.",
+      "title": "McpServerNeedsReconnectData"
+    },
+    "McpServerNeedsReconnectEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true for events that are transient and not persisted to the session event log on disk."
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "session.mcp_server_needs_reconnect",
+          "description": "Type discriminator. Always \"session.mcp_server_needs_reconnect\"."
+        },
+        "data": {
+          "$ref": "#/definitions/McpServerNeedsReconnectData",
+          "description": "Payload of `session.mcp_server_needs_reconnect` identifying an MCP server whose connection must be re-established."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "ephemeral",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"session.mcp_server_needs_reconnect\". Payload of `session.mcp_server_needs_reconnect` identifying an MCP server whose connection must be re-established.",
+      "title": "McpServerNeedsReconnectEvent"
+    },
+    "McpServerRemovedData": {
+      "type": "object",
+      "properties": {
+        "serverName": {
+          "type": "string",
+          "description": "Name of the MCP server that was removed from the graph"
+        }
+      },
+      "required": [
+        "serverName"
+      ],
+      "additionalProperties": false,
+      "description": "Payload of `session.mcp_server_removed` identifying an MCP server the graph no longer runs.",
+      "title": "McpServerRemovedData"
+    },
+    "McpServerRemovedEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique event identifier (UUID v4), generated when the event is emitted"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the event was created"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event."
+        },
+        "ephemeral": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true for events that are transient and not persisted to the session event log on disk."
+        },
+        "agentId": {
+          "type": "string",
+          "description": "Sub-agent instance identifier. Absent for events from the root/main agent and session-level events."
+        },
+        "type": {
+          "type": "string",
+          "const": "session.mcp_server_removed",
+          "description": "Type discriminator. Always \"session.mcp_server_removed\"."
+        },
+        "data": {
+          "$ref": "#/definitions/McpServerRemovedData",
+          "description": "Payload of `session.mcp_server_removed` identifying an MCP server the graph no longer runs."
+        }
+      },
+      "required": [
+        "id",
+        "timestamp",
+        "parentId",
+        "ephemeral",
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "description": "Session event \"session.mcp_server_removed\". Payload of `session.mcp_server_removed` identifying an MCP server the graph no longer runs.",
+      "title": "McpServerRemovedEvent"
+    },
     "McpServersLoadedData": {
       "type": "object",
       "properties": {
@@ -9944,6 +10596,10 @@
         "error": {
           "type": "string",
           "description": "Error message if the server failed to connect"
+        },
+        "serverMetadata": {
+          "$ref": "#/definitions/McpServerMetadata",
+          "description": "Server-advertised metadata for a connected server. Omitted when no live connection metadata is available, including while pending or when failed, disabled, stopped, or not configured."
         },
         "transport": {
           "$ref": "#/definitions/McpServerTransport",
@@ -10838,6 +11494,22 @@
         "source": {
           "$ref": "#/definitions/ModelChangeSource",
           "description": "Origin of the effective model change, when known."
+        },
+        "previousAutoTier": {
+          "$ref": "#/definitions/AutoTier",
+          "description": "Previously committed Auto preference, when one was explicitly selected."
+        },
+        "autoTier": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AutoTier",
+              "description": "Routing preference used when the session model is `auto`."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Committed Auto preference after the model configuration change, when applicable."
         }
       },
       "required": [
@@ -12091,11 +12763,11 @@
         },
         "requestSandboxBypass": {
           "type": "boolean",
-          "description": "True when this URL fetch is requesting to bypass the sandbox network policy: either the model set requestSandboxBypass: true, or the tool re-issued the request as an interactive bypass after the network policy denied the approved URL (host opted in via sandbox.allowBypass). This is a request, not a grant: the fetch runs only if the user approves this permission request. Hosts should highlight the elevated risk in the approval UI."
+          "description": "True when the tool is asking to run this URL fetch outside the sandbox, after the network policy denied the approved URL or the sandbox proxy could not reach it (host opted in via sandbox.allowBypass). The model cannot ask for this; only the tool raises it. This is a request, not a grant: the fetch runs only if the user approves this permission request. Hosts should highlight the elevated risk in the approval UI."
         },
         "requestSandboxBypassReason": {
           "type": "string",
-          "description": "Model-provided justification for the sandbox-bypass request. Only meaningful when requestSandboxBypass is true."
+          "description": "What the tool tells the user about the bypass on offer: which policy rule blocked the call, or why it cannot be sandboxed. Only meaningful when requestSandboxBypass is true."
         },
         "assistedApproval": {
           "$ref": "#/definitions/PermissionAssistedApproval",
@@ -12287,6 +12959,10 @@
         "promptRequest": {
           "$ref": "#/definitions/PermissionPromptRequest",
           "description": "Derived user-facing permission prompt details for UI consumers"
+        },
+        "agentMode": {
+          "$ref": "#/definitions/SessionMode",
+          "description": "Agent mode captured from the owning turn when permission evaluation began."
         },
         "riskAssessment": {
           "description": "Neutral risk metadata supplied by the tool host. Consumers may display this value but must not use it to bypass the permission decision.",
@@ -12751,11 +13427,11 @@
         },
         "requestSandboxBypass": {
           "type": "boolean",
-          "description": "True when the model has requested to run this search outside the sandbox (it set requestSandboxBypass: true and the host opted in via sandbox.allowBypass). This is a request, not a grant: the search runs unsandboxed only if the user approves this permission request. Hosts should highlight the elevated risk in the approval UI."
+          "description": "True when the tool is asking to re-run this search outside the sandbox, after a sandboxed run looked blocked (host opted in via sandbox.allowBypass). The model cannot ask for this; only the tool raises it. This is a request, not a grant: the search runs unsandboxed only if the user approves this permission request. Hosts should highlight the elevated risk in the approval UI."
         },
         "requestSandboxBypassReason": {
           "type": "string",
-          "description": "Model-provided justification for the sandbox-bypass request. Only meaningful when requestSandboxBypass is true."
+          "description": "What the tool tells the user about the bypass on offer: which policy rule blocked the call, or why it cannot be sandboxed. Only meaningful when requestSandboxBypass is true."
         }
       },
       "required": [
@@ -12836,11 +13512,11 @@
         },
         "requestSandboxBypass": {
           "type": "boolean",
-          "description": "True when the model has requested to run this command outside the sandbox (it set requestSandboxBypass: true and the host opted in via sandbox.allowBypass). This is a request, not a grant: the command runs unsandboxed only if the user approves this permission request. Hosts should highlight the elevated risk in the approval UI."
+          "description": "True when the tool is asking to run this command outside the sandbox, either because the command detaches and cannot be sandboxed at all, or because a sandboxed run looked blocked (host opted in via sandbox.allowBypass). The model cannot ask for this; only the tool raises it. This is a request, not a grant: the command runs unsandboxed only if the user approves this permission request. Hosts should highlight the elevated risk in the approval UI."
         },
         "requestSandboxBypassReason": {
           "type": "string",
-          "description": "Model-provided justification for the sandbox-bypass request. Only meaningful when requestSandboxBypass is true."
+          "description": "What the tool tells the user about the bypass on offer: which policy rule blocked the call, or why it cannot be sandboxed. Only meaningful when requestSandboxBypass is true."
         }
       },
       "required": [
@@ -12942,11 +13618,11 @@
         },
         "requestSandboxBypass": {
           "type": "boolean",
-          "description": "True when this URL fetch is requesting to bypass the sandbox network policy: either the model set requestSandboxBypass: true, or the tool re-issued the request as an interactive bypass after the network policy denied the approved URL (host opted in via sandbox.allowBypass). This is a request, not a grant: the fetch runs only if the user approves this permission request. Hosts should highlight the elevated risk in the approval UI."
+          "description": "True when the tool is asking to run this URL fetch outside the sandbox, after the network policy denied the approved URL or the sandbox proxy could not reach it (host opted in via sandbox.allowBypass). The model cannot ask for this; only the tool raises it. This is a request, not a grant: the fetch runs only if the user approves this permission request. Hosts should highlight the elevated risk in the approval UI."
         },
         "requestSandboxBypassReason": {
           "type": "string",
-          "description": "Model-provided justification for the sandbox-bypass request. Only meaningful when requestSandboxBypass is true."
+          "description": "What the tool tells the user about the bypass on offer: which policy rule blocked the call, or why it cannot be sandboxed. Only meaningful when requestSandboxBypass is true."
         }
       },
       "required": [
@@ -13558,6 +14234,25 @@
         "detailed": "Request a detailed summary of the model's reasoning."
       }
     },
+    "RemediationAction": {
+      "type": "string",
+      "enum": [
+        "sign_in",
+        "switch_account",
+        "show_account",
+        "review_sandbox_policy",
+        "allow_sandbox_outbound"
+      ],
+      "description": "What the user must do to recover from a failure, named as an action rather than as one client's affordance. The runtime cannot know which affordance a client offers — a slash command, a settings pane, a link — so the accompanying message stays host-agnostic and each client renders its own copy from this value. Absent when the runtime knows of no action the user can take.",
+      "title": "RemediationAction",
+      "x-enumDescriptions": {
+        "sign_in": "Authenticate again with the Copilot backend. The current credential is absent, expired, or rejected.",
+        "switch_account": "Authenticate as a different account. The current account exists but lacks access to the requested resource.",
+        "show_account": "Inspect which account is currently authenticated before deciding what to change.",
+        "review_sandbox_policy": "Review or widen the sandbox policy. The blocked path or host is named by the accompanying message or by the tool result the action arrived with.",
+        "allow_sandbox_outbound": "Permit outbound network access in the sandbox policy."
+      }
+    },
     "RemoteSteerableChangedData": {
       "type": "object",
       "properties": {
@@ -13964,9 +14659,9 @@
       "description": "Where a request to run outside the process sandbox originated. Orthogonal to the outcome: the same verdict means a different thing depending on where the request came from.",
       "title": "SandboxBypassSource",
       "x-enumDescriptions": {
-        "model_requested": "The request originated in the tool call itself. Says nothing about whether a person saw it: the ordinary pre-execution permission prompt discloses the bypass and may have gated this one.",
-        "user_prompted": "The runtime raised its own escalation prompt after a sandboxed command looked blocked, and a person answered it.",
-        "prompt_unavailable": "The runtime attempted its own escalation after a sandboxed command looked blocked, but the permission flow produced no confirmed human answer. This includes unavailable or unreadable prompts, cancellation, and automated rule, hook, or content-exclusion denials."
+        "model_requested": "No longer produced. The model could once ask for a bypass in the tool call itself; no tool exposes that parameter now. Retained so historical events still deserialize.",
+        "user_prompted": "The runtime raised the prompt itself — either after a sandboxed attempt looked blocked, or before a run the sandbox cannot enforce at all, such as a detached command — and a person answered it. In the second case nothing had executed when the decision was made.",
+        "prompt_unavailable": "The runtime raised the prompt itself — after a sandboxed attempt looked blocked, or before a run it cannot enforce — but the permission flow produced no confirmed human answer. This includes unavailable or unreadable prompts, cancellation, and automated rule, hook, or content-exclusion denials."
       }
     },
     "SandboxControl": {
@@ -14890,6 +15585,10 @@
           "description": "Session event \"session.model_change\". Model change details including previous and new model identifiers"
         },
         {
+          "$ref": "#/definitions/AutoTierSwitchFailedEvent",
+          "description": "Session event \"session.auto_tier_switch_failed\". A transient Auto preference failure emitted when the runtime cannot mint or accept a usable model and token pair. The previously effective preference remains active, so SDK clients can surface a non-blocking failure without changing their committed-tier state. This event is ephemeral and is not persisted or replayed on resume."
+        },
+        {
           "$ref": "#/definitions/ModeChangedEvent",
           "description": "Session event \"session.mode_changed\". Agent mode change details including previous and new modes"
         },
@@ -14967,6 +15666,10 @@
           "description": "Session event \"session.task_complete\". Task completion notification with summary from the agent"
         },
         {
+          "$ref": "#/definitions/CompletionReceiptEvent",
+          "description": "Session event \"session.completion_receipt\". Behavior-neutral record of structured runtime facts present when an agent completion decision is accepted."
+        },
+        {
           "$ref": "#/definitions/FusionRouteStartedEvent",
           "description": "Session event \"session.fusion_route_started\". Experimental transient signal that HydraFusion routing has started for an eligible turn."
         },
@@ -15021,6 +15724,10 @@
         {
           "$ref": "#/definitions/AssistantFusionPhaseStartedEvent",
           "description": "Session event \"assistant.fusion_phase_started\". Experimental transient HydraFusion phase/model/role signal."
+        },
+        {
+          "$ref": "#/definitions/AssistantFusionPhaseActivityEvent",
+          "description": "Session event \"assistant.fusion_phase_activity\". Experimental content-safe activity signal for a running HydraFusion phase."
         },
         {
           "$ref": "#/definitions/AssistantFusionPhaseCompletedEvent",
@@ -15332,6 +16039,14 @@
         {
           "$ref": "#/definitions/McpServerStatusChangedEvent",
           "description": "Session event \"session.mcp_server_status_changed\". Payload of `session.mcp_server_status_changed` for one MCP server's status and optional failure error."
+        },
+        {
+          "$ref": "#/definitions/McpServerRemovedEvent",
+          "description": "Session event \"session.mcp_server_removed\". Payload of `session.mcp_server_removed` identifying an MCP server the graph no longer runs."
+        },
+        {
+          "$ref": "#/definitions/McpServerNeedsReconnectEvent",
+          "description": "Session event \"session.mcp_server_needs_reconnect\". Payload of `session.mcp_server_needs_reconnect` identifying an MCP server whose connection must be re-established."
         },
         {
           "$ref": "#/definitions/McpToolsListChangedEvent",
@@ -16067,7 +16782,7 @@
         },
         "path": {
           "type": "string",
-          "description": "File path to the SKILL.md definition"
+          "description": "File path to the SKILL.md definition, or an empty string for an SDK-provided skill without a filesystem identity"
         },
         "content": {
           "type": "string",
@@ -16080,9 +16795,13 @@
           },
           "description": "Tool names that should be auto-approved when this skill is active"
         },
+        "disableModelInvocation": {
+          "type": "boolean",
+          "description": "Whether model invocation is disabled for this skill"
+        },
         "source": {
           "type": "string",
-          "description": "Source identifier for where the skill was discovered. Known values include: project (workspace skill), inherited (parent-directory skill), personal-copilot (~/.copilot/skills), personal-agents (~/.agents/skills), custom (configured directory), plugin (installed plugin), builtin (bundled runtime skill), and remote (org/enterprise skill)"
+          "description": "Source identifier for where the skill was discovered. Known values include: project (workspace skill), inherited (parent-directory skill), personal-copilot (~/.copilot/skills), personal-agents (~/.agents/skills), custom (configured directory), plugin (installed plugin), builtin (bundled runtime skill), remote (org/enterprise skill), and sdk (SDK-provided skill)"
         },
         "pluginName": {
           "type": "string",
@@ -16271,7 +16990,7 @@
         },
         "source": {
           "$ref": "#/definitions/SkillSource",
-          "description": "Source location type (e.g., project, personal-copilot, plugin, builtin)"
+          "description": "Source location type (e.g., project, personal-copilot, plugin, builtin, remote, sdk)"
         },
         "userInvocable": {
           "type": "boolean",
@@ -16310,9 +17029,10 @@
         "personal-agents",
         "plugin",
         "custom",
-        "builtin"
+        "builtin",
+        "sdk"
       ],
-      "description": "Source location type (e.g., project, personal-copilot, plugin, builtin)",
+      "description": "Source location type (e.g., project, personal-copilot, plugin, builtin, sdk)",
       "title": "SkillSource",
       "x-enumDescriptions": {
         "project": "Skill defined in the current project's skill directories.",
@@ -16321,7 +17041,8 @@
         "personal-agents": "Skill defined in the user's personal agents skill directory.",
         "plugin": "Skill provided by an installed plugin.",
         "custom": "Skill loaded from a configured custom skill directory.",
-        "builtin": "Skill bundled with the runtime."
+        "builtin": "Skill bundled with the runtime.",
+        "sdk": "Pathless skill supplied lazily by an SDK skill provider."
       }
     },
     "SnapshotRewindData": {
@@ -16581,6 +17302,10 @@
         "explicitModelMatchesPreference": {
           "type": "boolean",
           "description": "Whether the explicit task-call model matched the user's configured preference"
+        },
+        "modelOverrideReason": {
+          "type": "string",
+          "description": "Why an explicit task-call model did not become the effective model"
         },
         "configuredModelMatchesActual": {
           "type": "boolean",
@@ -16851,6 +17576,10 @@
         "explicitModelMatchesPreference": {
           "type": "boolean",
           "description": "Whether the explicit task-call model matched the user's configured preference"
+        },
+        "modelOverrideReason": {
+          "type": "string",
+          "description": "Why an explicit task-call model did not become the effective model"
         },
         "configuredModelMatchesActual": {
           "type": "boolean",
@@ -18314,6 +19043,10 @@
         "code": {
           "type": "string",
           "description": "Machine-readable error code"
+        },
+        "remediation": {
+          "$ref": "#/definitions/RemediationAction",
+          "description": "What the user must do to recover, when the runtime knows of an action. Set on sandbox policy denials, where `message` names the rule that blocked the call but never the client affordance that relaxes it."
         }
       },
       "required": [
@@ -19888,6 +20621,10 @@
           "type": "string",
           "description": "The user's message text as displayed in the timeline"
         },
+        "messageId": {
+          "type": "string",
+          "description": "Stable identity of the logical user message, matching the ID returned by send and retained by pending queue snapshots"
+        },
         "transformedContent": {
           "type": "string",
           "description": "Transformed version of the message sent to the model, with XML wrapping, timestamps, and other augmentations for prompt caching"
@@ -20307,6 +21044,10 @@
         "url": {
           "type": "string",
           "description": "Optional URL associated with this warning that the user can open in a browser"
+        },
+        "remediation": {
+          "$ref": "#/definitions/RemediationAction",
+          "description": "What the user must do to recover, when the runtime knows of an action. The `message` never names a client affordance, so a client that offers one — a slash command, a settings pane, a link — renders it from this value."
         }
       },
       "required": [

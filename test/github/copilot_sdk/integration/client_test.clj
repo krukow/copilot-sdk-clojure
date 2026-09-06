@@ -60,6 +60,419 @@
            (is (zero? @stops) "auto-restart is deprecated; stop! should not be called")
            (is (zero? @starts) "auto-restart is deprecated; start! should not be called"))))))
 
+(deftest test-unexpected-connection-close-disconnects-sessions
+  (let [invocation-ready (promise)
+        cancellation-observed (promise)
+        copilot-session
+        (sdk/create-session
+         *test-client*
+         {:on-permission-request sdk/approve-all
+          :tools [{:tool-name "connection-close-tool"
+                   :tool-handler
+                   (fn [_ {:keys [cancel-chan] :as invocation}]
+                     (deliver invocation-ready invocation)
+                     (let [[_ port]
+                           (alts!! [cancel-chan (timeout 2000)] :priority true)]
+                       (deliver cancellation-observed
+                                (identical? port cancel-chan)))
+                     "late result")}]})
+        session-id (sdk/session-id copilot-session)
+        invocation
+        (do
+          (mock/send-v3-broadcast-event!
+           *mock-server*
+           session-id
+           "external_tool.requested"
+           {:requestId "connection-close-request"
+            :toolName "connection-close-tool"
+            :toolCallId "connection-close-call"
+            :arguments {}})
+          (await-value! invocation-ready "connection-close tool invocation" 1000))]
+    (mock/stop-mock-server! *mock-server*)
+    (await-atom! (:state *test-client*)
+                 #(= :disconnected (:status %))
+                 "client disconnection"
+                 1000)
+    (is (true? (await-value! cancellation-observed
+                             "connection-close tool cancellation"
+                             1000)))
+    (is (async-protocols/closed? (:cancel-chan invocation)))
+    (is (not (contains? (:sessions @(:state *test-client*)) session-id)))
+    (is (false? (:router-running? @(:state *test-client*))))
+    (is (nil? (:router-ch @(:state *test-client*))))
+    (is (nil? (:lifecycle-ch @(:state *test-client*))))))
+
+(deftest test-unexpected-connection-close-fails-pending-requests
+  (let [request-entered (promise)
+        release-request (promise)
+        connection-io (:connection-io @(:state *test-client*))
+        result (promise)]
+    (mock/set-request-hook!
+     *mock-server*
+     (fn [method _]
+       (when (= "models.list" method)
+         (deliver request-entered true)
+         @release-request)))
+    (try
+      (future
+        (deliver
+         result
+         (try
+           (protocol/send-request!
+            connection-io "models.list" {} 5000)
+           (catch Throwable failure
+             failure))))
+      (is (true? (await-value! request-entered
+                               "pending request"
+                               1000)))
+      (mock/stop-mock-server! *mock-server*)
+      (await-atom! (:state *test-client*)
+                   #(= :disconnected (:status %))
+                   "client disconnection"
+                   1000)
+      (let [failure
+            (await-value! result
+                          "pending request failure"
+                          1000)]
+        (is (instance? clojure.lang.ExceptionInfo failure))
+        (is (= -32000 (get-in (ex-data failure)
+                              [:error :code])))
+        (is (re-find #"Connection closed"
+                     (ex-message failure))))
+      (finally
+        (deliver release-request true)))))
+
+(deftest test-session-setup-is-fenced-to-originating-connection
+  (doseq [{:keys [label method invoke]}
+          [{:label "create"
+            :method "session.create"
+            :invoke (fn [c session-id]
+                      (sdk/create-session
+                       c
+                       {:session-id session-id
+                        :on-permission-request sdk/approve-all}))}
+           {:label "resume"
+            :method "session.resume"
+            :invoke (fn [c session-id]
+                      (sdk/resume-session
+                       c session-id
+                       {:on-permission-request sdk/approve-all}))}]]
+    (testing (str label " cannot commit an old response into a replacement connection")
+      (let [old-server (mock/create-mock-server)
+            new-server (mock/create-mock-server)
+            c (sdk/client {:auto-start? false})
+            session-id (str "setup-generation-" label)
+            replacement (atom nil)
+            switched? (atom false)
+            real-send-request! (var-get #'protocol/send-request!)]
+        (try
+          (mock/set-request-hook!
+           old-server
+           (fn [request-method _]
+             (when (#{"session.create" "session.resume"} request-method)
+               {::mock/merge-response
+                {:workspacePath (str "/old/" label)
+                 :capabilities {:generation "old"}}})))
+          (mock/set-request-hook!
+           new-server
+           (fn [request-method _]
+             (when (= "session.create" request-method)
+               {::mock/merge-response
+                {:workspacePath (str "/new/" label)
+                 :capabilities {:generation "new"}}})))
+          (mock/start-mock-server! old-server)
+          (let [[in out] (mock/client-streams old-server)]
+            (client/connect-with-streams! c in out))
+          (when (= method "session.resume")
+            (sdk/create-session
+             c
+             {:session-id session-id
+              :on-permission-request sdk/approve-all}))
+          (with-redefs-fn
+            {(var protocol/send-request!)
+             (fn [connection-io request-method params & args]
+               (let [result (apply real-send-request!
+                                   connection-io request-method params args)]
+                 (when (and (= method request-method)
+                            (compare-and-set! switched? false true))
+                   (close! (protocol/notifications connection-io))
+                   (await-atom! (:state c)
+                                #(= :disconnected (:status %))
+                                "old connection teardown"
+                                1000)
+                   (mock/start-mock-server! new-server)
+                   (let [[in out] (mock/client-streams new-server)]
+                     (client/connect-with-streams! c in out))
+                   (reset! replacement
+                           (sdk/create-session
+                            c
+                            {:session-id session-id
+                             :on-permission-request sdk/approve-all})))
+                 result))}
+            #(is (thrown? clojure.lang.ExceptionInfo
+                          (invoke c session-id))))
+          (is (= (str "/new/" label)
+                 (sdk/workspace-path @replacement)))
+          (is (= {:generation "new"}
+                 (sdk/capabilities @replacement)))
+          (finally
+            (try
+              (sdk/stop! c)
+              (catch Throwable _))
+            (mock/stop-mock-server! old-server)
+            (mock/stop-mock-server! new-server)))))))
+
+(deftest test-async-session-setup-is-fenced-to-originating-connection
+  (doseq [{:keys [label method invoke]}
+          [{:label "create"
+            :method "session.create"
+            :invoke (fn [c session-id]
+                      (sdk/<create-session
+                       c
+                       {:session-id session-id
+                        :on-permission-request sdk/approve-all}))}
+           {:label "resume"
+            :method "session.resume"
+            :invoke (fn [c session-id]
+                      (sdk/<resume-session
+                       c session-id
+                       {:on-permission-request sdk/approve-all}))}]]
+    (testing (str label " cannot commit an old async response into a replacement connection")
+      (let [old-server (mock/create-mock-server)
+            new-server (mock/create-mock-server)
+            c (sdk/client {:auto-start? false})
+            session-id (str "async-setup-generation-" label)
+            replacement (atom nil)
+            switched? (atom false)
+            real-send-request (var-get #'protocol/send-request)]
+        (try
+          (mock/set-request-hook!
+           old-server
+           (fn [request-method _]
+             (when (#{"session.create" "session.resume"} request-method)
+               {::mock/merge-response
+                {:workspacePath (str "/old/async/" label)
+                 :capabilities {:generation "old"}}})))
+          (mock/set-request-hook!
+           new-server
+           (fn [request-method _]
+             (when (= "session.create" request-method)
+               {::mock/merge-response
+                {:workspacePath (str "/new/async/" label)
+                 :capabilities {:generation "new"}}})))
+          (mock/start-mock-server! old-server)
+          (let [[in out] (mock/client-streams old-server)]
+            (client/connect-with-streams! c in out))
+          (when (= method "session.resume")
+            (sdk/create-session
+             c
+             {:session-id session-id
+              :on-permission-request sdk/approve-all}))
+          (with-redefs-fn
+            {(var protocol/send-request)
+             (fn [connection-io request-method params & args]
+               (let [response-ch
+                     (apply real-send-request
+                            connection-io request-method params args)]
+                 (if (and (= method request-method)
+                          (compare-and-set! switched? false true))
+                   (let [result-ch (chan 1)]
+                     (async/thread
+                       (try
+                         (let [response (<!! response-ch)]
+                           (close! (protocol/notifications connection-io))
+                           (await-atom! (:state c)
+                                        #(= :disconnected (:status %))
+                                        "old async connection teardown"
+                                        1000)
+                           (mock/start-mock-server! new-server)
+                           (let [[new-in new-out]
+                                 (mock/client-streams new-server)]
+                             (client/connect-with-streams!
+                              c new-in new-out))
+                           (reset! replacement
+                                   (sdk/create-session
+                                    c
+                                    {:session-id session-id
+                                     :on-permission-request sdk/approve-all}))
+                           (>!! result-ch response))
+                         (finally
+                           (close! result-ch))))
+                     result-ch)
+                   response-ch)))}
+            #(is (instance? Throwable
+                            (<!! (invoke c session-id)))))
+          (is (= (str "/new/async/" label)
+                 (sdk/workspace-path @replacement)))
+          (is (= {:generation "new"}
+                 (sdk/capabilities @replacement)))
+          (finally
+            (try
+              (sdk/stop! c)
+              (catch Throwable _))
+            (mock/stop-mock-server! old-server)
+            (mock/stop-mock-server! new-server)))))))
+
+(deftest test-failed-session-setup-detaches-only-on-originating-connection
+  (let [old-server (mock/create-mock-server)
+        new-server (mock/create-mock-server)
+        c (sdk/client {:auto-start? false})
+        replacement-methods (atom [])
+        session-id "captured-cleanup-connection"]
+    (try
+      (mock/start-mock-server! old-server)
+      (let [[in out] (mock/client-streams old-server)]
+        (client/connect-with-streams! c in out))
+      (let [old-connection (:connection-io @(:state c))]
+        (close! (protocol/notifications old-connection))
+        (await-atom! (:state c)
+                     #(= :disconnected (:status %))
+                     "old connection teardown"
+                     1000)
+        (mock/set-request-hook!
+         new-server
+         (fn [method _]
+           (swap! replacement-methods conj method)))
+        (mock/start-mock-server! new-server)
+        (let [[in out] (mock/client-streams new-server)]
+          (client/connect-with-streams! c in out))
+        (@#'client/cleanup-failed-session-setup!
+         c session-id
+         {:connection-io old-connection
+          :remote-accepted? true}))
+      (is (empty? (filter #{"session.detach"} @replacement-methods)))
+      (finally
+        (try
+          (sdk/stop! c)
+          (catch Throwable _))
+        (mock/stop-mock-server! old-server)
+        (mock/stop-mock-server! new-server)))))
+
+(deftest test-startup-close-cannot-be-overwritten-by-connected-transition
+  (doseq [{:keys [label connect]}
+          [{:label "caller-supplied streams"
+            :connect
+            (fn [c server]
+              (let [[in out] (mock/client-streams server)]
+                (client/connect-with-streams! c in out)))}
+           {:label "SDK-owned stdio"
+            :connect
+            (fn [c server]
+              (let [[in out] (mock/client-streams server)
+                    exit-ch (chan)
+                    managed-process
+                    (proc/map->ManagedProcess
+                     {:process nil
+                      :stdin out
+                      :stdout in
+                      :stderr (java.io.ByteArrayInputStream. (byte-array 0))
+                      :exit-chan exit-ch})]
+                (try
+                  (with-redefs [proc/spawn-cli (constantly managed-process)]
+                    (client/start! c))
+                  (finally
+                    (close! exit-ch)))))}]]
+    (testing label
+      (let [server (mock/create-mock-server)
+            c (sdk/client {:auto-start? false
+                           :use-stdio? (= label "SDK-owned stdio")})]
+        (try
+          (mock/start-mock-server! server)
+          (with-redefs [client/setup-request-handler!
+                        (fn [startup-client]
+                          (let [connection-io
+                                (:connection-io @(:state startup-client))]
+                            (close! (protocol/notifications connection-io))
+                            (await-atom! (:state startup-client)
+                                         #(nil? (:connection-io %))
+                                         "startup connection teardown"
+                                         1000)))]
+            (is (thrown? clojure.lang.ExceptionInfo
+                         (connect c server))))
+          (is (not= :connected (:status @(:state c))))
+          (is (nil? (:connection-io @(:state c))))
+          (finally
+            (try
+              (sdk/stop! c)
+              (catch Throwable _))
+            (mock/stop-mock-server! server)))))))
+
+(deftest test-unexpected-close-terminates-the-exact-sdk-owned-process
+  (let [server (mock/create-mock-server)
+        c (sdk/client {:auto-start? false})
+        managed-process (proc/map->ManagedProcess {:process ::process})
+        destroyed (promise)]
+    (try
+      (mock/start-mock-server! server)
+      (let [[in out] (mock/client-streams server)]
+        (client/connect-with-streams! c in out))
+      (swap! (:state c) assoc :process managed-process)
+      (with-redefs [proc/destroy!
+                    (fn [process]
+                      (deliver destroyed process)
+                      [])]
+        (close! (protocol/notifications
+                 (:connection-io @(:state c))))
+        (is (identical? managed-process
+                        (await-value! destroyed
+                                      "owned process teardown"
+                                      1000)))
+        (await-atom! (:state c)
+                     #(nil? (:process %))
+                     "owned process release"
+                     1000))
+      (finally
+        (mock/stop-mock-server! server)))))
+
+(deftest test-unexpected-close-preserves-process-handle-when-teardown-fails
+  (let [server (mock/create-mock-server)
+        c (sdk/client {:auto-start? false})
+        managed-process (proc/map->ManagedProcess {:process ::process})
+        teardown-attempted (promise)
+        failure (ex-info "process survived" {:resource :process})]
+    (try
+      (mock/start-mock-server! server)
+      (let [[in out] (mock/client-streams server)]
+        (client/connect-with-streams! c in out))
+      (swap! (:state c) assoc :process managed-process)
+      (with-redefs [proc/destroy!
+                    (fn [process]
+                      (deliver teardown-attempted process)
+                      [failure])]
+        (close! (protocol/notifications
+                 (:connection-io @(:state c))))
+        (is (identical? managed-process
+                        (await-value! teardown-attempted
+                                      "failed process teardown"
+                                      1000)))
+        (await-atom! (:state c)
+                     #(= :disconnected (:status %))
+                     "connection teardown"
+                     1000)
+        (is (identical? managed-process
+                        (:process @(:state c)))))
+      (finally
+        (mock/stop-mock-server! server)))))
+
+(deftest test-start-rejects-a-live-process-from-a-lost-transport
+  (let [c (sdk/client {:auto-start? false})
+        managed-process (proc/map->ManagedProcess {:process ::process})
+        spawn-count (atom 0)]
+    (swap! (:state c)
+           assoc
+           :status :disconnected
+           :process managed-process)
+    (with-redefs [proc/alive? #(identical? managed-process %)
+                  proc/spawn-cli (fn [_]
+                                   (swap! spawn-count inc)
+                                   (throw (ex-info "spawned replacement" {})))]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"process.*running"
+                            (client/start! c)))
+      (is (zero? @spawn-count))
+      (is (identical? managed-process
+                      (:process @(:state c)))))))
+
 (deftest test-auto-restart-deprecated-process-exit
   (testing "auto-restart no longer triggers on process exit (deprecated)"
     (let [starts (atom 0)

@@ -4,4 +4,4 @@ These files are fetched verbatim from the `@github/copilot-linux-x64` npm packag
 
 **Do not edit by hand.** To update, run `bb schemas:fetch` after bumping `.copilot-schema-version`.
 
-Currently pinned version: `1.0.83-1`
+Currently pinned version: `1.0.83`

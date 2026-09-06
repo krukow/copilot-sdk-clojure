@@ -133,7 +133,10 @@
         {(var client/connect-tcp!)
          (fn [c]
            (swap! calls conj :connect)
-           (swap! (:state c) assoc :connection-io ::connection))
+           (swap! (:state c)
+                  assoc
+                  :connection {:running? true}
+                  :connection-io ::connection))
          (var client/verify-protocol-version!)
          (fn [_] (swap! calls conj :verify))
          register

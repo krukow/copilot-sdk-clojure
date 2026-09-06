@@ -654,7 +654,7 @@
           (mock/stop-mock-server! server))))))
 
 (deftest test-empty-mode-options-update-failure-cleans-up-session
-  (testing "options.update RPC failure cleans up session (disconnect + remove) and rethrows"
+  (testing "options.update RPC failure detaches the runtime, removes local state, and rethrows"
     (let [server (mock/create-mock-server)
           _ (mock/start-mock-server! server)
           requests (atom [])
@@ -683,8 +683,10 @@
         ;; from its in-memory registry.
         (is (empty? (:sessions @(:state client)))
             "failed session must be removed from in-memory registry")
-        (is (= 1 (count (filter #{"session.destroy"} @requests)))
-            "failed setup must destroy the runtime session exactly once")
+        (is (= 1 (count (filter #{"session.detach"} @requests)))
+            "failed setup must detach the runtime session exactly once")
+        (is (empty? (filter #{"session.destroy"} @requests))
+            "failed setup must not destroy resumable runtime state")
         (finally
           (try (sdk/stop! client) (catch Exception _))
           (mock/stop-mock-server! server))))))
@@ -716,19 +718,16 @@
               "exception message should mention options.update"))
         (is (empty? (:sessions @(:state client)))
             "failed session must be removed from in-memory registry (async path)")
-        (is (= 1 (count (filter #{"session.destroy"} @requests)))
-            "failed async setup must destroy the runtime session exactly once")
+        (is (= 1 (count (filter #{"session.detach"} @requests)))
+            "failed async setup must detach the runtime session exactly once")
+        (is (empty? (filter #{"session.destroy"} @requests))
+            "failed async setup must not destroy resumable runtime state")
         (finally
           (try (sdk/stop! client) (catch Exception _))
           (mock/stop-mock-server! server))))))
 
 (deftest disconnect-concurrent-idempotent-test
-  ;; disconnect! must be idempotent under concurrent calls: only the caller that
-  ;; atomically claims :destroyed? should send session.destroy. A non-atomic
-  ;; check-then-act lets multiple concurrent callers each send the RPC. Run many
-  ;; iterations with several racing threads; the non-atomic version observes the
-  ;; race in ~45% of iterations, so requiring exactly one RPC per iteration is a
-  ;; reliable (non-flaky) regression guard.
+  ;; Concurrent callers share one detach operation and its successful outcome.
   (dotimes [_ 100]
     (let [ch (chan)
           client {:state (atom {:sessions {"s1" {:destroyed? false}}
@@ -736,7 +735,9 @@
                                 :connection-io :fake})}
           calls (atom 0)
           latch (java.util.concurrent.CountDownLatch. 1)]
-      (with-redefs [protocol/send-request! (fn [& _] (swap! calls inc) nil)]
+      (with-redefs [protocol/send-request! (fn [& _]
+                                             (swap! calls inc)
+                                             {:success true})]
         (let [threads (doall (for [_ (range 8)]
                                (future (.await latch)
                                        (try (session/disconnect! client "s1")
@@ -744,5 +745,5 @@
           (.countDown latch)
           (doseq [t threads] @t)))
       (is (= 1 @calls)
-          "exactly one concurrent disconnect! should send session.destroy")
+          "exactly one concurrent disconnect! should send session.detach")
       (is (true? (get-in @(:state client) [:sessions "s1" :destroyed?]))))))

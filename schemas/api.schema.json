@@ -32,6 +32,21 @@
       "stability": "experimental",
       "visibility": "internal"
     },
+    "hooks": {
+      "discover": {
+        "rpcMethod": "hooks.discover",
+        "description": "Discovers hook actions enabled under server-side discovery settings from user, repository, plugin, and managed-policy sources.",
+        "params": {
+          "$ref": "#/definitions/HooksDiscoverRequest",
+          "description": "Optional project paths and host-exclusion behavior for server-scoped hook discovery."
+        },
+        "result": {
+          "$ref": "#/definitions/HooksDiscoverResult",
+          "description": "Server-discovered hook actions and partial-load diagnostics from user, repository, plugin, and managed-policy sources. Concrete sessions may include additional session-specific hook sources."
+        },
+        "stability": "experimental"
+      }
+    },
     "models": {
       "list": {
         "rpcMethod": "models.list",
@@ -651,6 +666,15 @@
           "description": "Validated device-managed settings discovered before a session exists."
         },
         "stability": "experimental"
+      },
+      "clearCache": {
+        "rpcMethod": "managedSettings.clearCache",
+        "description": "Force-refreshes enterprise managed settings for every account: wipes the persistent server-policy cache (the whole `<cacheHome>/managed-settings` directory) and drops this runtime process's in-memory retained server policy. It does not itself fetch policy — the effect is that the next time a session resolves managed settings for an account, that resolution re-fetches the account's org policy from the network instead of serving a cached response. Note that `managedSettings.read` returns only device/MDM settings and never triggers the account server-policy fetch, so a host implementing \"sync account policy\" should start a fresh session resolution rather than treat a subsequent `managedSettings.read` as the refreshed org policy. Mirrors the invalidation a sign-out performs, broadened from the one signing-out account to all of them; device/MDM layers describe the machine, not the account, and are left untouched. Rejects if the on-disk cache cannot be removed.",
+        "params": null,
+        "result": {
+          "type": "null"
+        },
+        "stability": "experimental"
       }
     },
     "runtime": {
@@ -783,6 +807,19 @@
         },
         "stability": "experimental",
         "visibility": "internal"
+      },
+      "readPersistedEvents": {
+        "rpcMethod": "sessions.readPersistedEvents",
+        "description": "Reads a page of durable events directly from a local session's persisted journal without creating, resuming, or activating the session. The initial backward read uses a bounded tail scan for fast first paint; cursor continuations preserve the session event-log paging semantics. Persisted events may omit payloads that are reconstructed only for an active session.",
+        "params": {
+          "$ref": "#/definitions/SessionsReadPersistedEventsRequest",
+          "description": "Pagination options for reading an inactive or active local session's persisted event journal."
+        },
+        "result": {
+          "$ref": "#/definitions/EventsReadResult",
+          "description": "Batch of session events returned by a read, with cursor and continuation metadata."
+        },
+        "stability": "experimental"
       },
       "listNonEmptySessionIds": {
         "rpcMethod": "sessions.listNonEmptySessionIds",
@@ -2584,7 +2621,7 @@
     "model": {
       "getCurrent": {
         "rpcMethod": "session.model.getCurrent",
-        "description": "Gets the currently selected model for the session.",
+        "description": "Gets the session's authoritative model snapshot, including the committed Auto preference and any newer unclaimed Auto preference waiting for a future user turn.",
         "params": {
           "type": "object",
           "properties": {
@@ -2601,7 +2638,7 @@
         },
         "result": {
           "$ref": "#/definitions/CurrentModel",
-          "description": "The currently selected model, reasoning effort, and context tier for the session. The context tier reflects `Session.getContextTier()`, restored from the session journal on resume."
+          "description": "The session's authoritative model snapshot. Auto preference fields are configuration for the virtual `auto` model and do not change the selected model identifier. The context tier reflects `Session.getContextTier()`, restored from the session journal on resume."
         },
         "stability": "experimental"
       },
@@ -2618,6 +2655,18 @@
             "modelId": {
               "type": "string",
               "description": "Model selection id to switch to, as returned by `list`. A bare id (e.g. `claude-sonnet-4.6`) names a Copilot (CAPI) model; a provider-qualified id (`provider/id`, e.g. `acme/claude-sonnet`) targets a registry BYOK model."
+            },
+            "autoTier": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/AutoTier",
+                  "description": "Routing preference used when the session model is `auto`."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional Auto routing preference to stage atomically with selecting `auto`. Pass null to return to provider-default Auto routing. This field is rejected when `modelId` is not `auto`."
             },
             "reasoningEffort": {
               "type": "string",
@@ -2641,7 +2690,7 @@
             },
             "source": {
               "$ref": "#/definitions/ModelChangeSource",
-              "description": "Origin to record on the effective `session.model_change` event. Defaults to `sdk` when omitted."
+              "description": "Origin to record on the effective `session.model_change` event for trusted in-process calls. Transport SDK calls are always recorded as `sdk`, regardless of this value."
             },
             "deferIfModelChangeQueued": {
               "type": "boolean",
@@ -2684,6 +2733,48 @@
         "result": {
           "$ref": "#/definitions/ModelSwitchToResult",
           "description": "The model identifier active on the session after the switch."
+        },
+        "stability": "experimental"
+      },
+      "switchAutoTier": {
+        "rpcMethod": "session.model.switchAutoTier",
+        "description": "Requests an Auto preference change without changing the session's selected model. The latest unclaimed request wins; the runtime commits it only after a later prompt using the `auto` model mints a usable model and token pair. A `pending` response confirms that the request was accepted, not that it committed. Observe eventual success through `session.model_change`, failure through the ephemeral `session.auto_tier_switch_failed` event, or current unclaimed state through `session.model.getCurrent`.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "description": "Target session identifier"
+            },
+            "autoTier": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/AutoTier",
+                  "description": "Routing preference used when the session model is `auto`."
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Auto preference to activate when a future user turn using the `auto` model safely mints a replacement model and token pair. Pass null to return to provider-default Auto routing."
+            },
+            "source": {
+              "$ref": "#/definitions/ModelChangeSource",
+              "description": "Origin to record on the effective `session.model_change` event. Defaults to `sdk` when omitted."
+            }
+          },
+          "required": [
+            "sessionId",
+            "autoTier"
+          ],
+          "additionalProperties": false,
+          "description": "An Auto preference request for the session. This updates Auto configuration only; it does not change the selected model to `auto`.",
+          "title": "ModelSwitchAutoTierRequest",
+          "stability": "experimental"
+        },
+        "result": {
+          "$ref": "#/definitions/ModelSwitchAutoTierResult",
+          "description": "Immediate acknowledgement and Auto preference snapshot after a switch request. This result never implies that a pending preference committed."
         },
         "stability": "experimental"
       },
@@ -3572,6 +3663,31 @@
         "stability": "experimental"
       }
     },
+    "autopilotObjective": {
+      "getState": {
+        "rpcMethod": "session.autopilotObjective.getState",
+        "description": "Reads the current canonical autopilot objective state for this session.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "description": "Target session identifier"
+            }
+          },
+          "required": [
+            "sessionId"
+          ],
+          "additionalProperties": false,
+          "description": "Identifies the target session."
+        },
+        "result": {
+          "$ref": "#/definitions/AutopilotObjectiveGetStateResult",
+          "description": "Canonical runtime state for the session's current autopilot objective."
+        },
+        "stability": "experimental"
+      }
+    },
     "completions": {
       "getTriggerCharacters": {
         "rpcMethod": "session.completions.getTriggerCharacters",
@@ -3932,6 +4048,102 @@
         "result": {
           "$ref": "#/definitions/TaskList",
           "description": "Background tasks currently tracked by the session."
+        },
+        "stability": "experimental"
+      },
+      "register": {
+        "rpcMethod": "session.tasks.register",
+        "description": "Registers a client-owned task, or reclaims an orphaned task belonging to the same extension principal.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "description": "Target session identifier"
+            },
+            "type": {
+              "$ref": "#/definitions/TaskClientType",
+              "const": "client",
+              "description": "Task kind"
+            },
+            "clientTaskId": {
+              "type": "string",
+              "description": "Owner-scoped idempotency key used for registration and reclaim"
+            },
+            "description": {
+              "type": "string",
+              "description": "Human-readable description of the external work"
+            },
+            "displayName": {
+              "type": "string",
+              "description": "Optional short display name for the external work"
+            },
+            "cancellable": {
+              "type": "boolean",
+              "description": "Whether the owner supports runtime cancellation requests"
+            },
+            "expectedSequence": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Expected current sequence for idempotent registration or orphan reclaim"
+            }
+          },
+          "required": [
+            "sessionId",
+            "type",
+            "clientTaskId",
+            "description",
+            "cancellable"
+          ],
+          "additionalProperties": false,
+          "description": "Registers or reclaims a client-owned task.",
+          "title": "TasksRegisterRequest",
+          "stability": "experimental"
+        },
+        "result": {
+          "$ref": "#/definitions/TasksRegisterResult",
+          "description": "Result of registering or reclaiming a client-owned task."
+        },
+        "stability": "experimental"
+      },
+      "update": {
+        "rpcMethod": "session.tasks.update",
+        "description": "Publishes generic progress or a terminal outcome for a client-owned task.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "description": "Target session identifier"
+            },
+            "id": {
+              "type": "string",
+              "description": "Canonical runtime-generated task identifier"
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Owner update sequence to apply"
+            },
+            "update": {
+              "$ref": "#/definitions/TaskClientUpdate",
+              "description": "Progress or terminal update payload"
+            }
+          },
+          "required": [
+            "sessionId",
+            "id",
+            "sequence",
+            "update"
+          ],
+          "additionalProperties": false,
+          "description": "Updates a client-owned task.",
+          "title": "TasksUpdateRequest",
+          "stability": "experimental"
+        },
+        "result": {
+          "$ref": "#/definitions/TasksUpdateResult",
+          "description": "Result of publishing a client-owned task update."
         },
         "stability": "experimental"
       },
@@ -5913,7 +6125,7 @@
             },
             "enableSkills": {
               "type": "boolean",
-              "description": "Whether to enable skill directory scanning and loading. Falls back to enableConfigDiscovery when unset."
+              "description": "Whether skill loading is enabled. Explicit false disables every source, including a bound SDK provider; changing the value invalidates the loaded skill snapshot. When omitted, creation falls back to enableConfigDiscovery unless an SDK skill provider is registered."
             },
             "contextTier": {
               "$ref": "#/definitions/OptionsUpdateContextTier",
@@ -9775,6 +9987,66 @@
     }
   },
   "clientSession": {
+    "skillProvider": {
+      "list": {
+        "rpcMethod": "skillProvider.list",
+        "description": "Lists metadata for the skills supplied by this SDK session's provider. Internal transport plumbing behind the public session skill-provider API.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "description": "Target session identifier"
+            }
+          },
+          "required": [
+            "sessionId"
+          ],
+          "additionalProperties": false,
+          "description": "Identifies the target session."
+        },
+        "result": {
+          "$ref": "#/definitions/SkillProviderListResult",
+          "description": "Catalog metadata returned by an SDK session's skill provider. Catalogs are limited to 1024 descriptors and 1 MiB of aggregate metadata.",
+          "visibility": "internal"
+        },
+        "stability": "experimental",
+        "visibility": "internal"
+      },
+      "read": {
+        "rpcMethod": "skillProvider.read",
+        "description": "Reads the current SKILL.md text for one skill supplied by this SDK session's provider. Internal transport plumbing behind the public session skill-provider API.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "description": "Target session identifier"
+            },
+            "name": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+              "description": "Invocation name of the skill to read."
+            }
+          },
+          "required": [
+            "sessionId",
+            "name"
+          ],
+          "additionalProperties": false,
+          "description": "Identifies one SDK-provided skill by invocation name.",
+          "title": "SkillProviderReadRequest",
+          "visibility": "internal"
+        },
+        "result": {
+          "$ref": "#/definitions/SkillProviderReadResult",
+          "description": "Complete text-only SKILL.md content returned by an SDK session's skill provider. Related files and assets are not supported.",
+          "visibility": "internal"
+        },
+        "stability": "experimental",
+        "visibility": "internal"
+      }
+    },
     "providerToken": {
       "getToken": {
         "rpcMethod": "providerToken.getToken",
@@ -9880,6 +10152,53 @@
         "result": {
           "$ref": "#/definitions/FactoryAckResult",
           "description": "Acknowledgement that a factory request was accepted."
+        },
+        "stability": "experimental"
+      }
+    },
+    "tasks": {
+      "cancel": {
+        "rpcMethod": "tasks.cancel",
+        "description": "Asks the client currently bound to a client-owned session task to confirm that its external work stopped.",
+        "params": {
+          "type": "object",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "description": "Session that owns the client task"
+            },
+            "id": {
+              "type": "string",
+              "description": "Canonical runtime-generated task identifier"
+            },
+            "clientTaskId": {
+              "type": "string",
+              "description": "Owner-scoped task key included for correlation"
+            },
+            "cancellationId": {
+              "type": "string",
+              "description": "Opaque identifier shared by coalesced cancellation callers"
+            },
+            "reason": {
+              "$ref": "#/definitions/ClientTaskCancelReason",
+              "description": "Reason the runtime requests cancellation"
+            }
+          },
+          "required": [
+            "sessionId",
+            "id",
+            "clientTaskId",
+            "cancellationId",
+            "reason"
+          ],
+          "additionalProperties": false,
+          "description": "Runtime-to-owner cancellation request for a client-owned task.",
+          "title": "ClientTaskCancelRequest",
+          "stability": "experimental"
+        },
+        "result": {
+          "$ref": "#/definitions/ClientTaskCancelResult",
+          "description": "Whether the client authoritatively confirmed its external work stopped."
         },
         "stability": "experimental"
       }
@@ -11023,6 +11342,17 @@
           "type": "string",
           "description": "Authored preferred model id for this agent. Runtime model selection may choose a different model; omitted means no authored preference."
         },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Authored preferred model ids for this agent, in priority order. Runtime model selection chooses the first available model; omitted means no authored preference."
+        },
+        "modelPolicy": {
+          "$ref": "#/definitions/AgentModelPolicy",
+          "description": "Whether authored models are preferences or required constraints."
+        },
         "mcpServers": {
           "type": "object",
           "additionalProperties": {
@@ -11050,7 +11380,7 @@
         "id"
       ],
       "additionalProperties": false,
-      "description": "Agent metadata, including identifiers, display details, source, tools, model, MCP servers, skills, and file path.",
+      "description": "Agent metadata, including identifiers, display details, source, tools, model, models, MCP servers, skills, and file path.",
       "title": "AgentInfo"
     },
     "AgentInfoSource": {
@@ -11081,7 +11411,7 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/AgentInfo",
-            "description": "Agent metadata, including identifiers, display details, source, tools, model, MCP servers, skills, and file path."
+            "description": "Agent metadata, including identifiers, display details, source, tools, model, models, MCP servers, skills, and file path."
           },
           "description": "Available agents"
         }
@@ -11116,6 +11446,19 @@
       "description": "Controls whether built-in agents and authored prompt text are included.",
       "title": "AgentListRequest",
       "stability": "experimental"
+    },
+    "AgentModelPolicy": {
+      "type": "string",
+      "enum": [
+        "preferred",
+        "required"
+      ],
+      "description": "Whether configured models are advisory preferences or required constraints",
+      "title": "AgentModelPolicy",
+      "x-enumDescriptions": {
+        "preferred": "Treat the authored models as advisory preferences that callers may override.",
+        "required": "Require subagent execution to use one of the authored models."
+      }
     },
     "AgentRegistryLiveTargetEntry": {
       "type": "object",
@@ -11546,7 +11889,7 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/AgentInfo",
-            "description": "Agent metadata, including identifiers, display details, source, tools, model, MCP servers, skills, and file path."
+            "description": "Agent metadata, including identifiers, display details, source, tools, model, models, MCP servers, skills, and file path."
           },
           "description": "Reloaded custom agents"
         }
@@ -12574,6 +12917,125 @@
       "description": "Validation errors from the most recent authentication attempt.",
       "title": "AuthValidationErrors"
     },
+    "AutopilotObjectiveCreditLimit": {
+      "type": "object",
+      "properties": {
+        "credits": {
+          "type": "number",
+          "description": "Configured AI-credit cap, when one is set."
+        },
+        "creditsUsed": {
+          "type": "number",
+          "description": "Window consumption in fractional AI credits, for display."
+        },
+        "creditsUsedNanoAiu": {
+          "type": "string",
+          "pattern": "^[0-9]+$",
+          "description": "Exact window consumption in non-negative integer nano-AIU, encoded as a decimal string."
+        }
+      },
+      "required": [
+        "creditsUsed",
+        "creditsUsedNanoAiu"
+      ],
+      "additionalProperties": false,
+      "description": "Current per-window credit limit and consumption for an autopilot objective.",
+      "title": "AutopilotObjectiveCreditLimit",
+      "stability": "experimental"
+    },
+    "AutopilotObjectiveGetStateResult": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AutopilotObjectiveState",
+              "description": "Public, persistence-independent projection of an autopilot objective."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Current objective state, or `null` when the session has no objective."
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "additionalProperties": false,
+      "description": "Canonical runtime state for the session's current autopilot objective.",
+      "title": "AutopilotObjectiveGetStateResult",
+      "stability": "experimental"
+    },
+    "AutopilotObjectiveState": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "description": "Session-local objective identifier."
+        },
+        "objective": {
+          "type": "string",
+          "description": "User-provided objective text."
+        },
+        "status": {
+          "$ref": "#/definitions/AutopilotObjectiveStatus",
+          "description": "Current normalized lifecycle status."
+        },
+        "turnCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Number of objective turns started."
+        },
+        "pauseReason": {
+          "type": "string",
+          "description": "Optional reason the objective is paused."
+        },
+        "completionSummary": {
+          "type": "string",
+          "description": "Optional summary recorded when the objective completed."
+        },
+        "creditCountNanoAiu": {
+          "type": "string",
+          "pattern": "^[0-9]+$",
+          "description": "Exact lifetime AI-credit consumption in non-negative integer nano-AIU, encoded as a decimal string."
+        },
+        "creditLimit": {
+          "$ref": "#/definitions/AutopilotObjectiveCreditLimit",
+          "description": "Current per-window consumption and optional cap, when a credit-tracking window is present."
+        }
+      },
+      "required": [
+        "id",
+        "objective",
+        "status",
+        "turnCount",
+        "creditCountNanoAiu"
+      ],
+      "additionalProperties": false,
+      "description": "Public, persistence-independent projection of an autopilot objective.",
+      "title": "AutopilotObjectiveState",
+      "stability": "experimental"
+    },
+    "AutopilotObjectiveStatus": {
+      "type": "string",
+      "enum": [
+        "active",
+        "paused",
+        "completed"
+      ],
+      "description": "Current normalized autopilot objective lifecycle status.",
+      "title": "AutopilotObjectiveStatus",
+      "x-enumDescriptions": {
+        "active": "The objective is actively running.",
+        "paused": "The objective is paused and may be resumed.",
+        "completed": "The objective completed."
+      },
+      "stability": "experimental"
+    },
     "AutoTier": {
       "type": "string",
       "enum": [
@@ -13199,7 +13661,7 @@
       "properties": {
         "autoTier": {
           "$ref": "#/definitions/AutoTier",
-          "description": "Routing preference used when the session model is `auto`. The runtime persists the preference across cold resume. When omitted, the default routing behavior is used. Resuming an already-resident session cannot change its preference."
+          "description": "Routing preference for sessions whose model is `auto`. On create or cold resume, this establishes the preference sent as `tier` on CAPI `/auto` requests; when omitted on cold resume, the runtime restores the last committed preference. On resident resume, a different value requests a safe switch after resume succeeds and cannot change an in-flight turn. Successful switches are persisted for later cold resume. When no preference is supplied or restored, CAPI default routing is used."
         },
         "enableWebSocketResponses": {
           "type": "boolean",
@@ -14389,6 +14851,70 @@
       "description": "The request asked for a candidate kind this runtime does not serve.",
       "title": "CatalogUnsupportedKindError"
     },
+    "ClientTaskCancelReason": {
+      "type": "string",
+      "enum": [
+        "cancel_requested",
+        "session_shutdown"
+      ],
+      "description": "Why the runtime requests client-task cancellation.",
+      "title": "ClientTaskCancelReason",
+      "x-enumDescriptions": {
+        "cancel_requested": "A caller requested task cancellation.",
+        "session_shutdown": "The session is shutting down."
+      }
+    },
+    "ClientTaskCancelRequest": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "description": "Session that owns the client task"
+        },
+        "id": {
+          "type": "string",
+          "description": "Canonical runtime-generated task identifier"
+        },
+        "clientTaskId": {
+          "type": "string",
+          "description": "Owner-scoped task key included for correlation"
+        },
+        "cancellationId": {
+          "type": "string",
+          "description": "Opaque identifier shared by coalesced cancellation callers"
+        },
+        "reason": {
+          "$ref": "#/definitions/ClientTaskCancelReason",
+          "description": "Reason the runtime requests cancellation"
+        }
+      },
+      "required": [
+        "sessionId",
+        "id",
+        "clientTaskId",
+        "cancellationId",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "description": "Runtime-to-owner cancellation request for a client-owned task.",
+      "title": "ClientTaskCancelRequest",
+      "stability": "experimental"
+    },
+    "ClientTaskCancelResult": {
+      "type": "object",
+      "properties": {
+        "cancelled": {
+          "type": "boolean",
+          "description": "True only when the owner confirms that external work stopped before responding"
+        }
+      },
+      "required": [
+        "cancelled"
+      ],
+      "additionalProperties": false,
+      "description": "Whether the client authoritatively confirmed its external work stopped.",
+      "title": "ClientTaskCancelResult"
+    },
     "CommandList": {
       "type": "object",
       "properties": {
@@ -14825,6 +15351,14 @@
           "$ref": "#/definitions/ConnectClientInfo",
           "description": "Identity of the integrating host. Optional; omit it to keep the default attribution."
         },
+        "supportedTaskKinds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TaskKind",
+            "description": "Closed set of public task kinds a connection can negotiate."
+          },
+          "description": "Task kinds this connection can decode when observing session tasks. Omit to retain agent and shell compatibility."
+        },
         "token": {
           "type": "string",
           "description": "Connection token; required when the server was started with COPILOT_CONNECTION_TOKEN"
@@ -14851,6 +15385,14 @@
         "version": {
           "type": "string",
           "description": "Server package version"
+        },
+        "taskKinds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TaskKind",
+            "description": "Closed set of public task kinds a connection can negotiate."
+          },
+          "description": "Task kinds the server may return to this connection."
         }
       },
       "required": [
@@ -15504,10 +16046,38 @@
         "contextTier": {
           "$ref": "#/definitions/ContextTier",
           "description": "Context tier for models that support multiple context-window sizes."
+        },
+        "autoTier": {
+          "$ref": "#/definitions/AutoTier",
+          "description": "Auto preference currently committed for the session. This can remain available while another model is selected so a later switch to `auto` can reuse it."
+        },
+        "pendingAutoTier": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AutoTier",
+              "description": "Routing preference used when the session model is `auto`."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Latest unclaimed Auto preference waiting for a future user turn. Null means the pending request is returning to provider-default routing."
+        },
+        "activatingAutoTier": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AutoTier",
+              "description": "Routing preference used when the session model is `auto`."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Auto preference currently claimed by an in-progress activation. Null means the activation is returning to provider-default routing."
         }
       },
       "additionalProperties": false,
-      "description": "The currently selected model, reasoning effort, and context tier for the session. The context tier reflects `Session.getContextTier()`, restored from the session journal on resume.",
+      "description": "The session's authoritative model snapshot. Auto preference fields are configuration for the virtual `auto` model and do not change the selected model identifier. The context tier reflects `Session.getContextTier()`, restored from the session journal on resume.",
       "title": "CurrentModel"
     },
     "CurrentToolMetadata": {
@@ -16037,6 +16607,48 @@
         "user": "Extension discovered from the user's extensions directory.",
         "plugin": "Extension contributed by an installed plugin."
       }
+    },
+    "DiscoveredHook": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Deterministic identifier for this server-discovered action row. It remains stable while the project, origin, source, event, action content, and duplicate ordinal are unchanged. This is row identity, not the key persisted in disabledHooks."
+        },
+        "hookType": {
+          "$ref": "#/definitions/HookType",
+          "description": "Hook event that invokes this action."
+        },
+        "origin": {
+          "$ref": "#/definitions/HookOrigin",
+          "description": "Configuration tier that contributed this hook action."
+        },
+        "source": {
+          "type": "string",
+          "description": "Human-readable source label, such as a hook file path, settings source, or plugin name."
+        },
+        "projectPath": {
+          "type": "string",
+          "description": "Input project path for which this server-side action was resolved. Set on every row returned for project-scoped discovery, including repeated user and policy actions."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether this action is enabled under the server-side discovery settings. Concrete sessions may differ because they can add session-specific directories, plugins, or trust. False when its disable key is present in the user's disabled-hooks setting or disable-all settings suppress the action."
+        },
+        "disableKey": {
+          "type": "string",
+          "description": "Durable content hash used by hook enablement. Identical actions may intentionally share this key. Omitted when changing the user's disabled-hooks setting cannot change the action's current server-discovered state, including managed-policy hooks, session-start prompt actions, actions suppressed by disable-all settings, and projectless plugin actions that require project-directory expansion."
+        }
+      },
+      "required": [
+        "id",
+        "hookType",
+        "origin",
+        "enabled"
+      ],
+      "additionalProperties": false,
+      "description": "One server-discovered hook action from user, repository, plugin, or managed-policy configuration.",
+      "title": "DiscoveredHook"
     },
     "DiscoveredMcpServer": {
       "type": "object",
@@ -19687,6 +20299,77 @@
       "title": "HookInvokeResponse",
       "visibility": "internal"
     },
+    "HookOrigin": {
+      "type": "string",
+      "enum": [
+        "user",
+        "repository",
+        "plugin",
+        "policy"
+      ],
+      "description": "Configuration tier that contributed a discovered hook action.",
+      "title": "HookOrigin",
+      "x-enumDescriptions": {
+        "user": "Hook loaded from user settings or the user's hook directory.",
+        "repository": "Hook loaded from repository settings or the repository hook directory.",
+        "plugin": "Hook provided by an enabled installed or explicit plugin. Projectless rows omit projectPath and do not expand a project directory.",
+        "policy": "Hook enforced by centrally managed policy."
+      }
+    },
+    "HooksDiscoverRequest": {
+      "type": "object",
+      "properties": {
+        "projectPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional project directory paths whose trusted repository and project-expanded plugin hooks should be discovered. When omitted or empty, user, managed-policy, and globally enabled installed or explicit plugin hooks are returned without project expansion."
+        },
+        "excludeHostHooks": {
+          "type": "boolean",
+          "description": "When true, omit host-owned user and plugin hook rows and their diagnostics. Managed-policy hooks and trusted repository hooks remain visible, and host disabledHooks still contribute to each remaining row's effective enabled state. This filters sources rather than simulating a host with no settings."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Optional project paths and host-exclusion behavior for server-scoped hook discovery.",
+      "title": "HooksDiscoverRequest"
+    },
+    "HooksDiscoverResult": {
+      "type": "object",
+      "properties": {
+        "hooks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DiscoveredHook",
+            "description": "One server-discovered hook action from user, repository, plugin, or managed-policy configuration."
+          },
+          "description": "All discovered hook actions. Byte-identical actions remain separate rows even when they share a disable key."
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Non-fatal source-loading warnings. Discovery remains complete for the affected source, although the source had a recoverable issue. Repository-settings warnings are prefixed with their project path when attribution is available."
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Errors for hook sources or actions that could not be loaded, making the result partially incomplete. Other valid actions are still returned. Project-resolution and repository-settings errors are prefixed with their project path."
+        }
+      },
+      "required": [
+        "hooks",
+        "warnings",
+        "errors"
+      ],
+      "additionalProperties": false,
+      "description": "Server-discovered hook actions and partial-load diagnostics from user, repository, plugin, and managed-policy sources. Concrete sessions may include additional session-specific hook sources.",
+      "title": "HooksDiscoverResult"
+    },
     "HookType": {
       "type": "string",
       "enum": [
@@ -19708,9 +20391,8 @@
         "permissionRequest",
         "notification"
       ],
-      "description": "Hook event name dispatched through the SDK callback transport.",
+      "description": "Hook event name. Discovery emits the file-configurable subset; SDK callbacks additionally support callback-only events.",
       "title": "HookType",
-      "visibility": "internal",
       "x-enumDescriptions": {
         "preToolUse": "Runs before a tool is invoked.",
         "preMcpToolCall": "Runs before an MCP tool is invoked.",
@@ -21388,6 +22070,10 @@
           "minLength": 1,
           "pattern": "^[^\\x00-\\x1f/\\x7f-\\x9f}]+(?:\\/[^\\x00-\\x1f/\\x7f-\\x9f}]+)*$",
           "description": "Name of the MCP server to remove"
+        },
+        "authClientIdMetadataUrl": {
+          "type": "string",
+          "description": "OAuth Client ID Metadata Document URL whose persisted credentials should also be removed."
         }
       },
       "required": [
@@ -23675,6 +24361,10 @@
         "error": {
           "type": "string",
           "description": "Error message if the server failed to connect"
+        },
+        "serverMetadata": {
+          "$ref": "#/definitions/McpServerMetadata",
+          "description": "Server-advertised metadata for a connected server. Omitted when no live connection metadata is available, including while pending or when failed, disabled, stopped, or not configured."
         }
       },
       "required": [
@@ -24331,6 +25021,24 @@
       "description": "MCP servers configured for the session, with their connection status and host-level state.",
       "title": "McpServerList"
     },
+    "McpServerMetadata": {
+      "type": "object",
+      "properties": {
+        "instructions": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Non-empty natural-language guidance for using the server, or null when the server omitted instructions or advertised an empty string."
+        }
+      },
+      "required": [
+        "instructions"
+      ],
+      "additionalProperties": false,
+      "description": "Server-advertised metadata learned through modern discovery or legacy initialization.",
+      "title": "McpServerMetadata"
+    },
     "McpServerNeedsAuthInfo": {
       "type": "object",
       "properties": {
@@ -24904,6 +25612,13 @@
         "capabilities": {
           "$ref": "#/definitions/ModelCapabilities",
           "description": "Model capabilities and limits"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "x-opaque-json": true
+          },
+          "description": "Provider-supplied model metadata. Keys and JSON-compatible values are preserved unchanged. This is factual metadata published by the model provider; it carries no picker or UX semantics."
         },
         "policy": {
           "$ref": "#/definitions/ModelPolicy",
@@ -25608,6 +26323,104 @@
       "description": "Optional opaque account selection or compatibility GitHub token used to list models.",
       "title": "ModelsListRequest"
     },
+    "ModelSwitchAutoTierRequest": {
+      "type": "object",
+      "properties": {
+        "autoTier": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AutoTier",
+              "description": "Routing preference used when the session model is `auto`."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Auto preference to activate when a future user turn using the `auto` model safely mints a replacement model and token pair. Pass null to return to provider-default Auto routing."
+        },
+        "source": {
+          "$ref": "#/definitions/ModelChangeSource",
+          "description": "Origin to record on the effective `session.model_change` event. Defaults to `sdk` when omitted."
+        }
+      },
+      "required": [
+        "autoTier"
+      ],
+      "additionalProperties": false,
+      "description": "An Auto preference request for the session. This updates Auto configuration only; it does not change the selected model to `auto`.",
+      "title": "ModelSwitchAutoTierRequest",
+      "stability": "experimental"
+    },
+    "ModelSwitchAutoTierResult": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/ModelSwitchAutoTierStatus",
+          "description": "Immediate request status. `pending` means accepted but not committed."
+        },
+        "effectiveAutoTier": {
+          "$ref": "#/definitions/AutoTier",
+          "description": "Auto preference currently committed for the session."
+        },
+        "pendingAutoTier": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AutoTier",
+              "description": "Routing preference used when the session model is `auto`."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Latest unclaimed Auto preference waiting for a future user turn."
+        },
+        "activatingAutoTier": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AutoTier",
+              "description": "Routing preference used when the session model is `auto`."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Auto preference currently claimed by an in-progress activation. Null means the activation is returning to provider-default routing."
+        },
+        "supersededAutoTier": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AutoTier",
+              "description": "Routing preference used when the session model is `auto`."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Earlier unclaimed preference replaced by this request. This can be present with either status, including when selecting the effective preference cancels pending work."
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "description": "Immediate acknowledgement and Auto preference snapshot after a switch request. This result never implies that a pending preference committed.",
+      "title": "ModelSwitchAutoTierResult",
+      "stability": "experimental"
+    },
+    "ModelSwitchAutoTierStatus": {
+      "type": "string",
+      "enum": [
+        "unchanged",
+        "pending"
+      ],
+      "description": "Whether the requested preference was already effective or was accepted for later transactional activation.",
+      "title": "ModelSwitchAutoTierStatus",
+      "x-enumDescriptions": {
+        "unchanged": "The requested preference is already effective. No activation is pending for it, although this request may have cancelled an earlier unclaimed preference reported in `supersededAutoTier`.",
+        "pending": "The request was accepted but has not committed. A later user turn using the `auto` model must mint and validate the replacement before it becomes effective."
+      },
+      "stability": "experimental"
+    },
     "ModelSwitchConfirmation": {
       "type": "object",
       "properties": {
@@ -25638,6 +26451,18 @@
           "type": "string",
           "description": "Model selection id to switch to, as returned by `list`. A bare id (e.g. `claude-sonnet-4.6`) names a Copilot (CAPI) model; a provider-qualified id (`provider/id`, e.g. `acme/claude-sonnet`) targets a registry BYOK model."
         },
+        "autoTier": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AutoTier",
+              "description": "Routing preference used when the session model is `auto`."
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional Auto routing preference to stage atomically with selecting `auto`. Pass null to return to provider-default Auto routing. This field is rejected when `modelId` is not `auto`."
+        },
         "reasoningEffort": {
           "type": "string",
           "description": "Reasoning effort level to use for the model. CAPI values are model-defined and validated against the selected model; BYOK providers may define additional values. \"none\" disables reasoning. When omitted, no effort override is applied."
@@ -25660,7 +26485,7 @@
         },
         "source": {
           "$ref": "#/definitions/ModelChangeSource",
-          "description": "Origin to record on the effective `session.model_change` event. Defaults to `sdk` when omitted."
+          "description": "Origin to record on the effective `session.model_change` event for trusted in-process calls. Transport SDK calls are always recorded as `sdk`, regardless of this value."
         },
         "deferIfModelChangeQueued": {
           "type": "boolean",
@@ -25736,6 +26561,10 @@
             "type": "string"
           },
           "description": "Deprecation warnings associated with the selected model or options."
+        },
+        "modelState": {
+          "$ref": "#/definitions/CurrentModel",
+          "description": "Authoritative model and Auto preference state after an immediate switch. For deferred switches this remains the current state until the queued change drains."
         }
       },
       "required": [],
@@ -28762,6 +29591,10 @@
           "type": "integer",
           "description": "Number of skills discovered and installed from the plugin"
         },
+        "stagingMode": {
+          "$ref": "#/definitions/PluginInstallStagingMode",
+          "description": "Where the completed plugin tree was staged before atomic promotion"
+        },
         "postInstallMessage": {
           "type": "string",
           "description": "Optional post-install message provided by the plugin (e.g. setup instructions)"
@@ -28778,6 +29611,19 @@
       "additionalProperties": false,
       "description": "Result of installing a plugin.",
       "title": "PluginInstallResult"
+    },
+    "PluginInstallStagingMode": {
+      "type": "string",
+      "enum": [
+        "external",
+        "destination_sibling"
+      ],
+      "description": "Where completed plugin content was staged before atomic promotion.",
+      "title": "PluginInstallStagingMode",
+      "x-enumDescriptions": {
+        "external": "A sibling of the installed-plugins root, outside the recursively watched tree.",
+        "destination_sibling": "A sibling of the destination plugin directory, used when external staging is unavailable."
+      }
     },
     "PluginList": {
       "type": "object",
@@ -30652,6 +31498,10 @@
           "type": "string",
           "description": "Stable opaque id for the canonical queued item. Batch rows share one id."
         },
+        "messageId": {
+          "type": "string",
+          "description": "Stable identity of the queued user message. Present for message rows and absent for slash commands and model changes."
+        },
         "kind": {
           "$ref": "#/definitions/QueuePendingItemsKind",
           "description": "Whether this item is a queued user message or a queued slash command / model change"
@@ -30998,6 +31848,25 @@
       "description": "Opaque handle previously returned by `registerInterest` to release.",
       "title": "ReleaseEventInterestParams",
       "stability": "experimental"
+    },
+    "RemediationAction": {
+      "type": "string",
+      "enum": [
+        "sign_in",
+        "switch_account",
+        "show_account",
+        "review_sandbox_policy",
+        "allow_sandbox_outbound"
+      ],
+      "description": "What the user must do to recover from a failure, named as an action rather than as one client's affordance. The runtime cannot know which affordance a client offers — a slash command, a settings pane, a link — so the accompanying message stays host-agnostic and each client renders its own copy from this value. Absent when the runtime knows of no action the user can take.",
+      "title": "RemediationAction",
+      "x-enumDescriptions": {
+        "sign_in": "Authenticate again with the Copilot backend. The current credential is absent, expired, or rejected.",
+        "switch_account": "Authenticate as a different account. The current account exists but lacks access to the requested resource.",
+        "show_account": "Inspect which account is currently authenticated before deciding what to change.",
+        "review_sandbox_policy": "Review or widen the sandbox policy. The blocked path or host is named by the accompanying message or by the tool result the action arrived with.",
+        "allow_sandbox_outbound": "Permit outbound network access in the sandbox policy."
+      }
     },
     "RemoteControlConfig": {
       "type": "object",
@@ -31531,6 +32400,28 @@
           "type": "boolean",
           "description": "Whether to auto-add the current working directory to readwritePaths. Default: true."
         },
+        "sandboxMcpServers": {
+          "type": "boolean",
+          "description": "Whether MCP servers the session launches are confined by the sandbox. Only an explicit `false` opts out; doing so also lets remote-MCP egress leave the sandbox, so the flag and `enabled` are always read together. Ignored while `enabled` is false. Default: true (enabled by default; set to false to opt out)."
+        },
+        "sandboxLspServers": {
+          "type": "boolean",
+          "description": "Whether language servers the session launches are confined by the sandbox. Only an explicit `false` opts out. Ignored while `enabled` is false. Default: true (enabled by default; set to false to opt out)."
+        },
+        "allowBypass": {
+          "type": "boolean",
+          "description": "Whether the agent may request that an individual command run outside the sandbox, which the host then approves or denies through the usual permission flow. A host capability flag rather than part of the policy: it is stripped from the effective spawn policy and only has an effect while `enabled` is true. Fail-closed, unlike the opt-out flags on this object: omitting it offers no bypass. Default: false (opt-in)."
+        },
+        "managedMcpRoutingLocked": {
+          "type": "boolean",
+          "description": "Set by the runtime when a managed policy forced `sandboxMcpServers` on and took the local opt-out away. Provenance rather than policy: it lets a sandbox startup failure point at the administrator instead of a setting the next managed merge would override, and it is ignored when comparing two configs for change. Only the managed merge may set it; a caller-supplied value is stripped.",
+          "visibility": "internal"
+        },
+        "managedLspRoutingLocked": {
+          "type": "boolean",
+          "description": "The `sandboxLspServers` counterpart of `managedMcpRoutingLocked`.",
+          "visibility": "internal"
+        },
         "auth": {
           "$ref": "#/definitions/SandboxConfigAuth",
           "description": "Credential-injection capability flags."
@@ -31682,7 +32573,7 @@
         },
         "proxy": {
           "$ref": "#/definitions/SandboxConfigUserPolicyNetworkProxy",
-          "description": "HTTP proxy the sandboxed process routes traffic through. Enforced on Windows and cooperative (honored by well-behaved tools, not strictly enforced) on Linux and macOS. Credentials go in the separate `username`/`password` fields. A credential-free http:// loopback proxy URL is routed through the localhost proxy automatically; an https:// or authenticated loopback URL is used as-is."
+          "description": "HTTP proxy for sandboxed process traffic. Linux restricts egress to the proxy endpoint, requires that endpoint to be reachable over IPv4 (the [::] dual-stack wildcard is accepted and routed through the IPv4 gateway), and does not support proxy credentials. macOS relies on applications honoring proxy environment variables. Windows also configures a per-AppContainer WinHTTP proxy, but enforcement depends on the application's networking stack. Configure supported credentials in the separate `username` and `password` fields. A credential-free http:// loopback URL uses the localhost proxy form, while an https:// or authenticated loopback URL uses the URL form."
         }
       },
       "additionalProperties": false,
@@ -31694,7 +32585,7 @@
       "properties": {
         "url": {
           "type": "string",
-          "description": "Proxy URL (e.g. http://proxy.example.com:8080). The port is optional and defaults to the scheme's standard port when omitted. Credentials must not be embedded here — a `user:pass@` authority is rejected; put them in the separate `username`/`password` fields. A credential-free http:// loopback URL is routed through the localhost proxy automatically; loopback covers localhost and any *.localhost subdomain, the whole 127.0.0.0/8 range, ::1, and IPv4-mapped loopback (::ffff:127.0.0.1). An https:// URL, or one with a username/password set, is used as-is."
+          "description": "Proxy URL (e.g. http://proxy.example.com:8080). The port is optional and defaults to the scheme's standard port when omitted; an explicit port must be between 1 and 65535. Credentials must not be embedded here — a `user:pass@` authority is rejected; put them in the separate `username`/`password` fields. A credential-free http:// loopback proxy URL is routed through the localhost proxy automatically; loopback covers localhost and any *.localhost subdomain, the whole 127.0.0.0/8 range, ::1, and IPv4-mapped loopback (::ffff:127.0.0.1). An https:// URL, or one with a username/password set, is used as-is."
         },
         "username": {
           "type": "string",
@@ -32337,7 +33228,7 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/AgentInfo",
-            "description": "Agent metadata, including identifiers, display details, source, tools, model, MCP servers, skills, and file path."
+            "description": "Agent metadata, including identifiers, display details, source, tools, model, models, MCP servers, skills, and file path."
           },
           "description": "All discovered agents across all sources"
         }
@@ -34375,6 +35266,10 @@
           "type": "string",
           "description": "Identifier of the client driving the session."
         },
+        "authClientIdMetadataUrl": {
+          "type": "string",
+          "description": "OAuth Client ID Metadata Document URL used by this host for MCP authorization."
+        },
         "clientKind": {
           "type": "string",
           "description": "Structured client kind used for runtime behavior gates."
@@ -34562,6 +35457,16 @@
             "type": "string"
           },
           "description": "Additional directories to search for skills."
+        },
+        "enableSkills": {
+          "type": "boolean",
+          "description": "Whether skill loading is enabled. When omitted, an SDK skill provider enables skills by default."
+        },
+        "hasSkillProvider": {
+          "type": "boolean",
+          "description": "Whether the requesting SDK session has a skill provider. The provider remains ephemeral and is never persisted in session options or history. When enableSkills is false, it remains bound but dormant and receives no callbacks. Cloud, relay, handoff, and raw sessions.open flows reject it because they cannot safely pre-register the callback handler.",
+          "visibility": "internal",
+          "stability": "experimental"
         },
         "includedBuiltinSkills": {
           "type": "array",
@@ -36077,6 +36982,35 @@
       "description": "Age threshold and optional flags controlling which old sessions are pruned (or simulated when dryRun is true).",
       "title": "SessionsPruneOldRequest"
     },
+    "SessionsReadPersistedEventsRequest": {
+      "type": "object",
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "description": "Session ID whose persisted event journal should be read."
+        },
+        "cursor": {
+          "type": "string",
+          "description": "Opaque cursor returned by a previous persisted-event read. Omit on the first call."
+        },
+        "max": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 1000,
+          "description": "Maximum number of events to return in this batch (1–1000, default 200)."
+        },
+        "direction": {
+          "$ref": "#/definitions/EventsReadDirection",
+          "description": "Direction to page through persisted history. Forward starts at the beginning; backward starts with the newest events. Events in each page remain chronological."
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "additionalProperties": false,
+      "description": "Pagination options for reading an inactive or active local session's persisted event journal.",
+      "title": "SessionsReadPersistedEventsRequest"
+    },
     "SessionsRegisterExtensionToolsOnSessionOptions": {
       "type": "object",
       "properties": {
@@ -36564,7 +37498,7 @@
         },
         "enableSkills": {
           "type": "boolean",
-          "description": "Whether to enable skill directory scanning and loading. Falls back to enableConfigDiscovery when unset."
+          "description": "Whether skill loading is enabled. Explicit false disables every source, including a bound SDK provider; changing the value invalidates the loaded skill snapshot. When omitted, creation falls back to enableConfigDiscovery unless an SDK skill provider is registered."
         },
         "contextTier": {
           "$ref": "#/definitions/OptionsUpdateContextTier",
@@ -37128,6 +38062,95 @@
       "description": "Skills available to the session, with their enabled state.",
       "title": "SkillList"
     },
+    "SkillProviderDescriptor": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+          "description": "Invocation and display name."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "Description used in skill catalogs without fetching content."
+        },
+        "userInvocable": {
+          "type": "boolean",
+          "description": "Whether users may invoke the skill directly. Defaults to true."
+        },
+        "disableModelInvocation": {
+          "type": "boolean",
+          "description": "Whether model invocation is disabled. Defaults to false."
+        },
+        "argumentHint": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "Optional freeform argument hint used by slash-command catalogs."
+        }
+      },
+      "required": [
+        "name",
+        "description"
+      ],
+      "additionalProperties": false,
+      "description": "Catalog-only metadata for one SDK-provided skill. The complete SKILL.md is fetched separately and lazily.",
+      "title": "SkillProviderDescriptor"
+    },
+    "SkillProviderListResult": {
+      "type": "object",
+      "properties": {
+        "skills": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SkillProviderDescriptor",
+            "description": "Catalog-only metadata for one SDK-provided skill. The complete SKILL.md is fetched separately and lazily."
+          },
+          "maxItems": 1024,
+          "description": "Skill descriptors in provider order. Invocation names must be unique under case-insensitive comparison."
+        }
+      },
+      "required": [
+        "skills"
+      ],
+      "additionalProperties": false,
+      "description": "Catalog metadata returned by an SDK session's skill provider. Catalogs are limited to 1024 descriptors and 1 MiB of aggregate metadata.",
+      "title": "SkillProviderListResult",
+      "visibility": "internal"
+    },
+    "SkillProviderReadRequest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+          "description": "Invocation name of the skill to read."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "description": "Identifies one SDK-provided skill by invocation name.",
+      "title": "SkillProviderReadRequest",
+      "visibility": "internal"
+    },
+    "SkillProviderReadResult": {
+      "type": "object",
+      "properties": {
+        "markdown": {
+          "type": "string",
+          "description": "Complete SKILL.md text. The runtime enforces a 1 MiB UTF-8 byte limit."
+        }
+      },
+      "required": [
+        "markdown"
+      ],
+      "additionalProperties": false,
+      "description": "Complete text-only SKILL.md content returned by an SDK session's skill provider. Related files and assets are not supported.",
+      "title": "SkillProviderReadResult",
+      "visibility": "internal"
+    },
     "SkillsConfigSetDisabledSkillsRequest": {
       "type": "object",
       "properties": {
@@ -37271,7 +38294,7 @@
         },
         "path": {
           "type": "string",
-          "description": "Path to the SKILL.md file"
+          "description": "Path to the SKILL.md file, or an empty string for an SDK-provided skill without a filesystem identity"
         },
         "content": {
           "type": "string",
@@ -37283,6 +38306,10 @@
             "type": "string"
           },
           "description": "Tools that should be auto-approved when this skill is active, captured at invocation time"
+        },
+        "disableModelInvocation": {
+          "type": "boolean",
+          "description": "Whether model invocation was disabled when this skill was invoked"
         },
         "invokedAtTurn": {
           "type": "integer",
@@ -37335,9 +38362,10 @@
         "personal-agents",
         "plugin",
         "custom",
-        "builtin"
+        "builtin",
+        "sdk"
       ],
-      "description": "Source location type (e.g., project, personal-copilot, plugin, builtin)",
+      "description": "Source location type (e.g., project, personal-copilot, plugin, builtin, sdk)",
       "title": "SkillSource",
       "x-enumDescriptions": {
         "project": "Skill defined in the current project's skill directories.",
@@ -37346,7 +38374,8 @@
         "personal-agents": "Skill defined in the user's personal agents skill directory.",
         "plugin": "Skill provided by an installed plugin.",
         "custom": "Skill loaded from a configured custom skill directory.",
-        "builtin": "Skill bundled with the runtime."
+        "builtin": "Skill bundled with the runtime.",
+        "sdk": "Pathless skill supplied lazily by an SDK skill provider."
       }
     },
     "SlashCommandAddTimelineEntryResult": {
@@ -37836,6 +38865,10 @@
         "url": {
           "type": "string",
           "description": "Optional URL associated with the timeline entry."
+        },
+        "remediation": {
+          "$ref": "#/definitions/RemediationAction",
+          "description": "What the user must do to recover, when the entry reports a failure the runtime knows an action for. The `text` never names a client affordance, so a client that offers one renders it from this value."
         }
       },
       "required": [
@@ -37893,6 +38926,10 @@
         "model": {
           "type": "string",
           "description": "Model override for matching subagents"
+        },
+        "modelPolicy": {
+          "$ref": "#/definitions/AgentModelPolicy",
+          "description": "Whether the configured model strategy is preferred or required"
         },
         "effortLevel": {
           "type": "string",
@@ -38056,6 +39093,426 @@
       "description": "Progress snapshot for an agent task, with recent activity lines and optional latest intent.",
       "title": "TaskAgentProgress"
     },
+    "TaskClientActiveStatus": {
+      "type": "string",
+      "enum": [
+        "running",
+        "idle"
+      ],
+      "description": "Active status a client owner may publish with a progress update.",
+      "title": "TaskClientActiveStatus",
+      "x-enumDescriptions": {
+        "running": "The external owner is actively working.",
+        "idle": "The external owner is connected but waiting."
+      }
+    },
+    "TaskClientExecutionMode": {
+      "type": "string",
+      "enum": [
+        "background"
+      ],
+      "description": "Client-owned tasks always execute outside the runtime in background mode.",
+      "title": "TaskClientExecutionMode"
+    },
+    "TaskClientInfo": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/TaskClientType",
+          "const": "client",
+          "description": "Task kind"
+        },
+        "id": {
+          "type": "string",
+          "description": "Canonical runtime-generated task identifier"
+        },
+        "clientTaskId": {
+          "type": "string",
+          "description": "Owner-scoped registration and reclaim key"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Optional task display name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Task description"
+        },
+        "status": {
+          "$ref": "#/definitions/TaskClientStatus",
+          "description": "Client task lifecycle status"
+        },
+        "owner": {
+          "$ref": "#/definitions/TaskClientOwner",
+          "description": "Public attribution and presence for the task owner"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the task started"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of the latest accepted lifecycle change"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the task reached a terminal status"
+        },
+        "activeTimeMs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Accumulated active execution time in milliseconds"
+        },
+        "activeStartedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the current active segment started"
+        },
+        "idleSince": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the connected owner entered idle status"
+        },
+        "orphanedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of the most recent orphan transition"
+        },
+        "reclaimedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of the most recent successful reclaim"
+        },
+        "executionMode": {
+          "$ref": "#/definitions/TaskClientExecutionMode",
+          "description": "Execution mode, which is always background for client-owned tasks"
+        },
+        "canCancel": {
+          "type": "boolean",
+          "description": "Whether the currently bound owner can receive a cancellation request"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sequence number of the latest accepted owner update"
+        },
+        "result": {
+          "description": "Opaque successful terminal result supplied by the task owner",
+          "x-opaque-json": true
+        },
+        "error": {
+          "type": "string",
+          "description": "Human-readable terminal failure message"
+        },
+        "errorCode": {
+          "type": "string",
+          "description": "Optional owner-supplied terminal failure code"
+        },
+        "cancellationReason": {
+          "type": "string",
+          "description": "Human-readable reason for terminal cancellation"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "clientTaskId",
+        "description",
+        "status",
+        "owner",
+        "startedAt",
+        "updatedAt",
+        "activeTimeMs",
+        "executionMode",
+        "canCancel",
+        "sequence"
+      ],
+      "additionalProperties": false,
+      "description": "Tracked client-owned task metadata.",
+      "title": "TaskClientInfo"
+    },
+    "TaskClientOwner": {
+      "type": "object",
+      "properties": {
+        "participantId": {
+          "type": "string",
+          "description": "Opaque session-scoped participant identity"
+        },
+        "joinId": {
+          "type": "string",
+          "description": "Opaque identity of the currently or most recently bound session join"
+        },
+        "kind": {
+          "$ref": "#/definitions/TaskClientOwnerKind",
+          "description": "Class of the task owner"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display-only owner name"
+        },
+        "source": {
+          "type": "string",
+          "description": "Display-only owner source"
+        },
+        "presence": {
+          "$ref": "#/definitions/TaskClientOwnerPresence",
+          "description": "Whether this task's bound join is currently connected"
+        },
+        "disconnectedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when the bound join disconnected"
+        }
+      },
+      "required": [
+        "participantId",
+        "joinId",
+        "kind",
+        "presence"
+      ],
+      "additionalProperties": false,
+      "description": "Public owner attribution for a client-owned task. Identifiers are opaque and never authorize requests.",
+      "title": "TaskClientOwner"
+    },
+    "TaskClientOwnerKind": {
+      "type": "string",
+      "enum": [
+        "extension",
+        "sdk"
+      ],
+      "description": "Connection class owning a client task.",
+      "title": "TaskClientOwnerKind",
+      "x-enumDescriptions": {
+        "extension": "A discovered extension connection owns the task.",
+        "sdk": "A generic SDK connection owns the task."
+      }
+    },
+    "TaskClientOwnerPresence": {
+      "type": "string",
+      "enum": [
+        "connected",
+        "disconnected"
+      ],
+      "description": "Presence of the task's bound join.",
+      "title": "TaskClientOwnerPresence",
+      "x-enumDescriptions": {
+        "connected": "The bound session join is connected.",
+        "disconnected": "The bound session join is disconnected."
+      }
+    },
+    "TaskClientProgress": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/TaskClientType",
+          "const": "client",
+          "description": "Progress kind"
+        },
+        "status": {
+          "$ref": "#/definitions/TaskClientStatus",
+          "description": "Current client task lifecycle status"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sequence number of the latest accepted owner update"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of the latest accepted lifecycle change"
+        },
+        "phase": {
+          "type": "string",
+          "description": "Current owner-defined progress phase"
+        },
+        "percentage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Current completion percentage from zero through one hundred"
+        },
+        "lastMessage": {
+          "type": "string",
+          "description": "Most recent nonempty progress message"
+        },
+        "recentActivity": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TaskProgressLine",
+            "description": "Timestamped display line for task progress output or recent agent activity."
+          },
+          "description": "Recent server-timestamped progress messages"
+        }
+      },
+      "required": [
+        "type",
+        "status",
+        "sequence",
+        "updatedAt",
+        "recentActivity"
+      ],
+      "additionalProperties": false,
+      "description": "Generic progress for a client-owned task.",
+      "title": "TaskClientProgress"
+    },
+    "TaskClientStatus": {
+      "type": "string",
+      "enum": [
+        "running",
+        "idle",
+        "completed",
+        "failed",
+        "cancelled",
+        "orphaned"
+      ],
+      "description": "Lifecycle status of a client-owned task.",
+      "title": "TaskClientStatus",
+      "x-enumDescriptions": {
+        "running": "The external owner is actively working.",
+        "idle": "The external owner is connected but waiting.",
+        "completed": "The owner reported successful completion.",
+        "failed": "The owner reported failure.",
+        "cancelled": "The owner reported or confirmed cancellation.",
+        "orphaned": "The bound owner join disappeared; external executor state is unknown."
+      }
+    },
+    "TaskClientType": {
+      "type": "string",
+      "enum": [
+        "client"
+      ],
+      "description": "Discriminator for a client-owned task.",
+      "title": "TaskClientType"
+    },
+    "TaskClientUpdate": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "$ref": "#/definitions/TaskClientActiveStatus",
+              "description": "Optional active status transition"
+            },
+            "message": {
+              "type": "string",
+              "description": "Optional progress message appended to recent activity when nonempty"
+            },
+            "phase": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional progress phase; null clears the current phase"
+            },
+            "percentage": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional completion percentage; null clears the current percentage"
+            },
+            "kind": {
+              "type": "string",
+              "const": "progress",
+              "description": "Client task update variant discriminator."
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false,
+          "description": "Publishes nonterminal progress for a running or idle client task."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string",
+              "description": "Optional final progress message"
+            },
+            "result": {
+              "description": "Optional opaque successful terminal result",
+              "x-opaque-json": true
+            },
+            "kind": {
+              "type": "string",
+              "const": "completed",
+              "description": "Client task update variant discriminator."
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false,
+          "description": "Reports successful terminal completion."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string",
+              "description": "Optional final progress message"
+            },
+            "error": {
+              "type": "string",
+              "description": "Human-readable terminal failure message"
+            },
+            "code": {
+              "type": "string",
+              "description": "Optional owner-supplied terminal failure code"
+            },
+            "kind": {
+              "type": "string",
+              "const": "failed",
+              "description": "Client task update variant discriminator."
+            }
+          },
+          "required": [
+            "kind",
+            "error"
+          ],
+          "additionalProperties": false,
+          "description": "Reports terminal failure."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string",
+              "description": "Optional final progress message"
+            },
+            "reason": {
+              "type": "string",
+              "description": "Optional human-readable cancellation reason"
+            },
+            "kind": {
+              "type": "string",
+              "const": "cancelled",
+              "description": "Client task update variant discriminator."
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false,
+          "description": "Reports terminal cancellation after external work stopped."
+        }
+      ],
+      "description": "Progress or terminal update for a client-owned task.",
+      "title": "TaskClientUpdate"
+    },
     "TaskCompleteData": {
       "type": "object",
       "properties": {
@@ -38157,12 +39614,31 @@
           "description": "Tracked background agent task metadata, including IDs, status, timing, agent type, prompt, model, result, and latest response."
         },
         {
+          "$ref": "#/definitions/TaskClientInfo",
+          "description": "Tracked client-owned task metadata."
+        },
+        {
           "$ref": "#/definitions/TaskShellInfo",
           "description": "Tracked shell task metadata, including ID, command, status, timing, attachment/execution mode, log path, and PID."
         }
       ],
-      "description": "Tracked task union returned by task APIs, containing either an agent task or a shell task.",
+      "description": "Tracked task union returned by task APIs, containing an agent, client, or shell task.",
       "title": "TaskInfo"
+    },
+    "TaskKind": {
+      "type": "string",
+      "enum": [
+        "agent",
+        "shell",
+        "client"
+      ],
+      "description": "Closed set of public task kinds a connection can negotiate.",
+      "title": "TaskKind",
+      "x-enumDescriptions": {
+        "agent": "Runtime-owned background agent task.",
+        "shell": "Runtime-owned shell task.",
+        "client": "Client-owned externally executed task."
+      }
     },
     "TaskList": {
       "type": "object",
@@ -38171,7 +39647,7 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/TaskInfo",
-            "description": "Tracked task union returned by task APIs, containing either an agent task or a shell task."
+            "description": "Tracked task union returned by task APIs, containing an agent, client, or shell task."
           },
           "description": "Currently tracked tasks"
         }
@@ -38186,16 +39662,16 @@
     "TaskProgress": {
       "anyOf": [
         {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/TaskAgentProgress",
-              "description": "Progress snapshot for an agent task, with recent activity lines and optional latest intent."
-            },
-            {
-              "$ref": "#/definitions/TaskShellProgress",
-              "description": "Progress snapshot for a shell task, with recent stdout/stderr output and optional process ID."
-            }
-          ]
+          "$ref": "#/definitions/TaskAgentProgress",
+          "description": "Progress snapshot for an agent task, with recent activity lines and optional latest intent."
+        },
+        {
+          "$ref": "#/definitions/TaskClientProgress",
+          "description": "Generic progress for a client-owned task."
+        },
+        {
+          "$ref": "#/definitions/TaskShellProgress",
+          "description": "Progress snapshot for a shell task, with recent stdout/stderr output and optional process ID."
         },
         {
           "type": "null"
@@ -38459,6 +39935,72 @@
       "description": "Refresh metadata for any detached background shells the runtime knows about. Use after a long pause to pick up exit/output state for shells running outside the agent loop.",
       "title": "TasksRefreshResult"
     },
+    "TasksRegisterRequest": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/TaskClientType",
+          "const": "client",
+          "description": "Task kind"
+        },
+        "clientTaskId": {
+          "type": "string",
+          "description": "Owner-scoped idempotency key used for registration and reclaim"
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of the external work"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Optional short display name for the external work"
+        },
+        "cancellable": {
+          "type": "boolean",
+          "description": "Whether the owner supports runtime cancellation requests"
+        },
+        "expectedSequence": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Expected current sequence for idempotent registration or orphan reclaim"
+        }
+      },
+      "required": [
+        "type",
+        "clientTaskId",
+        "description",
+        "cancellable"
+      ],
+      "additionalProperties": false,
+      "description": "Registers or reclaims a client-owned task.",
+      "title": "TasksRegisterRequest",
+      "stability": "experimental"
+    },
+    "TasksRegisterResult": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "$ref": "#/definitions/TaskClientInfo",
+          "description": "Authoritative registered or reclaimed task"
+        },
+        "created": {
+          "type": "boolean",
+          "description": "True only when this invocation created a new task"
+        },
+        "reclaimed": {
+          "type": "boolean",
+          "description": "True only when this invocation reclaimed an orphaned task"
+        }
+      },
+      "required": [
+        "task",
+        "created",
+        "reclaimed"
+      ],
+      "additionalProperties": false,
+      "description": "Result of registering or reclaiming a client-owned task.",
+      "title": "TasksRegisterResult"
+    },
     "TasksRemoveRequest": {
       "type": "object",
       "properties": {
@@ -38601,6 +40143,58 @@
         "failed": "The task finished with an error.",
         "cancelled": "The task was cancelled before completion."
       }
+    },
+    "TasksUpdateRequest": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Canonical runtime-generated task identifier"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Owner update sequence to apply"
+        },
+        "update": {
+          "$ref": "#/definitions/TaskClientUpdate",
+          "description": "Progress or terminal update payload"
+        }
+      },
+      "required": [
+        "id",
+        "sequence",
+        "update"
+      ],
+      "additionalProperties": false,
+      "description": "Updates a client-owned task.",
+      "title": "TasksUpdateRequest",
+      "stability": "experimental"
+    },
+    "TasksUpdateResult": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "$ref": "#/definitions/TaskClientInfo",
+          "description": "Authoritative task after processing the update"
+        },
+        "applied": {
+          "type": "boolean",
+          "description": "Whether this invocation changed task state"
+        },
+        "duplicate": {
+          "type": "boolean",
+          "description": "Whether this invocation repeated the latest accepted update"
+        }
+      },
+      "required": [
+        "task",
+        "applied",
+        "duplicate"
+      ],
+      "additionalProperties": false,
+      "description": "Result of publishing a client-owned task update.",
+      "title": "TasksUpdateResult"
     },
     "TasksWaitForPendingResult": {
       "type": "object",

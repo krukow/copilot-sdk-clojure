@@ -49,15 +49,179 @@
 
 (def ^:private tool-search-tool-name "tool_search_tool")
 
-(defn- current-tool-metadata
-  [client session-id]
-  (try
-    (:tools (proto/send-request! (connection-io client)
-                                 "session.tools.getCurrentMetadata"
-                                 {:session-id session-id}))
-    (catch Exception e
-      (log/debug "Failed to fetch tool metadata for tool search: " (ex-message e))
-      nil)))
+(defn- active-registration-path
+  [state session-id registration-token]
+  (let [current-path [:sessions session-id]
+        current (get-in state current-path)
+        displaced-path
+        [:session-setup-snapshots session-id :snapshot :session]
+        displaced-entry
+        (get-in state [:session-setup-snapshots session-id])
+        displaced (:session (:snapshot displaced-entry))]
+    (cond
+      (and current
+           registration-token
+           (identical? registration-token (:registration-token current))
+           (not (:destroyed? current)))
+      current-path
+
+      (and displaced
+           registration-token
+           (nil? (:release-token displaced-entry))
+           (identical? registration-token
+                       (:registration-token displaced))
+           (not (:destroyed? displaced)))
+      displaced-path
+
+      :else nil)))
+
+(defn ^:no-doc register-pending-external-tool!
+  ([client session-id request-id tool-call-id]
+   (register-pending-external-tool!
+    client session-id request-id tool-call-id nil
+    (get-in @(:state client)
+            [:sessions session-id :registration-token])))
+  ([client session-id request-id tool-call-id tool-name]
+   (register-pending-external-tool!
+    client session-id request-id tool-call-id tool-name
+    (get-in @(:state client)
+            [:sessions session-id :registration-token])))
+  ([client session-id request-id tool-call-id tool-name
+    expected-registration-token]
+   (let [state @(:state client)
+         connection-io (:connection-io state)
+         pending-token (Object.)
+         cancel-ch (chan)
+         [_ registered-state]
+         (swap-vals!
+          (:state client)
+          (fn [state]
+            (let [registration-path
+                  (active-registration-path
+                   state session-id expected-registration-token)
+                  copilot-session
+                  (when registration-path
+                    (get-in state registration-path))
+                  handler (get-in copilot-session
+                                  [:tool-handlers tool-name])
+                  active-tools (:pending-external-tools copilot-session)
+                  pending-path
+                  (when registration-path
+                    (into registration-path
+                          [:pending-external-tools request-id]))]
+              (if (and (= :connected (:status state))
+                       (true? (get-in state [:connection :running?]))
+                       (identical? connection-io
+                                   (:connection-io state))
+                       copilot-session
+                       (not (:destroyed? copilot-session))
+                       (or (nil? tool-name) (some? handler))
+                       (not (contains? active-tools request-id)))
+                (assoc-in
+                 state pending-path
+                 {:token pending-token
+                  :tool-call-id tool-call-id
+                  :cancel-chan cancel-ch
+                  :connection-io connection-io
+                  :registration-token expected-registration-token
+                  :handler handler})
+                state))))
+         registration-path
+         (active-registration-path
+          registered-state session-id expected-registration-token)
+         pending
+         (when registration-path
+           (get-in registered-state
+                   (into registration-path
+                         [:pending-external-tools request-id])))]
+     (if (identical? pending-token (:token pending))
+       pending
+       (do
+         (close! cancel-ch)
+         nil)))))
+
+(defn ^:no-doc session-registration-current?
+  [client session-id registration-token connection-io]
+  (let [state @(:state client)]
+    (and (= :connected (:status state))
+         (true? (get-in state [:connection :running?]))
+         (identical? connection-io (:connection-io state))
+         (some? (active-registration-path
+                 state session-id registration-token)))))
+
+(defn- remove-pending-external-tool!
+  [client session-id request-id expected]
+  (let [[old new]
+        (swap-vals!
+         (:state client)
+         (fn [state]
+           (let [registration-path
+                 (if expected
+                   (active-registration-path
+                    state session-id (:registration-token expected))
+                   (or
+                    (when (get-in state
+                                  [:sessions session-id
+                                   :pending-external-tools request-id])
+                      [:sessions session-id])
+                    (when (and
+                           (nil?
+                            (get-in
+                             state
+                             [:session-setup-snapshots
+                              session-id :release-token]))
+                           (get-in
+                            state
+                            [:session-setup-snapshots session-id
+                             :snapshot :session
+                             :pending-external-tools request-id]))
+                      [:session-setup-snapshots session-id
+                       :snapshot :session])))
+                 pending-path
+                 (when registration-path
+                   (into registration-path
+                         [:pending-external-tools request-id]))
+                 current (when pending-path (get-in state pending-path))]
+             (if (and current
+                      (or (nil? expected)
+                          (identical? expected current)))
+               (update-in state
+                          (conj registration-path
+                                :pending-external-tools)
+                          dissoc request-id)
+               state))))
+        old-registration-path
+        (if expected
+          (active-registration-path
+           old session-id (:registration-token expected))
+          (or
+           (when (get-in old
+                         [:sessions session-id
+                          :pending-external-tools request-id])
+             [:sessions session-id])
+           (when (get-in old
+                         [:session-setup-snapshots session-id
+                          :snapshot :session
+                          :pending-external-tools request-id])
+             [:session-setup-snapshots session-id
+              :snapshot :session])))
+        old-current-path
+        (when old-registration-path
+          (into old-registration-path
+                [:pending-external-tools request-id]))
+        removed (when old-current-path (get-in old old-current-path))]
+    (when (and removed
+               (or (nil? expected)
+                   (identical? expected removed))
+               (not (identical? old new)))
+      (close! (:cancel-chan removed))
+      removed)))
+
+(defn ^:no-doc cancel-pending-external-tool!
+  [client session-id request-id]
+  (boolean
+   (remove-pending-external-tool!
+    client session-id request-id nil)))
 
 ;; -----------------------------------------------------------------------------
 ;; Session record - lightweight handle returned to users
@@ -86,6 +250,22 @@
 ;; Internal functions
 ;; -----------------------------------------------------------------------------
 
+(defn- registration-snapshot
+  [state session-id]
+  (when (contains? (:sessions state) session-id)
+    {:session (get-in state [:sessions session-id])
+     :session-io-present? (contains? (:session-io state) session-id)
+     :session-io (get-in state [:session-io session-id])
+     :committed-github-token-provider-registration-ids
+     (into
+      #{}
+      (keep
+       (fn [[registration-id registration]]
+         (when (and (= session-id (:session-id registration))
+                    (:committed? registration))
+           registration-id)))
+      (get-in state token-provider/registrations-path))}))
+
 (defn create-session
   "Create a new session. Internal use - called by client.
    Initializes session state in client's atom and returns a CopilotSession handle.
@@ -98,7 +278,14 @@
                              on-exit-plan-mode on-auto-mode-switch on-mcp-auth-request
                              hooks workspace-path on-event config commands]}]
   (log/debug "Creating session: " session-id)
-  (let [factory-definitions (factory/definitions-by-name (:factories config))
+  (let [registration-guard (::registration-guard config)
+        registration-result (::registration-result config)
+        setup-token (::setup-token config)
+        config (dissoc config
+                       ::registration-guard
+                       ::registration-result
+                       ::setup-token)
+        factory-definitions (factory/definitions-by-name (:factories config))
         registration-token (Object.)
         event-chan (chan (async/sliding-buffer 4096))
         event-mult (mult event-chan)
@@ -116,37 +303,57 @@
     (let [[_ registered-state]
           (swap-vals! (:state client)
                       (fn [state]
-                        (if (or (:stopping? state)
+                        (if (or (and registration-guard
+                                     (not (registration-guard state)))
+                                (:stopping? state)
                                 (contains? (:disconnecting-session-ids state)
                                            session-id))
                           state
-                          (-> state
-                              (assoc-in [:sessions session-id]
-                                        {:registration-token registration-token
-                                         :tool-handlers tool-handlers
-                                         :command-handlers command-handlers
-                                         :permission-handler on-permission-request
-                                         :mcp-auth-handler on-mcp-auth-request
-                                         :user-input-handler on-user-input-request
-                                         :elicitation-handler on-elicitation-request
-                                         :exit-plan-mode-handler on-exit-plan-mode
-                                         :auto-mode-switch-handler on-auto-mode-switch
-                                         :hooks hooks
-                                         :factories factory-definitions
-                                         :factory-executions {}
-                                         :managed-settings-enabled?
-                                         (or (true? (:enable-managed-settings? config))
-                                             (some? (:managed-settings config)))
-                                         :destroyed? false
-                                         :workspace-path workspace-path
-                                         :capabilities {}
-                                         :open-canvases []
-                                         :config config})
-                              (assoc-in [:session-io session-id]
-                                        {:registration-token registration-token
-                                         :event-chan event-chan
-                                         :event-mult event-mult
-                                         :send-lock send-lock})))))]
+                          (let [snapshot
+                                (registration-snapshot state session-id)
+                                registered
+                                (-> state
+                                    (assoc-in
+                                     [:sessions session-id]
+                                     {:registration-token registration-token
+                                      :tool-handlers tool-handlers
+                                      :command-handlers command-handlers
+                                      :permission-handler on-permission-request
+                                      :mcp-auth-handler on-mcp-auth-request
+                                      :user-input-handler on-user-input-request
+                                      :elicitation-handler on-elicitation-request
+                                      :exit-plan-mode-handler on-exit-plan-mode
+                                      :auto-mode-switch-handler on-auto-mode-switch
+                                      :hooks hooks
+                                      :factories factory-definitions
+                                      :factory-executions {}
+                                      :pending-external-tools {}
+                                      :managed-settings-enabled?
+                                      (or
+                                       (true? (:enable-managed-settings? config))
+                                       (some? (:managed-settings config)))
+                                      :destroyed? false
+                                      :workspace-path workspace-path
+                                      :capabilities {}
+                                      :open-canvases []
+                                      :config config})
+                                    (assoc-in
+                                     [:session-io session-id]
+                                     {:registration-token registration-token
+                                      :event-chan event-chan
+                                      :event-mult event-mult
+                                      :send-lock send-lock}))]
+                            (if setup-token
+                              (if snapshot
+                                (assoc-in
+                                 registered
+                                 [:session-setup-snapshots session-id]
+                                 {:setup-token setup-token
+                                  :snapshot snapshot})
+                                (update registered
+                                        :session-setup-snapshots
+                                        dissoc session-id))
+                              registered)))))]
       (when-not (identical? event-chan
                             (get-in registered-state [:session-io session-id :event-chan]))
         (close! event-chan)
@@ -160,9 +367,20 @@
                            session-id)
                           "Session disconnect is in progress; cannot create session"
 
+                          (and registration-guard
+                               (not (registration-guard registered-state)))
+                          "Session setup no longer owns the client connection"
+
                           :else
                           "Session registration was superseded")
-                        {:session-id session-id}))))
+                        {:session-id session-id})))
+      (when registration-result
+        (reset!
+         registration-result
+         {:snapshot
+          (when setup-token
+            (get-in registered-state
+                    [:session-setup-snapshots session-id :snapshot]))})))
     ;; If an on-event handler is provided, tap and forward events to it.
     ;; Uses async/thread to avoid blocking core.async dispatch threads,
     ;; since user handlers may perform blocking I/O.
@@ -221,6 +439,20 @@
        (string? (:extension-id data)) (not (str/blank? (:extension-id data)))
        (string? (:canvas-id data)) (not (str/blank? (:canvas-id data)))))
 
+(defn ^:no-doc normalize-open-canvases
+  [session-id canvases]
+  (let [coll (when (sequential? canvases) canvases)
+        {:keys [valid invalid]} (group-by (fn [canvas]
+                                            (if (valid-open-canvas-instance? canvas)
+                                              :valid
+                                              :invalid))
+                                          coll)]
+    (when (seq invalid)
+      (log/warn "dropping invalid entries from session.resume openCanvases"
+                {:session-id session-id
+                 :dropped-count (count invalid)}))
+    (vec valid)))
+
 (defn set-open-canvases!
   "Replace the open-canvases snapshot for `session-id`. Called once after
   `session.resume` succeeds. Sanitizes the input the same way live
@@ -228,16 +460,8 @@
   empty, and entries failing `valid-open-canvas-instance?` are dropped with a
   warning so the snapshot invariant holds for callers (and instrumentation)."
   [client session-id canvases]
-  (let [coll (when (sequential? canvases) canvases)
-        {:keys [valid invalid]} (group-by (fn [c]
-                                            (if (valid-open-canvas-instance? c)
-                                              :valid :invalid))
-                                          coll)]
-    (when (seq invalid)
-      (log/warn "dropping invalid entries from session.resume openCanvases"
-                {:session-id session-id
-                 :dropped-count (count invalid)}))
-    (update-session! client session-id assoc :open-canvases (vec valid))))
+  (update-session! client session-id assoc :open-canvases
+                   (normalize-open-canvases session-id canvases)))
 
 (defn upsert-open-canvas!
   "Apply a `session.canvas.opened` event payload to the snapshot. If an entry
@@ -291,6 +515,23 @@
                            context))))
   handler)
 
+(defn ^:no-doc validate-session-fs-handler-for-client!
+  [client session-id handler]
+  (let [validated (validate-session-fs-handler! handler {:session-id session-id})
+        sqlite-declared?
+        (boolean (get-in client [:session-fs :capabilities :sqlite]))
+        missing (when sqlite-declared?
+                  (remove #(contains? validated %)
+                          [:sqlite-query :sqlite-exists]))]
+    (when (seq missing)
+      (throw
+       (ex-info
+        "SessionFs config declares capabilities.sqlite but the provider does not implement sqlite."
+        {:session-id session-id
+         :capabilities (get-in client [:session-fs :capabilities])
+         :missing-handlers (vec missing)})))
+    validated))
+
 (defn- validate-session-fs-provider!
   [provider context]
   (when-not (s/valid? ::specs/session-fs-provider provider)
@@ -308,19 +549,12 @@
    `:capabilities {:sqlite true}` the per-session handler must expose BOTH
    :sqlite-query and :sqlite-exists. Otherwise the runtime would route
    sessionFs.sqliteExists (or sessionFs.sqliteQuery) to a missing handler key
-   and surface an opaque \"Unknown sessionFs method\" error at runtime."
+    and surface an opaque \"Unknown sessionFs method\" error at runtime."
   [client session-id handler]
-  (let [validated (validate-session-fs-handler! handler {:session-id session-id})
-        sqlite-declared? (boolean (get-in client [:session-fs :capabilities :sqlite]))
-        missing (when sqlite-declared?
-                  (remove #(contains? validated %) [:sqlite-query :sqlite-exists]))]
-    (when (seq missing)
-      (throw (ex-info
-              "SessionFs config declares capabilities.sqlite but the provider does not implement sqlite."
-              {:session-id session-id
-               :capabilities (get-in client [:session-fs :capabilities])
-               :missing-handlers (vec missing)})))
-    (update-session! client session-id assoc :session-fs-handler validated)))
+  (update-session!
+   client session-id assoc :session-fs-handler
+   (validate-session-fs-handler-for-client!
+    client session-id handler)))
 
 (defn- channel?
   "Check if x is a core.async channel."
@@ -600,10 +834,21 @@
 
 (declare cancel-executions! throw-cleanup-failures!)
 
+(defn- cancel-pending-external-tools!
+  [pending-tools]
+  (doseq [{:keys [cancel-chan]} pending-tools]
+    (close! cancel-chan)))
+
 (defn- release-session-resources!
   [session-id session {:keys [event-chan send-lock]}]
   (teardown/collect
    [(teardown/attempt
+     {:operation :cancel
+      :resource :pending-external-tools
+      :session-id session-id}
+     (cancel-pending-external-tools!
+      (vals (:pending-external-tools session))))
+    (teardown/attempt
      {:operation :cancel
       :resource :factory-executions
       :session-id session-id}
@@ -621,6 +866,16 @@
       :session-id session-id}
      (when send-lock
        (close! send-lock)))]))
+
+(defn ^:no-doc release-session-snapshots!
+  "Release resources from session state that has already been detached atomically."
+  [sessions session-ios]
+  (vec
+   (mapcat
+    (fn [[session-id copilot-session]]
+      (release-session-resources!
+       session-id copilot-session (get session-ios session-id)))
+    sessions)))
 
 (defn ^:no-doc remove-session-registration!
   [client session-id expected-registration-token]
@@ -950,6 +1205,7 @@
                         :user-input-handler nil
                         :factories {}
                         :factory-executions {}
+                        :pending-external-tools {}
                         :hooks {}
                         :config nil))))))]
      (let [old-session (get-in old [:sessions session-id])
@@ -1148,46 +1404,186 @@
            {:error {:code -32601 :message (str "Unknown sessionFs method: " method)}}))))
    :io))
 
-(defn handle-tool-call!
-  "Handle an incoming tool call request. Returns a channel with the result wrapper."
-  [client session-id tool-call-id tool-name arguments & {:keys [traceparent tracestate]}]
+(def ^:private tool-call-cancelled (Object.))
+
+(defn- current-tool-metadata-or-cancel
+  [connection-io session-id cancel-ch]
+  (if (async-protocols/closed? cancel-ch)
+    tool-call-cancelled
+    (try
+      (let [response-ch
+            (proto/send-request connection-io
+                                "session.tools.getCurrentMetadata"
+                                {:session-id session-id})
+            timeout-ch (async/timeout 60000)
+            [response port]
+            (alts!! [cancel-ch response-ch timeout-ch] :priority true)]
+        (cond
+          (= port cancel-ch)
+          (do
+            (proto/cancel-request! connection-io response-ch)
+            tool-call-cancelled)
+
+          (= port timeout-ch)
+          (do
+            (proto/cancel-request! connection-io response-ch)
+            (log/debug "Timed out fetching tool metadata for tool search")
+            nil)
+
+          (nil? response)
+          nil
+
+          (:error response)
+          (do
+            (log/debug "Failed to fetch tool metadata for tool search: "
+                       (get-in response [:error :message]))
+            nil)
+
+          :else
+          (get-in response [:result :tools])))
+      (catch Exception e
+        (log/debug "Failed to fetch tool metadata for tool search: "
+                   (ex-message e))
+        nil))))
+
+(defn- channel-result-or-cancel
+  [result cancel-ch timeout-ms tool-name tool-call-id]
+  (let [timeout-ch (async/timeout timeout-ms)
+        [value port] (alts!! [cancel-ch result timeout-ch] :priority true)]
+    (cond
+      (= port cancel-ch)
+      tool-call-cancelled
+
+      (= port timeout-ch)
+      (throw
+       (ex-info "Tool timeout"
+                {:timeout-ms timeout-ms
+                 :tool-name tool-name
+                 :tool-call-id tool-call-id}))
+
+      :else
+      value)))
+
+(defn- unsupported-tool-result
+  [tool-name]
+  {:text-result-for-llm
+   (str "Tool '" tool-name
+        "' is not supported by this client instance.")
+   :result-type "failure"
+   :error (str "tool '" tool-name "' not supported")
+   :tool-telemetry {}})
+
+(defn- tool-handler-failure-result
+  [failure]
+  {:text-result-for-llm
+   "Invoking this tool produced an error. Detailed information is not available."
+   :result-type "failure"
+   :error (or (ex-message failure) (str failure))
+   :tool-telemetry {}})
+
+(defn- invoke-tool-handler
+  [client connection-io session-id tool-call-id tool-name handler arguments
+   cancel-ch traceparent tracestate]
+  (if (async-protocols/closed? cancel-ch)
+    tool-call-cancelled
+    (if handler
+      (let [available-tools
+            (when (= tool-search-tool-name tool-name)
+              (current-tool-metadata-or-cancel
+               connection-io session-id cancel-ch))]
+        (if (or (identical? tool-call-cancelled available-tools)
+                (async-protocols/closed? cancel-ch))
+          tool-call-cancelled
+          (let [invocation
+                (cond-> {:session-id session-id
+                         :tool-call-id tool-call-id
+                         :tool-name tool-name
+                         :arguments arguments
+                         :cancel-chan cancel-ch}
+                  (some? available-tools)
+                  (assoc :available-tools available-tools)
+                  traceparent (assoc :traceparent traceparent)
+                  tracestate (assoc :tracestate tracestate))
+                raw-result (handler arguments invocation)
+                raw-result
+                (if (channel? raw-result)
+                  (channel-result-or-cancel
+                   raw-result cancel-ch
+                   (or (:tool-timeout-ms (:options client)) 120000)
+                   tool-name tool-call-id)
+                  raw-result)]
+            (if (or (identical? tool-call-cancelled raw-result)
+                    (async-protocols/closed? cancel-ch))
+              tool-call-cancelled
+              (normalize-tool-result raw-result)))))
+      (unsupported-tool-result tool-name))))
+
+(defn ^:no-doc handle-registered-tool-call!
+  "Handle an external tool call using the exact request registration."
+  [client session-id request-id pending tool-call-id tool-name arguments
+   & {:keys [traceparent tracestate]}]
   (async/thread-call
    (fn []
-     (let [handler (get-in (session-state client session-id) [:tool-handlers tool-name])
-           timeout-ms (or (:tool-timeout-ms (:options client)) 120000)]
-       (if-not handler
-         {:result {:text-result-for-llm (str "Tool '" tool-name "' is not supported by this client instance.")
-                   :result-type "failure"
-                   :error (str "tool '" tool-name "' not supported")
-                   :tool-telemetry {}}}
-         (try
-           (let [available-tools (when (= tool-search-tool-name tool-name)
-                                   (current-tool-metadata client session-id))
-                 invocation (cond-> {:session-id session-id
-                                     :tool-call-id tool-call-id
-                                     :tool-name tool-name
-                                     :arguments arguments}
-                              (some? available-tools)
-                              (assoc :available-tools available-tools)
-                              traceparent (assoc :traceparent traceparent)
-                              tracestate (assoc :tracestate tracestate))
-                 result (handler arguments invocation)
-                 result (if (channel? result)
-                          (let [timeout-ch (async/timeout timeout-ms)
-                                [value ch] (alts!! [result timeout-ch])]
-                            (if (= ch timeout-ch)
-                              (throw (ex-info "Tool timeout" {:timeout-ms timeout-ms
-                                                              :tool-name tool-name
-                                                              :tool-call-id tool-call-id}))
-                              value))
-                          result)]
-             {:result (normalize-tool-result result)})
-           (catch Exception e
-             {:result {:text-result-for-llm "Invoking this tool produced an error. Detailed information is not available."
-                       :result-type "failure"
-                       :error (ex-message e)
-                       :tool-telemetry {}}})))))
+     (try
+       (let [current
+             (let [state @(:state client)
+                   registration-path
+                   (active-registration-path
+                    state session-id (:registration-token pending))]
+               (when (and registration-path
+                          (= :connected (:status state))
+                          (true? (get-in state [:connection :running?]))
+                          (identical? (:connection-io pending)
+                                      (:connection-io state)))
+                 (get-in state
+                         (into registration-path
+                               [:pending-external-tools request-id]))))]
+         (when (and (identical? pending current)
+                    (= tool-call-id (:tool-call-id pending)))
+           (let [result
+                 (invoke-tool-handler
+                  client (:connection-io pending)
+                  session-id tool-call-id tool-name (:handler pending) arguments
+                  (:cancel-chan pending) traceparent tracestate)]
+             (when (and (not (identical? tool-call-cancelled result))
+                        (remove-pending-external-tool!
+                         client session-id request-id pending))
+               {:result result}))))
+       (catch Throwable failure
+         (when (remove-pending-external-tool!
+                client session-id request-id pending)
+           {:result (tool-handler-failure-result failure)}))
+       (finally
+         (remove-pending-external-tool!
+          client session-id request-id pending))))
    :mixed))
+
+(defn handle-tool-call!
+  "Invoke a registered tool handler directly.
+
+   Returns a channel containing `{:result <normalized-tool-result>}`. The
+   handler invocation includes a cancellation channel that closes when this
+   call finishes."
+  [client session-id tool-call-id tool-name arguments & {:keys [traceparent tracestate]}]
+  (let [cancel-ch (chan)]
+    (async/thread-call
+     (fn []
+       (try
+         (let [result
+               (invoke-tool-handler
+                client (connection-io client)
+                session-id tool-call-id tool-name
+                (get-in (session-state client session-id)
+                        [:tool-handlers tool-name])
+                arguments cancel-ch
+                traceparent tracestate)]
+           (when-not (identical? tool-call-cancelled result)
+             {:result result}))
+         (catch Throwable failure
+           {:result (tool-handler-failure-result failure)})
+         (finally
+           (close! cancel-ch))))
+     :mixed)))
 
 (defn- normalize-permission-result
   "Normalize legacy Clojure permission results to the upstream v0.3.0
@@ -2399,20 +2795,31 @@
   [completion outcome]
   (deliver completion outcome))
 
-(defn- ambiguous-disconnect-failure?
-  [failure]
-  (let [{:keys [method error]} (ex-data failure)
-        message (:message error)]
-    (or (instance? InterruptedException failure)
-        (and (instance? clojure.lang.ExceptionInfo failure)
-             (= "session.destroy" method)
-             (or (= "Request timeout" (ex-message failure))
-                 (= "Response channel closed" (ex-message failure))
-                 (and (= -32000 (:code error))
-                      (or (= "Connection closed by remote" message)
-                          (and (string? message)
-                               (str/starts-with?
-                                message "Connection error: ")))))))))
+(defn ^:no-doc request-session-detach!
+  [conn session-id]
+  (loop [attempt 1]
+    (let [response
+          (proto/send-request!
+           conn
+           "session.detach"
+           {:session-id session-id}
+           nil)]
+      (cond
+        (true? (:success response))
+        nil
+
+        (= attempt 1)
+        (recur 2)
+
+        :else
+        (throw
+         (ex-info
+          (or (:error response)
+              (str "Failed to detach session " session-id))
+          {:type :session-detach-failed
+           :session-id session-id
+           :attempts attempt
+           :response response}))))))
 
 (defn- disconnect-registration!
   [client session-id expected-registration-token fence-registration?]
@@ -2443,29 +2850,17 @@
                          "Cannot disconnect session: client transport is unavailable"
                          {:type :transport-unavailable
                           :session-id session-id})))]
-          (proto/send-request! conn
-                               "session.destroy"
-                               {:session-id session-id}
-                               5000)
+          (request-session-detach! conn session-id)
           (teardown-local! client session-id :all registration-token))
         (release-session-disconnect! client session-id completion)
         (complete-disconnect! completion {:result nil})
         (log/debug "Session disconnected: " session-id)
         (catch Throwable error
-          (let [error
-                (if (ambiguous-disconnect-failure? error)
-                  (do
-                    (teardown/cleanup-preserving!
-                     error
-                     #(teardown-local!
-                       client session-id :all registration-token))
-                    error)
-                  error)]
-            (release-session-disconnect! client session-id completion)
-            (complete-disconnect! completion {:error error})
-            (when (instance? InterruptedException error)
-              (.interrupt (Thread/currentThread)))
-            (throw error)))))
+          (release-session-disconnect! client session-id completion)
+          (complete-disconnect! completion {:error error})
+          (when (instance? InterruptedException error)
+            (.interrupt (Thread/currentThread)))
+          (throw error))))
     nil))
 
 (defn disconnect!
@@ -2475,11 +2870,14 @@
    via `resume-session`. To permanently remove all session data, use
    `delete-session!` instead.
 
-   The runtime is destroyed before local resources are released. A definite
-   destroy failure is rethrown and leaves the session connected so the caller
-   can retry. A timeout, interruption, or connection loss is rethrown after local
-   teardown because the runtime may already have completed the request. Can be
-   called with either a CopilotSession handle or (client, session-id)."
+   The runtime session is detached before local resources are released. An
+   unsuccessful detach response is retried once. A second unsuccessful response
+   or transport failure is rethrown. The session remains connected for a retry
+   only while the client transport remains live; connection loss performs
+   client-wide local cleanup. No client-side timeout is applied because an
+   ambiguous timeout cannot prove whether runtime ownership was detached; use
+   force-stop! when a wedged transport prevents graceful shutdown. Can be called
+   with either a CopilotSession handle or (client, session-id)."
   ([session]
    (disconnect-registration!
     (:client session)

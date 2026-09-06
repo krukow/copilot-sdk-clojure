@@ -183,17 +183,27 @@
 (def ^:private experimental-event-types
   (event-types-with-schema-marker :stability "experimental"))
 
-(def ^:private intentionally-excluded-experimental-event-types
-  #{"assistant.fusion_phase_completed"
+(def ^:private schema-marked-intentionally-excluded-experimental-event-types
+  #{"assistant.fusion_phase_activity"
+    "assistant.fusion_phase_completed"
     "assistant.fusion_phase_failed"
     "assistant.fusion_phase_started"
     "factory.run_settled"
     "factory.run_started"
+    "session.completion_receipt"
     "session.fusion_completed"
     "session.fusion_resolved"
     "session.fusion_route_failed"
     "session.fusion_route_started"
     "ui.ephemeral_query"})
+
+(def ^:private sdk-experimental-events-without-schema-marker
+  #{"session.auto_tier_switch_failed"})
+
+(def ^:private intentionally-excluded-experimental-event-types
+  (clojure.set/union
+   schema-marked-intentionally-excluded-experimental-event-types
+   sdk-experimental-events-without-schema-marker))
 
 ;; ---------------------------------------------------------------------------
 ;; Canonical wire-shape fixtures (post `util/wire->clj`, i.e. kebab-case keys).
@@ -398,9 +408,20 @@
    "session.mcp_servers_loaded"
    {:servers []}
 
+   "session.mcp_server_removed"
+   {:server-name "server-1"}
+
+   "session.mcp_server_needs_reconnect"
+   {:server-name "server-1"}
+
    "session.mcp_server_status_changed"
    {:server-name "server-1"
     :status "connected"}
+
+   "permission.requested"
+   {:request-id "permission-1"
+    :permission-request {:kind "memory"
+                         :fact "Remember this"}}
 
    "session.skills_loaded"
    {:skills []}
@@ -570,13 +591,19 @@
           (str "public event-types not present in the schema: " (sort extra)
                " — remove them or update the schema pin")))))
 
-(deftest intentionally-excluded-events-remain-experimental
+(deftest intentionally-excluded-events-remain-classified
   (is (clojure.set/subset? intentionally-excluded-experimental-event-types
                            gen/event-types)
       "Every intentional event exclusion must still exist in the generated schema")
-  (is (clojure.set/subset? intentionally-excluded-experimental-event-types
-                           experimental-event-types)
-      "An intentionally excluded event becoming stable requires a public-surface decision"))
+  (is (clojure.set/subset?
+       schema-marked-intentionally-excluded-experimental-event-types
+       experimental-event-types)
+      "An intentionally excluded schema-marked event becoming stable requires a public-surface decision")
+  (is (empty?
+       (clojure.set/intersection
+        sdk-experimental-events-without-schema-marker
+        experimental-event-types))
+      "An SDK-experimental event gaining a schema marker requires consolidating the exclusion registry"))
 
 (deftest generated-data-specs-preserve-variant-local-types
   (testing "session.schedule_created-data rejects string :id (must be positive integer)"

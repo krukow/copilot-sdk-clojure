@@ -187,9 +187,9 @@
       (is (not (some #(= session-id (:session-id %)) sessions))))))
 
 (deftest test-destroy-session
-  (testing "Destroy session via session object"
+  (testing "Deprecated destroy alias detaches without deleting resumable state"
     (let [session (sdk/create-session *test-client* {:on-permission-request sdk/approve-all})
           session-id (sdk/session-id session)]
       (sdk/destroy! session)
       (let [sessions (sdk/list-sessions *test-client*)]
-        (is (not (some #(= session-id (:session-id %)) sessions)))))))
+        (is (some #(= session-id (:session-id %)) sessions))))))

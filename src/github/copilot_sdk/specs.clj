@@ -1,6 +1,7 @@
 (ns github.copilot-sdk.specs
   "Clojure specs for Copilot SDK data structures."
-  (:require [clojure.spec.alpha :as s]
+  (:require [clojure.core.async.impl.protocols :as async-protocols]
+            [clojure.spec.alpha :as s]
             [clojure.set :as set]
             [clojure.string :as str]
             [github.copilot-sdk.util :as util])
@@ -284,6 +285,21 @@
 ;; (mirrors the ::remote-session-mode pattern further down).
 (s/def ::client-mode #{:empty :copilot-cli})
 
+(s/def ::application-name string?)
+(s/def ::application-version string?)
+(s/def ::integration-name string?)
+(s/def ::integration-version string?)
+
+(def ^:private client-info-keys
+  #{:application-name :application-version
+    :integration-name :integration-version})
+
+(s/def ::client-info
+  (closed-keys
+   (s/keys :opt-un [::application-name ::application-version
+                    ::integration-name ::integration-version])
+   client-info-keys))
+
 (def client-options-keys
   #{:cli-path :cli-args :cli-url :cwd :port
     :use-stdio? :log-level :auto-start? :auto-restart?
@@ -294,7 +310,7 @@
     :on-github-telemetry
     :session-fs :copilot-home :tcp-connection-token :remote?
     :session-idle-timeout-seconds :builtin-plugin-directories
-    :mode})
+    :client-info :mode})
 
 (s/def ::client-options
   (s/and
@@ -307,7 +323,8 @@
                      ::is-child-process? ::on-list-models ::telemetry ::on-get-trace-context
                      ::on-github-telemetry
                      ::session-fs ::copilot-home ::tcp-connection-token ::remote?
-                     ::session-idle-timeout-seconds ::builtin-plugin-directories])
+                     ::session-idle-timeout-seconds ::builtin-plugin-directories
+                     ::client-info])
     client-options-keys)
    (fn [m]
      (or (not (contains? m :mode))
@@ -1770,7 +1787,10 @@
     ;; Session status events
     :copilot/session.tools_updated :copilot/session.background_tasks_changed
     :copilot/session.skills_loaded :copilot/session.mcp_servers_loaded
-    :copilot/session.mcp_server_status_changed :copilot/session.extensions_loaded
+    :copilot/session.mcp_server_status_changed
+    :copilot/session.mcp_server_removed
+    :copilot/session.mcp_server_needs_reconnect
+    :copilot/session.extensions_loaded
     :copilot/session.custom_agents_updated
     ;; Custom notification (upstream PR #1292, CLI 1.0.48)
     :copilot/session.custom_notification
@@ -1854,6 +1874,13 @@
 (s/def ::provider-call-id string?)
 (s/def ::error-type string?)
 (s/def ::stack string?)
+(s/def ::remediation-action
+  #{"sign_in"
+    "switch_account"
+    "show_account"
+    "review_sandbox_policy"
+    "allow_sandbox_outbound"})
+(s/def ::remediation ::remediation-action)
 ;; Upstream schema 1.0.83-1: `parentToolCallId` links a nested tool-call chain
 ;; (assistant messages, tool execution, hooks) back to the invoking tool call.
 ;; It is a plain wire string round-tripped verbatim by wire->clj.
@@ -1861,7 +1888,8 @@
 
 (s/def ::session.error-data
   (s/keys :req-un [::error-type ::message]
-          :opt-un [::stack ::status-code ::provider-call-id ::url]))
+          :opt-un [::stack ::status-code ::provider-call-id ::url
+                   ::remediation]))
 
 (def ^:no-doc autopilot-session-mode "autopilot")
 (def ^:no-doc session-modes #{"interactive" autopilot-session-mode "plan"})
@@ -1946,7 +1974,8 @@
 (s/def ::user.message-data
   (s/and (s/keys :req-un [::content]
                  :opt-un [::transformed-content ::source
-                          ::interaction-id ::is-autopilot-continuation ::turn-id])
+                          ::interaction-id ::is-autopilot-continuation
+                          ::message-id ::turn-id])
          #(or (not (contains? % :attachments))
               (s/valid? ::inbound-attachments (:attachments %)))))
 
@@ -2102,7 +2131,9 @@
   [error]
   (and (map? error)
        (required-value? error :message string?)
-       (optional-field? error :code string?)))
+       (optional-field? error :code string?)
+       (optional-field? error :remediation
+                        (partial s/valid? ::remediation-action))))
 
 (defn- tool-execution-complete-result?
   [result]
@@ -2189,7 +2220,8 @@
 ;; Session warning event
 (s/def ::warning-type string?)
 (s/def ::session.warning-data
-  (s/keys :req-un [::warning-type ::message]))
+  (s/keys :req-un [::warning-type ::message]
+          :opt-un [::remediation ::url]))
 
 ;; Session context changed event
 (s/def ::session.context_changed-data
@@ -2355,15 +2387,29 @@
 (s/def ::session.canvas.closed-data
   (s/keys :req-un [::instance-id ::extension-id ::canvas-id]))
 
-;; Skill invoked event
+;; SkillSource is closed for inventory/configuration records. The
+;; skill.invoked event's similarly named :source field is an open string.
 (s/def ::allowed-tools (s/coll-of string?))
 (s/def ::plugin-name string?)
 (s/def ::plugin-version string?)
+(s/def ::disable-model-invocation boolean?)
+(s/def ::skill-source
+  #{"project"
+    "inherited"
+    "personal-copilot"
+    "personal-agents"
+    "plugin"
+    "custom"
+    "builtin"
+    "sdk"})
 ;; ::description already defined above
 
 (s/def ::skill.invoked-data
-  (s/keys :req-un [::name ::path ::content]
-          :opt-un [::allowed-tools ::plugin-name ::plugin-version ::description]))
+  (s/and
+   (s/keys :req-un [::name ::content]
+           :opt-un [::allowed-tools ::plugin-name ::plugin-version ::description
+                    ::disable-model-invocation ::source])
+   #(required-value? % :path string?)))
 
 ;; Subagent event data (upstream PR #916)
 (s/def ::agent-display-name string?)
@@ -2392,6 +2438,7 @@
 (s/def ::explicit-model-override string?)
 (s/def ::explicit-model-matches-preference boolean?)
 (s/def ::configured-model-matches-actual boolean?)
+(s/def ::model-override-reason string?)
 
 (s/def ::subagent.started-data
   (s/and
@@ -2407,7 +2454,7 @@
           :opt-un [::cancelled ::model ::total-tool-calls ::total-tokens ::duration-ms
                    ::first-dispatched-model ::configured-model-preference
                    ::explicit-model-override ::explicit-model-matches-preference
-                   ::configured-model-matches-actual]))
+                   ::configured-model-matches-actual ::model-override-reason]))
 
 (s/def ::subagent.failed-data
   (s/and
@@ -2415,12 +2462,15 @@
            :opt-un [::model ::total-tool-calls ::total-tokens ::duration-ms
                     ::first-dispatched-model ::configured-model-preference
                     ::explicit-model-override ::explicit-model-matches-preference
-                    ::configured-model-matches-actual])
+                    ::configured-model-matches-actual ::model-override-reason])
    #(and (contains? % :error) (string? (:error %)))))
 
 ;; session.custom_agents_updated event data (upstream PR #916)
 (s/def ::user-invocable? boolean?)
 (s/def ::agent-tool-names (s/coll-of string?))
+(s/def ::agent-model-preferences
+  (s/coll-of string? :kind vector?))
+(s/def ::agent-model-policy #{"preferred" "required"})
 
 (s/def ::custom-agent-info
   (s/and (s/keys :req-un [::id ::name ::display-name ::description ::source ::user-invocable?]
@@ -2431,7 +2481,11 @@
          ;; upstream schema 1.0.41-1). Enforce key presence here, then
          ;; validate the value as either nil or a string-coll.
          #(contains? % :tools)
-         #(or (nil? (:tools %)) (s/valid? ::agent-tool-names (:tools %)))))
+         #(or (nil? (:tools %)) (s/valid? ::agent-tool-names (:tools %)))
+         #(optional-field? % :models
+                           (partial s/valid? ::agent-model-preferences))
+         #(optional-field? % :model-policy
+                           (partial s/valid? ::agent-model-policy))))
 
 (s/def ::agents (s/coll-of ::custom-agent-info))
 (s/def ::warnings (s/coll-of string?))
@@ -2459,11 +2513,15 @@
 
 ;; Session status/listing events from generated session-events schema.
 (s/def ::mcp-server-status
-  #{"connected" "failed" "needs-auth" "pending" "disabled" "not_configured"})
+  #{"connected" "failed" "needs-auth" "pending" "disabled" "stopped"
+    "not_configured"})
 (s/def ::status string?)
+(s/def ::server-metadata
+  (s/keys :req-un [::instructions]))
 (s/def ::mcp-loaded-server
   (s/and (s/keys :req-un [::name ::status]
-                 :opt-un [::source])
+                 :opt-un [::source ::plugin-name ::plugin-version
+                          ::server-metadata])
          #(optional-field? % :error string?)
          #(s/valid? ::mcp-server-status (:status %))))
 (s/def ::servers (s/coll-of ::mcp-loaded-server))
@@ -2473,11 +2531,16 @@
 (s/def ::session.mcp_server_status_changed-data
   (s/and (s/keys :req-un [::server-name ::status])
          #(s/valid? ::mcp-server-status (:status %))))
+(s/def ::session.mcp_server_removed-data
+  (s/keys :req-un [::server-name]))
+(s/def ::session.mcp_server_needs_reconnect-data
+  (s/keys :req-un [::server-name]))
 
 (s/def ::user-invocable boolean?)
 (s/def ::skill-info
-  (s/keys :req-un [::name ::description ::enabled ::source ::user-invocable]
-          :opt-un [::path]))
+  (s/and (s/keys :req-un [::name ::description ::enabled ::source ::user-invocable]
+                 :opt-un [::path])
+         #(s/valid? ::skill-source (:source %))))
 (s/def ::skills (s/coll-of ::skill-info))
 (s/def ::session.skills_loaded-data
   (s/keys :req-un [::skills]))
@@ -2686,7 +2749,9 @@
    #(or (not (contains? % :traceparent))
         (string? (:traceparent %)))
    #(or (not (contains? % :tracestate))
-        (string? (:tracestate %)))))
+        (string? (:tracestate %)))
+   #(or (not (contains? % :cancel-chan))
+        (satisfies? async-protocols/Channel (:cancel-chan %)))))
 
 ;; Binary result items for tool results (upstream ToolBinaryResult)
 ;; Each item has :data (base64 string), :mime-type, :type ("image"/"resource"),
@@ -2773,6 +2838,19 @@
         (and (s/valid? ::non-blank-string (:extension-name %))
              (s/valid? ::environment-variables
                        (:environment-variables %))))))
+
+(s/def ::permission-prompt-request map?)
+(s/def ::resolved-by-hook boolean?)
+(s/def ::risk-assessment opaque-json-value?)
+(s/def ::permission.requested-data
+  (s/and
+   map?
+   #(required-value? % :request-id string?)
+   #(required-value? % :permission-request map?)
+   #(optional-field? % :prompt-request map?)
+   #(optional-field? % :resolved-by-hook boolean?)
+   #(optional-field? % :risk-assessment opaque-json-value?)
+   #(optional-field? % :agent-mode session-modes)))
 
 (s/def ::permission-result-kind
   #{:approve-once

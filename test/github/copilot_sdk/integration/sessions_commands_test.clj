@@ -172,8 +172,10 @@
           id2 (sdk/session-id session2)]
       (is (not= id1 id2))
       (is (= 2 (count (sdk/list-sessions *test-client*))))
-      ;; Clean up one session
+      ;; Detaching preserves resumable state; explicit deletion removes it.
       (sdk/destroy! session1)
+      (is (= 2 (count (sdk/list-sessions *test-client*))))
+      (sdk/delete-session! *test-client* id1)
       (is (= 1 (count (sdk/list-sessions *test-client*)))))))
 
 (deftest test-resume-nonexistent-session

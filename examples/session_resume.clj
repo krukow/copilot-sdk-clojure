@@ -27,11 +27,15 @@
         (println "🤖:" (get-in result [:data :content])))
 
       (let [session-id (:session-id session)]
+        (copilot/disconnect! session)
         (println "\nResuming session" session-id "...")
         (let [resumed (copilot/resume-session
                        client session-id
                        {:on-permission-request copilot/approve-all
                         :available-tools []})]
-          (println "Asking:" prompt)
-          (let [result (copilot/send-and-wait! resumed {:prompt prompt})]
-            (println "🤖:" (get-in result [:data :content]))))))))
+          (try
+            (println "Asking:" prompt)
+            (let [result (copilot/send-and-wait! resumed {:prompt prompt})]
+              (println "🤖:" (get-in result [:data :content])))
+            (finally
+              (copilot/disconnect! resumed))))))))

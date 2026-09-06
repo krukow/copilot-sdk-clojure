@@ -15,6 +15,111 @@
     {:value value
      :closed? (and (= port ch) (nil? value))}))
 
+(defn- install-displaced-session!
+  [client session-id]
+  (let [original (session/create-session client session-id {})
+        original-event-root
+        (get-in @(:state client) [:session-io session-id :event-chan])
+        original-send-lock
+        (get-in @(:state client) [:session-io session-id :send-lock])
+        pending-cancel (async/chan)
+        factory-cancelled? (atom false)
+        factory-cancel (async/chan)
+        setup-token (Object.)]
+    (swap! (:state client)
+           (fn [state]
+             (-> state
+                 (assoc-in
+                  [:sessions session-id :pending-external-tools "request-1"]
+                  {:cancel-chan pending-cancel})
+                 (assoc-in
+                  [:sessions session-id :factory-executions "run-1" "execution-1"]
+                  {:cancelled? factory-cancelled?
+                   :cancel-chan factory-cancel})
+                 (assoc-in [:session-setups session-id] setup-token))))
+    (session/create-session
+     client session-id
+     {:config {::session/setup-token setup-token}})
+    {:factory-cancel factory-cancel
+     :factory-cancelled? factory-cancelled?
+     :original-event-root original-event-root
+     :original-send-lock original-send-lock
+     :pending-cancel pending-cancel
+     :replacement-event-root
+     (get-in @(:state client) [:session-io session-id :event-chan])
+     :replacement-send-lock
+     (get-in @(:state client) [:session-io session-id :send-lock])}))
+
+(defn- assert-displaced-session-released!
+  [client {:keys [factory-cancel factory-cancelled?
+                  original-event-root original-send-lock pending-cancel
+                  replacement-event-root replacement-send-lock]}]
+  (is @factory-cancelled?)
+  (doseq [ch [factory-cancel
+              original-event-root
+              original-send-lock
+              pending-cancel
+              replacement-event-root
+              replacement-send-lock]]
+    (is (async-protocols/closed? ch)))
+  (is (empty? (:sessions @(:state client))))
+  (is (empty? (:session-io @(:state client))))
+  (is (empty? (:session-setups @(:state client))))
+  (is (empty? (:session-setup-snapshots @(:state client)))))
+
+(deftest force-stop-releases-displaced-session-setup-resources
+  (let [client (sdk/client {:auto-start? false})
+        session-id "force-stop-displaced"
+        resources (install-displaced-session! client session-id)]
+    (is (some? (get-in @(:state client)
+                       [:session-setup-snapshots session-id])))
+    (sdk/force-stop! client)
+    (assert-displaced-session-released! client resources)))
+
+(deftest stop-releases-displaced-session-setup-resources
+  (let [client (sdk/client {:auto-start? false})
+        session-id "stop-displaced"
+        resources (install-displaced-session! client session-id)
+        rpc-calls (atom [])]
+    (swap! (:state client) assoc :connection-io :connection)
+    (with-redefs [protocol/send-request!
+                  (fn [_ method params & _]
+                    (swap! rpc-calls conj [method params])
+                    {:success true})
+                  protocol/disconnect (constantly [])]
+      (is (empty? (sdk/stop! client))))
+    (is (= [["session.detach" {:session-id session-id}]]
+           @rpc-calls))
+    (assert-displaced-session-released! client resources)))
+
+(deftest force-stop-unblocks-stop-waiting-for-setup-detach
+  (let [client (sdk/client {:auto-start? false})
+        session-id "stop-displaced-blocked"
+        resources (install-displaced-session! client session-id)
+        detach-started (promise)
+        finish-detach (promise)
+        transport-released (promise)]
+    (swap! (:state client) assoc :connection-io :connection)
+    (with-redefs [protocol/send-request!
+                  (fn [_ method _ & _]
+                    (when (= "session.detach" method)
+                      (deliver detach-started true)
+                      @finish-detach
+                      (throw
+                       (ex-info "Transport was forcibly closed" {}))))
+                  protocol/disconnect
+                  (fn [_]
+                    (deliver transport-released true)
+                    (deliver finish-detach true)
+                    [])]
+      (let [stopping (future (sdk/stop! client))]
+        (is (true? (deref detach-started 500 false)))
+        (assert-displaced-session-released! client resources)
+        (sdk/force-stop! client)
+        (is (true? (deref transport-released 500 false)))
+        (is (= 1 (count (deref stopping 500 ::pending))))))
+    (is (= :disconnected (:status @(:state client))))))
+
 (deftest force-stop-releases-session-owned-resources-without-rpcs
   (let [client (sdk/client {:auto-start? false})
         first-session (session/create-session client "first-session" {})
@@ -64,7 +169,7 @@
                  #"Session has been disconnected"
                  (session/send! first-session {:prompt "after force-stop"}))))
           (testing "force stop remains local-only and idempotent"
-            (is (not-any? #{"session.destroy" "runtime.shutdown"} @rpc-methods))
+            (is (not-any? #{"session.detach" "runtime.shutdown"} @rpc-methods))
             (is (empty? (:sessions @(:state client))))
             (is (empty? (:session-io @(:state client))))
             (is (nil? (sdk/force-stop! client))))
@@ -99,14 +204,14 @@
       (sdk/force-stop! client))
     (is (= {} @handlers-at-disconnect))))
 
-(deftest force-stop-releases-transport-after-session-teardown-failure
+(deftest force-stop-releases-transport-after-session-release-failure
   (let [client (sdk/client {:auto-start? false})
         _ (session/create-session client "broken-session" {})
         transport-released? (atom false)]
     (swap! (:state client) assoc :connection-io :connection)
-    (with-redefs [session/teardown-local!
+    (with-redefs [session/release-session-snapshots!
                   (fn [& _]
-                    (throw (ex-info "local teardown failed" {})))
+                    (throw (ex-info "session release failed" {})))
                   protocol/disconnect
                   (fn [_]
                     (reset! transport-released? true)
@@ -125,7 +230,7 @@
                     (swap! rpc-calls conj [method params])
                     {:success true})]
       (is (nil? (session/disconnect! client "runtime-only-session"))))
-    (is (= [["session.destroy"
+    (is (= [["session.detach"
              {:session-id "runtime-only-session"}]]
            @rpc-calls))
     (is (empty? (:sessions @(:state client))))))
@@ -150,9 +255,10 @@
                                @(:state client))
                               session-id)
                              :event-closed?
-                             (async-protocols/closed? event-root)}))]
+                             (async-protocols/closed? event-root)})
+                    {:success true})]
       (is (nil? (session/disconnect! client session-id))))
-    (is (= "session.destroy" (:method @state-during-rpc)))
+    (is (= "session.detach" (:method @state-during-rpc)))
     (is (= {:session-id session-id} (:params @state-during-rpc)))
     (is (true? (:disconnecting? @state-during-rpc)))
     (is (false? (get-in @state-during-rpc
@@ -171,13 +277,13 @@
     (with-redefs [protocol/send-request!
                   (fn [& _]
                     (throw
-                     (ex-info "runtime destroy failed"
+                     (ex-info "runtime detach failed"
                               {:error {:code -32603
-                                       :message "runtime destroy failed"}
-                               :method "session.destroy"})))]
+                                       :message "runtime detach failed"}
+                               :method "session.detach"})))]
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo
-           #"runtime destroy failed"
+           #"runtime detach failed"
            (session/disconnect! client session-id))))
     (is (false? (get-in @(:state client)
                         [:sessions session-id :destroyed?])))
@@ -185,37 +291,74 @@
                            session-id)))
     (is (false? (async-protocols/closed? events-ch)))))
 
-(deftest disconnect-timeout-marks-the-session-terminal
+(deftest disconnect-retries-one-unsuccessful-detach-response
+  (let [client (sdk/client {:auto-start? false})
+        copilot-session (session/create-session client "retry-false-detach" {})
+        session-id (sdk/session-id copilot-session)
+        events-ch (session/subscribe-events copilot-session)
+        rpc-calls (atom 0)]
+    (swap! (:state client) assoc :connection-io :connection)
+    (with-redefs [protocol/send-request!
+                  (fn [_ method params & _]
+                    (is (= "session.detach" method))
+                    (is (= {:session-id session-id} params))
+                    (if (= 1 (swap! rpc-calls inc))
+                      {:success false :error "resident session is busy"}
+                      {:success true}))]
+      (is (nil? (session/disconnect! client session-id))))
+    (is (= 2 @rpc-calls))
+    (is (true? (get-in @(:state client)
+                       [:sessions session-id :destroyed?])))
+    (is (:closed? (await-port events-ch)))))
+
+(deftest disconnect-surfaces-the-second-unsuccessful-detach-response
+  (let [client (sdk/client {:auto-start? false})
+        copilot-session (session/create-session client "failed-false-detach" {})
+        session-id (sdk/session-id copilot-session)
+        events-ch (session/subscribe-events copilot-session)
+        rpc-calls (atom 0)]
+    (swap! (:state client) assoc :connection-io :connection)
+    (with-redefs [protocol/send-request!
+                  (fn [_ method params & _]
+                    (is (= "session.detach" method))
+                    (is (= {:session-id session-id} params))
+                    (swap! rpc-calls inc)
+                    {:success false :error "detach was rejected"})]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"detach was rejected"
+           (session/disconnect! client session-id))))
+    (is (= 2 @rpc-calls))
+    (is (false? (get-in @(:state client)
+                        [:sessions session-id :destroyed?])))
+    (is (false? (async-protocols/closed? events-ch)))))
+
+(deftest disconnect-waits-for-a-definitive-runtime-response
   (let [client (sdk/client {:auto-start? false})
         copilot-session (session/create-session client "ambiguous-disconnect" {})
         session-id (sdk/session-id copilot-session)
         events-ch (session/subscribe-events copilot-session)
-        timeout-error (ex-info "Request timeout"
-                               {:method "session.destroy"
-                                :timeout-ms 60000})]
+        timeout-argument (atom ::unset)]
     (swap! (:state client) assoc :connection-io :connection)
-    (with-redefs [protocol/send-request! (fn [& _] (throw timeout-error))]
-      (is (identical?
-           timeout-error
-           (try
-             (session/disconnect! copilot-session)
-             nil
-             (catch Throwable failure
-               failure)))))
+    (with-redefs [protocol/send-request!
+                  (fn [_ method params timeout-ms]
+                    (is (= "session.detach" method))
+                    (is (= {:session-id session-id} params))
+                    (reset! timeout-argument timeout-ms)
+                    {:success true})]
+      (is (nil? (session/disconnect! copilot-session))))
+    (is (nil? @timeout-argument)
+        "detach must not infer failure from an ambiguous client-side timeout")
     (is (true? (get-in @(:state client)
                        [:sessions session-id :destroyed?])))
-    (is (:closed? (await-port events-ch)))
-    (is (thrown-with-msg?
-         clojure.lang.ExceptionInfo
-         #"Session has been disconnected"
-         (session/send! copilot-session {:prompt "after timeout"})))))
+    (is (:closed? (await-port events-ch)))))
 
-(deftest disconnect-interruption-marks-the-session-terminal
+(deftest disconnect-interruption-preserves-the-session
   (let [client (sdk/client {:auto-start? false})
         copilot-session (session/create-session client "interrupted-disconnect" {})
         session-id (sdk/session-id copilot-session)
         events-ch (session/subscribe-events copilot-session)
-        interruption (InterruptedException. "destroy interrupted")]
+        interruption (InterruptedException. "detach interrupted")]
     (swap! (:state client) assoc :connection-io :connection)
     (try
       (with-redefs [protocol/send-request! (fn [& _] (throw interruption))]
@@ -228,11 +371,11 @@
                  failure)))))
       (finally
         (Thread/interrupted)))
-    (is (true? (get-in @(:state client)
-                       [:sessions session-id :destroyed?])))
-    (is (:closed? (await-port events-ch)))))
+    (is (false? (get-in @(:state client)
+                        [:sessions session-id :destroyed?])))
+    (is (false? (async-protocols/closed? events-ch)))))
 
-(deftest disconnect-connection-loss-marks-the-session-terminal
+(deftest disconnect-connection-loss-preserves-the-session
   (let [client (sdk/client {:auto-start? false})
         copilot-session (session/create-session client "connection-loss-disconnect" {})
         session-id (sdk/session-id copilot-session)
@@ -241,7 +384,7 @@
         (ex-info "Connection closed by remote"
                  {:error {:code -32000
                           :message "Connection closed by remote"}
-                  :method "session.destroy"})]
+                  :method "session.detach"})]
     (swap! (:state client) assoc :connection-io :connection)
     (with-redefs [protocol/send-request!
                   (fn [& _] (throw connection-error))]
@@ -252,32 +395,28 @@
              nil
              (catch Throwable failure
                failure)))))
-    (is (true? (get-in @(:state client)
-                       [:sessions session-id :destroyed?])))
-    (is (:closed? (await-port events-ch)))
-    (is (thrown-with-msg?
-         clojure.lang.ExceptionInfo
-         #"Session has been disconnected"
-         (session/send! copilot-session {:prompt "after connection loss"})))))
+    (is (false? (get-in @(:state client)
+                        [:sessions session-id :destroyed?])))
+    (is (false? (async-protocols/closed? events-ch)))))
 
-(deftest client-stop-forces-local-teardown-after-runtime-destroy-failure
+(deftest client-stop-forces-local-teardown-after-runtime-detach-failure
   (let [client (sdk/client {:auto-start? false})
         copilot-session (session/create-session client "failed-stop-disconnect" {})
         session-id (sdk/session-id copilot-session)
         events-ch (session/subscribe-events copilot-session)
-        destroy-error (ex-info "runtime destroy failed" {:phase :destroy})
+        detach-error (ex-info "runtime detach failed" {:phase :detach})
         calls (atom [])]
     (swap! (:state client) assoc :connection-io :connection)
     (with-redefs [protocol/send-request!
                   (fn [_ method params & _]
                     (swap! calls conj [method params])
-                    (when (= "session.destroy" method)
-                      (throw destroy-error)))
+                    (when (= "session.detach" method)
+                      (throw detach-error)))
                   protocol/disconnect (constantly [])]
       (let [errors (sdk/stop! client)]
-        (is (= [["session.destroy" {:session-id session-id}]] @calls))
+        (is (= [["session.detach" {:session-id session-id}]] @calls))
         (is (= 1 (count errors)))
-        (is (identical? destroy-error (ex-cause (first errors))))))
+        (is (identical? detach-error (ex-cause (first errors))))))
     (is (:closed? (await-port events-ch)))
     (is (empty? (:sessions @(:state client))))
     (is (empty? (:session-io @(:state client))))
@@ -290,16 +429,16 @@
   (let [client (sdk/client {:auto-start? false})
         copilot-session (session/create-session client "disconnect-race" {})
         session-id (sdk/session-id copilot-session)
-        destroy-started (promise)
-        finish-destroy (promise)]
+        detach-started (promise)
+        finish-detach (promise)]
     (swap! (:state client) assoc :connection-io :connection)
     (with-redefs [protocol/send-request!
                   (fn [_ method _ & _]
-                    (when (= "session.destroy" method)
-                      (deliver destroy-started true)
-                      @finish-destroy))]
+                    (when (= "session.detach" method)
+                      (deliver detach-started true)
+                      @finish-detach))]
       (let [disconnect (future (session/disconnect! client session-id))]
-        (is (= true (deref destroy-started 500 ::pending)))
+        (is (= true (deref detach-started 500 ::pending)))
         (is (thrown-with-msg?
              clojure.lang.ExceptionInfo
              #"disconnect is in progress"
@@ -308,7 +447,7 @@
              clojure.lang.ExceptionInfo
              #"Session has been disconnected"
              (session/send! copilot-session {:prompt "too late"})))
-        (deliver finish-destroy {:success true})
+        (deliver finish-detach {:success true})
         (is (nil? (deref disconnect 500 ::pending)))))
     (is (true? (get-in @(:state client)
                        [:sessions session-id :destroyed?])))))
@@ -317,24 +456,24 @@
   (let [client (sdk/client {:auto-start? false})
         copilot-session (session/create-session client "joined-disconnect" {})
         session-id (sdk/session-id copilot-session)
-        destroy-started (promise)
-        finish-destroy (promise)
-        destroy-error (ex-info "shared destroy failure" {:phase :destroy})
+        detach-started (promise)
+        finish-detach (promise)
+        detach-error (ex-info "shared detach failure" {:phase :detach})
         rpc-calls (atom 0)]
     (swap! (:state client) assoc :connection-io :connection)
     (with-redefs [protocol/send-request!
                   (fn [_ method _ & _]
-                    (when (= "session.destroy" method)
+                    (when (= "session.detach" method)
                       (swap! rpc-calls inc)
-                      (deliver destroy-started true)
-                      @finish-destroy
-                      (throw destroy-error)))]
+                      (deliver detach-started true)
+                      @finish-detach
+                      (throw detach-error)))]
       (let [owner (future
                     (try
                       (session/disconnect! client session-id)
                       (catch Throwable error
                         error)))
-            _ (is (= true (deref destroy-started 500 ::pending)))
+            _ (is (= true (deref detach-started 500 ::pending)))
             joiner-waiting (promise)
             original-await @#'session/await-disconnect-completion!]
         (with-redefs-fn
@@ -349,9 +488,9 @@
                              (catch Throwable error
                                error)))]
               (is (true? (deref joiner-waiting 500 false)))
-              (deliver finish-destroy true)
-              (is (identical? destroy-error (deref owner 500 ::pending)))
-              (is (identical? destroy-error (deref joiner 500 ::pending))))))))
+              (deliver finish-detach true)
+              (is (identical? detach-error (deref owner 500 ::pending)))
+              (is (identical? detach-error (deref joiner 500 ::pending))))))))
     (is (= 1 @rpc-calls))
     (is (false? (get-in @(:state client)
                         [:sessions session-id :destroyed?])))
@@ -364,7 +503,7 @@
   (let [client (sdk/client {:auto-start? false})
         copilot-session (session/create-session client "retry-order" {})
         session-id (sdk/session-id copilot-session)
-        destroy-error (ex-info "runtime destroy failed" {})
+        detach-error (ex-info "runtime detach failed" {})
         state-at-delivery (atom nil)]
     (swap! (:state client) assoc :connection-io :connection)
     (with-redefs-fn
@@ -373,9 +512,9 @@
          (reset! state-at-delivery @(:state client))
          (deliver completion value))}
       (fn []
-        (with-redefs [protocol/send-request! (fn [& _] (throw destroy-error))]
+        (with-redefs [protocol/send-request! (fn [& _] (throw detach-error))]
           (is (identical?
-               destroy-error
+               detach-error
                (try
                  (session/disconnect! client session-id)
                  nil
@@ -427,17 +566,17 @@
         session-id (sdk/session-id original)
         original-token (get-in @(:state client)
                                [:sessions session-id :registration-token])
-        destroy-started (promise)
-        finish-destroy (promise)]
+        detach-started (promise)
+        finish-detach (promise)]
     (swap! (:state client) assoc :connection-io :connection)
     (with-redefs [protocol/send-request!
                   (fn [_ method _ & _]
-                    (when (= "session.destroy" method)
-                      (deliver destroy-started true)
-                      @finish-destroy)
+                    (when (= "session.detach" method)
+                      (deliver detach-started true)
+                      @finish-detach)
                     {:success true})]
       (let [disconnect (future (session/disconnect! client session-id))]
-        (is (true? (deref destroy-started 500 false)))
+        (is (true? (deref detach-started 500 false)))
         (swap! (:state client)
                (fn [state]
                  (-> state
@@ -449,7 +588,7 @@
                       [:sessions session-id :registration-token])
               replacement-events (session/subscribe-events replacement)]
           (is (not (identical? original-token replacement-token)))
-          (deliver finish-destroy true)
+          (deliver finish-detach true)
           (is (nil? (deref disconnect 500 ::pending)))
           (is (identical? replacement-token
                           (get-in @(:state client)
@@ -479,16 +618,16 @@
         copilot-session (session/create-session client "retry-disconnect" {})
         session-id (sdk/session-id copilot-session)
         events-ch (session/subscribe-events copilot-session)
-        destroy-error (ex-info "first destroy failed" {})
+        detach-error (ex-info "first detach failed" {})
         rpc-calls (atom 0)]
     (swap! (:state client) assoc :connection-io :connection)
     (with-redefs [protocol/send-request!
                   (fn [& _]
                     (when (= 1 (swap! rpc-calls inc))
-                      (throw destroy-error))
+                      (throw detach-error))
                     {:success true})]
       (is (identical?
-           destroy-error
+           detach-error
            (try
              (session/disconnect! client session-id)
              nil

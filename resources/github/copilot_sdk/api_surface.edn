@@ -461,6 +461,8 @@
     :github.copilot-sdk.specs/agent-metrics
     :github.copilot-sdk.specs/agent-mode
     :github.copilot-sdk.specs/agent-model
+    :github.copilot-sdk.specs/agent-model-policy
+    :github.copilot-sdk.specs/agent-model-preferences
     :github.copilot-sdk.specs/agent-name
     :github.copilot-sdk.specs/agent-prompt
     :github.copilot-sdk.specs/agent-reasoning-effort
@@ -476,6 +478,8 @@
     :github.copilot-sdk.specs/api-endpoint
     :github.copilot-sdk.specs/api-key
     :github.copilot-sdk.specs/append-file
+    :github.copilot-sdk.specs/application-name
+    :github.copilot-sdk.specs/application-version
     :github.copilot-sdk.specs/approval
     :github.copilot-sdk.specs/approval-key
     :github.copilot-sdk.specs/approved?
@@ -545,6 +549,7 @@
     :github.copilot-sdk.specs/cli-path
     :github.copilot-sdk.specs/cli-url
     :github.copilot-sdk.specs/client
+    :github.copilot-sdk.specs/client-info
     :github.copilot-sdk.specs/client-mode
     :github.copilot-sdk.specs/client-name
     :github.copilot-sdk.specs/client-options
@@ -599,6 +604,7 @@
     :github.copilot-sdk.specs/detail
     :github.copilot-sdk.specs/disable-bypass-permissions-mode
     :github.copilot-sdk.specs/disable-form-deferral?
+    :github.copilot-sdk.specs/disable-model-invocation
     :github.copilot-sdk.specs/disable-resume?
     :github.copilot-sdk.specs/disabled-mcp-servers
     :github.copilot-sdk.specs/disabled-skills
@@ -733,6 +739,8 @@
     :github.copilot-sdk.specs/instant
     :github.copilot-sdk.specs/instruction-directories
     :github.copilot-sdk.specs/instructions
+    :github.copilot-sdk.specs/integration-name
+    :github.copilot-sdk.specs/integration-version
     :github.copilot-sdk.specs/intention-summary
     :github.copilot-sdk.specs/inter-token-latency-ms
     :github.copilot-sdk.specs/interaction-id
@@ -821,6 +829,7 @@
     :github.copilot-sdk.specs/model-info
     :github.copilot-sdk.specs/model-limits
     :github.copilot-sdk.specs/model-metrics
+    :github.copilot-sdk.specs/model-override-reason
     :github.copilot-sdk.specs/model-picker-category
     :github.copilot-sdk.specs/model-picker-price-category
     :github.copilot-sdk.specs/model-policy
@@ -888,9 +897,11 @@
     :github.copilot-sdk.specs/permission-handler-result
     :github.copilot-sdk.specs/permission-kind
     :github.copilot-sdk.specs/permission-mode
+    :github.copilot-sdk.specs/permission-prompt-request
     :github.copilot-sdk.specs/permission-request
     :github.copilot-sdk.specs/permission-result
     :github.copilot-sdk.specs/permission-result-kind
+    :github.copilot-sdk.specs/permission.requested-data
     :github.copilot-sdk.specs/permissions
     :github.copilot-sdk.specs/phase
     :github.copilot-sdk.specs/phases
@@ -934,6 +945,8 @@
     :github.copilot-sdk.specs/reference-type
     :github.copilot-sdk.specs/rejected-prediction-tokens
     :github.copilot-sdk.specs/remaining-percentage
+    :github.copilot-sdk.specs/remediation
+    :github.copilot-sdk.specs/remediation-action
     :github.copilot-sdk.specs/remote-enable-opts
     :github.copilot-sdk.specs/remote-enable-result
     :github.copilot-sdk.specs/remote-session
@@ -960,6 +973,7 @@
     :github.copilot-sdk.specs/resume-session-config
     :github.copilot-sdk.specs/retry-after-seconds
     :github.copilot-sdk.specs/revision
+    :github.copilot-sdk.specs/risk-assessment
     :github.copilot-sdk.specs/rm
     :github.copilot-sdk.specs/router-queue-size
     :github.copilot-sdk.specs/rows-affected
@@ -974,6 +988,7 @@
     :github.copilot-sdk.specs/selection-attachment
     :github.copilot-sdk.specs/selection-range
     :github.copilot-sdk.specs/send-options
+    :github.copilot-sdk.specs/server-metadata
     :github.copilot-sdk.specs/server-name
     :github.copilot-sdk.specs/server-tools
     :github.copilot-sdk.specs/servers
@@ -1007,6 +1022,8 @@
     :github.copilot-sdk.specs/session.extensions_loaded-data
     :github.copilot-sdk.specs/session.handoff-data
     :github.copilot-sdk.specs/session.idle-data
+    :github.copilot-sdk.specs/session.mcp_server_needs_reconnect-data
+    :github.copilot-sdk.specs/session.mcp_server_removed-data
     :github.copilot-sdk.specs/session.mcp_server_status_changed-data
     :github.copilot-sdk.specs/session.mcp_servers_loaded-data
     :github.copilot-sdk.specs/session.mode_changed-data
@@ -1028,6 +1045,7 @@
     :github.copilot-sdk.specs/shutdown-type
     :github.copilot-sdk.specs/skill-directories
     :github.copilot-sdk.specs/skill-info
+    :github.copilot-sdk.specs/skill-source
     :github.copilot-sdk.specs/skill.invoked-data
     :github.copilot-sdk.specs/skills
     :github.copilot-sdk.specs/skip-custom-instructions
