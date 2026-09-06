@@ -875,13 +875,98 @@
   [entries]
   (vec
    (mapcat
-    (fn [[session-id {:keys [snapshot]}]]
-      (session/release-session-snapshots!
-       {session-id (:session snapshot)}
-       (if (:session-io-present? snapshot)
-         {session-id (:session-io snapshot)}
-         {})))
+    (fn [[session-id {:keys [snapshot release-token]}]]
+      (when-not release-token
+        (session/release-session-snapshots!
+         {session-id (:session snapshot)}
+         (if (:session-io-present? snapshot)
+           {session-id (:session-io snapshot)}
+           {}))))
     entries)))
+
+(defn- claim-session-shutdown-resources!
+  [client state-updates]
+  (let [[old-state new-state]
+        (swap-vals!
+         (:state client)
+         (fn [state]
+           (-> state
+               (merge state-updates)
+               (assoc :sessions {}
+                      :session-io {}
+                      :session-setups {}
+                      :session-setup-snapshots {}
+                      :disconnecting-session-ids #{}
+                      :session-disconnects {}))))]
+    {:old-state old-state
+     :new-state new-state}))
+
+(defn- release-claimed-session-resources!
+  [old-state]
+  (let [sessions
+        (into
+         {}
+         (remove (fn [[_ copilot-session]]
+                   (:destroyed? copilot-session)))
+         (:sessions old-state))
+        session-ios
+        (select-keys (:session-io old-state) (keys sessions))]
+    (vec
+     (concat
+      (td/attempt-collecting
+       {:operation :release :resource :sessions}
+       (session/release-session-snapshots!
+        sessions session-ios))
+      (td/attempt-collecting
+       {:operation :release :resource :session-setup-snapshots}
+       (release-session-setup-snapshot-entries!
+        (:session-setup-snapshots old-state)))))))
+
+(defn- live-claimed-session-ids
+  [old-state]
+  (->> (concat
+        (keep
+         (fn [[session-id copilot-session]]
+           (when-not (:destroyed? copilot-session)
+             session-id))
+         (:sessions old-state))
+        (keep
+         (fn [[session-id {:keys [snapshot release-token]}]]
+           (when (and (nil? release-token)
+                      (not (get-in snapshot [:session :destroyed?])))
+             session-id))
+         (:session-setup-snapshots old-state)))
+       distinct
+       sort))
+
+(defn- detach-claimed-sessions!
+  [old-state]
+  (let [connection-io (:connection-io old-state)]
+    (vec
+     (keep
+      (fn [session-id]
+        (try
+          (let [conn
+                (or connection-io
+                    (throw
+                     (ex-info
+                      "Cannot disconnect session: client transport is unavailable"
+                      {:type :transport-unavailable
+                       :session-id session-id})))]
+            (session/request-session-detach! conn session-id))
+          nil
+          (catch InterruptedException error
+            (.interrupt (Thread/currentThread))
+            (ex-info
+             (str "Failed to disconnect session " session-id)
+             {:session-id session-id}
+             error))
+          (catch Exception error
+            (ex-info
+             (str "Failed to disconnect session " session-id)
+             {:session-id session-id}
+             error))))
+      (live-claimed-session-ids old-state)))))
 
 (defn- release-unexpected-connection-close!
   [client connection-io
@@ -2374,22 +2459,37 @@
       ;; already released.
       (swap! errors into (release-router! client))
 
-      ;; 1. Disconnect all sessions
+      ;; 1. Disconnect sessions that are not being replaced by an in-progress
+      ;; setup. Setup-owned registrations are claimed and released below.
       (doseq [[session-id _] sessions]
         (try
           (session/disconnect! client session-id)
-          (catch Exception e
-            (let [failure
-                  (ex-info (str "Failed to disconnect session " session-id)
-                           {:session-id session-id}
-                           e)]
-              (try
-                (session/teardown-local! client session-id)
-                (catch Throwable cleanup-failure
-                  (when-not (identical? failure cleanup-failure)
-                    (.addSuppressed ^Throwable failure cleanup-failure))))
-              (swap! errors conj failure)))))
-      (swap! (:state client) assoc :sessions {} :session-io {})
+          (catch Exception error
+            (when-not (= :session-setup-in-progress
+                         (-> error ex-data :type))
+              (let [failure
+                    (ex-info
+                     (str "Failed to disconnect session " session-id)
+                     {:session-id session-id}
+                     error)]
+                (try
+                  (session/teardown-local! client session-id)
+                  (catch Throwable cleanup-failure
+                    (when-not (identical? failure cleanup-failure)
+                      (.addSuppressed
+                       ^Throwable failure cleanup-failure))))
+                (swap! errors conj failure))))))
+
+      ;; 1a. Fence any setup still in progress, release both its provisional
+      ;; and displaced registrations, then detach the remaining runtime session.
+      ;; Local release precedes the unbounded detach so force-stop! remains a
+      ;; usable escape hatch for a wedged transport.
+      (let [{:keys [old-state]}
+            (claim-session-shutdown-resources! client {})]
+        (swap! errors into
+               (release-claimed-session-resources! old-state))
+        (swap! errors into
+               (detach-claimed-sessions! old-state)))
 
       ;; 1b. Ask SDK-owned runtimes to flush and clean up before tearing down
       ;; their transport/process. External runtimes may be shared, so we only
@@ -2434,23 +2534,16 @@
    process. The wait ends as soon as the child dies, so it is a worst-case
    bound rather than a fixed delay."
   [client]
-  (swap! (:state client) assoc :stopping? true :lifecycle-handlers {})
-
-  (let [session-ids (keys (:sessions @(:state client)))]
-    ;; Release event roots and send locks while their state is still reachable.
-    (let [session-failures
-          (td/collect
-           (for [session-id session-ids]
-             (td/attempt
-              {:operation :teardown
-               :resource :session
-               :session-id session-id}
-              (session/teardown-local! client session-id))))]
-      (swap! (:state client) assoc :sessions {} :session-io {})
-
-      (log-teardown-failures!
-       (into session-failures
-             (release-transport! client {:process :forcible})))))
+  (let [{:keys [old-state]}
+        (claim-session-shutdown-resources!
+         client
+         {:stopping? true
+          :lifecycle-handlers {}})
+        session-failures
+        (release-claimed-session-resources! old-state)]
+    (log-teardown-failures!
+     (into session-failures
+           (release-transport! client {:process :forcible}))))
 
   (swap! (:state client) merge
          {:status :disconnected

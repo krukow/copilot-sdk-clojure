@@ -15,6 +15,111 @@
     {:value value
      :closed? (and (= port ch) (nil? value))}))
 
+(defn- install-displaced-session!
+  [client session-id]
+  (let [original (session/create-session client session-id {})
+        original-event-root
+        (get-in @(:state client) [:session-io session-id :event-chan])
+        original-send-lock
+        (get-in @(:state client) [:session-io session-id :send-lock])
+        pending-cancel (async/chan)
+        factory-cancelled? (atom false)
+        factory-cancel (async/chan)
+        setup-token (Object.)]
+    (swap! (:state client)
+           (fn [state]
+             (-> state
+                 (assoc-in
+                  [:sessions session-id :pending-external-tools "request-1"]
+                  {:cancel-chan pending-cancel})
+                 (assoc-in
+                  [:sessions session-id :factory-executions "run-1" "execution-1"]
+                  {:cancelled? factory-cancelled?
+                   :cancel-chan factory-cancel})
+                 (assoc-in [:session-setups session-id] setup-token))))
+    (session/create-session
+     client session-id
+     {:config {::session/setup-token setup-token}})
+    {:factory-cancel factory-cancel
+     :factory-cancelled? factory-cancelled?
+     :original-event-root original-event-root
+     :original-send-lock original-send-lock
+     :pending-cancel pending-cancel
+     :replacement-event-root
+     (get-in @(:state client) [:session-io session-id :event-chan])
+     :replacement-send-lock
+     (get-in @(:state client) [:session-io session-id :send-lock])}))
+
+(defn- assert-displaced-session-released!
+  [client {:keys [factory-cancel factory-cancelled?
+                  original-event-root original-send-lock pending-cancel
+                  replacement-event-root replacement-send-lock]}]
+  (is @factory-cancelled?)
+  (doseq [ch [factory-cancel
+              original-event-root
+              original-send-lock
+              pending-cancel
+              replacement-event-root
+              replacement-send-lock]]
+    (is (async-protocols/closed? ch)))
+  (is (empty? (:sessions @(:state client))))
+  (is (empty? (:session-io @(:state client))))
+  (is (empty? (:session-setups @(:state client))))
+  (is (empty? (:session-setup-snapshots @(:state client)))))
+
+(deftest force-stop-releases-displaced-session-setup-resources
+  (let [client (sdk/client {:auto-start? false})
+        session-id "force-stop-displaced"
+        resources (install-displaced-session! client session-id)]
+    (is (some? (get-in @(:state client)
+                       [:session-setup-snapshots session-id])))
+    (sdk/force-stop! client)
+    (assert-displaced-session-released! client resources)))
+
+(deftest stop-releases-displaced-session-setup-resources
+  (let [client (sdk/client {:auto-start? false})
+        session-id "stop-displaced"
+        resources (install-displaced-session! client session-id)
+        rpc-calls (atom [])]
+    (swap! (:state client) assoc :connection-io :connection)
+    (with-redefs [protocol/send-request!
+                  (fn [_ method params & _]
+                    (swap! rpc-calls conj [method params])
+                    {:success true})
+                  protocol/disconnect (constantly [])]
+      (is (empty? (sdk/stop! client))))
+    (is (= [["session.detach" {:session-id session-id}]]
+           @rpc-calls))
+    (assert-displaced-session-released! client resources)))
+
+(deftest force-stop-unblocks-stop-waiting-for-setup-detach
+  (let [client (sdk/client {:auto-start? false})
+        session-id "stop-displaced-blocked"
+        resources (install-displaced-session! client session-id)
+        detach-started (promise)
+        finish-detach (promise)
+        transport-released (promise)]
+    (swap! (:state client) assoc :connection-io :connection)
+    (with-redefs [protocol/send-request!
+                  (fn [_ method _ & _]
+                    (when (= "session.detach" method)
+                      (deliver detach-started true)
+                      @finish-detach
+                      (throw
+                       (ex-info "Transport was forcibly closed" {}))))
+                  protocol/disconnect
+                  (fn [_]
+                    (deliver transport-released true)
+                    (deliver finish-detach true)
+                    [])]
+      (let [stopping (future (sdk/stop! client))]
+        (is (true? (deref detach-started 500 false)))
+        (assert-displaced-session-released! client resources)
+        (sdk/force-stop! client)
+        (is (true? (deref transport-released 500 false)))
+        (is (= 1 (count (deref stopping 500 ::pending))))))
+    (is (= :disconnected (:status @(:state client))))))
+
 (deftest force-stop-releases-session-owned-resources-without-rpcs
   (let [client (sdk/client {:auto-start? false})
         first-session (session/create-session client "first-session" {})
@@ -99,14 +204,14 @@
       (sdk/force-stop! client))
     (is (= {} @handlers-at-disconnect))))
 
-(deftest force-stop-releases-transport-after-session-teardown-failure
+(deftest force-stop-releases-transport-after-session-release-failure
   (let [client (sdk/client {:auto-start? false})
         _ (session/create-session client "broken-session" {})
         transport-released? (atom false)]
     (swap! (:state client) assoc :connection-io :connection)
-    (with-redefs [session/teardown-local!
+    (with-redefs [session/release-session-snapshots!
                   (fn [& _]
-                    (throw (ex-info "local teardown failed" {})))
+                    (throw (ex-info "session release failed" {})))
                   protocol/disconnect
                   (fn [_]
                     (reset! transport-released? true)

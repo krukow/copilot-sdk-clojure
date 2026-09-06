@@ -53,6 +53,9 @@ All notable changes to this project will be documented in this file. This change
   runtime session instead of destroying it, preserving resumable state while
   releasing the incomplete local registration.
   ([upstream PR #2307](https://github.com/github/copilot-sdk/pull/2307))
+- Client shutdown now atomically fences in-progress session setup and releases
+  both provisional and displaced session resources, including pending tools,
+  factory executions, event channels, and send locks.
 
 ### Added (post-v1.0.13-preview.4 sync)
 - Added session-scoped `:github-token-provider` authentication for create,
