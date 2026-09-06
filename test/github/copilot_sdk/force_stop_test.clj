@@ -309,7 +309,7 @@
     (is (= 2 @rpc-calls))
     (is (true? (get-in @(:state client)
                        [:sessions session-id :destroyed?])))
-    (is (async-protocols/closed? events-ch))))
+    (is (:closed? (await-port events-ch)))))
 
 (deftest disconnect-surfaces-the-second-unsuccessful-detach-response
   (let [client (sdk/client {:auto-start? false})
@@ -351,7 +351,7 @@
         "detach must not infer failure from an ambiguous client-side timeout")
     (is (true? (get-in @(:state client)
                        [:sessions session-id :destroyed?])))
-    (is (async-protocols/closed? events-ch))))
+    (is (:closed? (await-port events-ch)))))
 
 (deftest disconnect-interruption-preserves-the-session
   (let [client (sdk/client {:auto-start? false})
