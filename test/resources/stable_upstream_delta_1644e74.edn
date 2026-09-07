@@ -1,0 +1,144 @@
+{:upstream
+ {:repository "github/copilot-sdk"
+  :base-commit "f13e4a2cc7e4e220974d2333142234e162a3252e"
+  :target-commit "1644e74578db3637bc7527951bac227aabbc0584"
+  :base-tag "v1.0.13"
+  :target-position :post-v1.0.13-main
+  :target-package-version "0.0.0-dev"
+  :runtime-version "1.0.83"
+  :commit-count 4
+  :commit-sequence-sha256
+  "a7f2fc54e504afa0d41017d130cd7316f1f7387cc4378c9a2e034b23c876512f"}
+
+ :historical-oracle
+ {:resource "resources/stable_upstream_delta_f13e4a2.edn"
+  :sha256
+  "4974acfafe9a54e14fda470e005b12e64157903d5b76eb5ad273405932e6cc40"
+  :policy
+  "Immutable complete public-surface inventory at v1.0.13; this report certifies only baseline..target."}
+
+ :commit-classifications
+ [{:commit "52b86a6969c9dc37cfa70ff6f64b64d4082b28d1"
+   :subject "docs: update version references to 1.0.13"
+   :source-url
+   "https://github.com/github/copilot-sdk/commit/52b86a6969c9dc37cfa70ff6f64b64d4082b28d1"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason
+   "Updates Java release documentation and the Java JBang example only."
+   :changed-path-count 2
+   :changed-paths-sha256
+   "354da747ec6ad569c57d155cf6495ad3b7e7c1afc122506d0ab3f8595f6003b9"}
+  {:commit "10197c8a37b01efd5b4cfbeeaa7a8e2160ceb906"
+   :subject "[maven-release-plugin] prepare release java/v1.0.13"
+   :source-url
+   "https://github.com/github/copilot-sdk/commit/10197c8a37b01efd5b4cfbeeaa7a8e2160ceb906"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Prepares the Java Maven artifacts for the v1.0.13 release."
+   :changed-path-count 3
+   :changed-paths-sha256
+   "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+  {:commit "d3755535869e97d2bcf5aa6a5b8c35de79f5a7d8"
+   :subject "[maven-release-plugin] prepare for next development iteration"
+   :source-url
+   "https://github.com/github/copilot-sdk/commit/d3755535869e97d2bcf5aa6a5b8c35de79f5a7d8"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason "Advances Java Maven development versions after the release."
+   :changed-path-count 3
+   :changed-paths-sha256
+   "8e87c6e217b922fc311b78730d277e4bc900f5fa8e6a8029c21e66280bea4fbe"}
+  {:commit "1644e74578db3637bc7527951bac227aabbc0584"
+   :subject "Add changelog for v1.0.13 (#2545)"
+   :source-url "https://github.com/github/copilot-sdk/pull/2545"
+   :classification :internal
+   :status :reviewed-no-port
+   :reason
+   "Adds generated release metadata for the already-certified v1.0.13 surface without changing Node source, tests, package metadata, runtime schemas, or API classification."
+   :changed-path-count 1
+   :changed-paths-sha256
+   "8530d39bd219113000f182349d06795cbd657bbe4baf279b778ffe60c7dd846a"}]
+
+ :changed-paths
+ {:count 6
+  :sha256
+  "9db66bb4aede3de12049d7d9ae2513c36b42224c8661996ac4f523b34e329dbe"
+  :classification-counts {:internal 1 :language-specific 5}
+  :entries
+  [{:path "CHANGELOG.md" :classification :internal}
+   {:path "java/README.md" :classification :language-specific}
+   {:path "java/copilot-native/pom.xml"
+    :classification :language-specific}
+   {:path "java/pom.xml" :classification :language-specific}
+   {:path "java/sdk/jbang-example.java"
+    :classification :language-specific}
+   {:path "java/sdk/pom.xml" :classification :language-specific}]}
+
+ :public-surface-audit
+ {:inspected
+  ["nodejs/package.json"
+   "nodejs/src/index.ts"
+   "nodejs/src/types.ts"
+   "nodejs/src/client.ts"
+   "nodejs/src/session.ts"
+   "nodejs/src/extension.ts"
+   "nodejs/src/toolSet.ts"
+   "nodejs/src/factory.ts"
+   "nodejs/src/canvas.ts"
+   "nodejs/test"]
+  :source-blobs
+  {"nodejs/package.json" "783c4d53900c7176005ca1fac80b95fe7081a543"
+   "nodejs/src/index.ts" "2007679d619831273bac2dc7e58b2969c181b812"
+   "nodejs/src/types.ts" "0f15749f716af0b942183fb6557d539ba9b450d4"
+   "nodejs/src/client.ts" "eb92cf0bed34e5ac6bf4e208365fb8be047c43f0"
+   "nodejs/src/session.ts" "b7fc7837a5ac17f3625d6fa6cb6382da2dd3a640"
+   "nodejs/src/extension.ts" "ac0ccdb7ce3102cabc98e8457f4c7f684b76fa28"
+   "nodejs/src/toolSet.ts" "559e9234e5b178036d88a7045a632bd16a97f534"
+   "nodejs/src/factory.ts" "6212f462b4aff716417baf2180b9a8b887c12ad1"
+   "nodejs/src/canvas.ts" "aeb1f00ec42926977c010df2471123dc18ddddd3"
+   "nodejs/test" "19124b3cd602bf7d04079c4f76fbc2822160046d"}
+  :baseline-node-tree "f506a0e89c7920149e520da2e8a43a41d7459d16"
+  :target-node-tree "f506a0e89c7920149e520da2e8a43a41d7459d16"
+  :changed-node-files []
+  :stable-public-deltas []
+  :unclassified-deltas []}
+
+ :stable-delta-ids #{}
+ :stable-deltas []
+
+ :release-metadata-audit
+ {:path "CHANGELOG.md"
+  :commit "1644e74578db3637bc7527951bac227aabbc0584"
+  :classification :internal
+  :status :reviewed-no-port
+  :reason
+  "The generated upstream changelog summarizes the v1.0.13 release but is not a new public contract. Exact source annotations remain authoritative."
+  :classification-notes
+  [{:id :session/live-auto-tier-switching
+    :classification :experimental
+    :source-path "nodejs/src/session.ts"
+    :required-symbols
+    ["@experimental Part of an experimental Auto routing surface"
+     "async setAutoTier(autoTier: AutoTier | null): Promise<ModelSwitchAutoTierResult>"]}
+   {:id :sandbox/allow-bypass
+    :classification :experimental
+    :source-path "nodejs/src/generated/rpc.ts"
+    :required-symbols
+    ["/** @experimental */\nexport interface SandboxConfig {"
+     "allowBypass?: boolean;"]}]
+  :unclassified-items []}
+
+ :schema
+ {:runtime-pin "1.0.83"
+  :changed? false
+  :generated-clojure-output
+  {:session-event-schema-changed? false
+   :event-specs-changed? false
+   :event-metadata-changed? false
+   :coercion-source-changed? false}}
+
+ :version
+ {:sdk "1.0.13.0"
+  :changed? false
+  :release-required? false}}
