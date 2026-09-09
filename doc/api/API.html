@@ -135,6 +135,7 @@
 <tbody>
 <tr><td> <code>:disable-resume?</code> </td><td> <code>suppressResumeEvent</code> </td><td> Config key on <code>resume-session</code> / <code>join-session</code>. When true, skips emitting the <code>session.resume</code> event. Defaults to <code>true</code> in <code>join-session</code> (matching upstream), <code>false</code> elsewhere. </td></tr>
 <tr><td> <code>:max-input-tokens</code> </td><td> <code>maxPromptTokens</code> </td><td> BYOK provider/model config key (input/prompt token cap). Serialized back to <code>maxPromptTokens</code> on the wire. </td></tr>
+<tr><td> <code>:source {:agent-id "reviewer"}</code> </td><td> <code>source: "agent-reviewer"</code> </td><td> <code>send</code> message provenance. Fixed sources use <code>:user</code> or <code>:system</code>; identified agents use a map so the opaque ID is preserved exactly before the <code>agent-</code> wire prefix is added. </td></tr>
 <tr><td> <code>join-session</code> return <code>{:client :session}</code> </td><td> <code>joinSession()</code> returns <code>CopilotSession</code> </td><td> Clojure has no implicit/global client, so it returns both so the caller can own the client lifecycle. See <a href="#join-session"><code>join-session</code></a>. </td></tr>
 <tr><td> <code>join-session</code> return <code>:granted-environment-variables</code> </td><td> <code>joinSession()</code> writes grants to <code>process.env</code> </td><td> The JVM cannot portably mutate process environment variables. When an extension requests environment access, Clojure returns approved values as a string-keyed map filtered to the exact requested names. </td></tr>
 </tbody>
@@ -701,8 +702,13 @@
 <tr><td> <code>:agent-mode</code> </td><td> keyword </td><td> <code>#{:interactive :plan :autopilot :shell}</code>. Per-message agent mode. Wire-encoded as <code>agentMode</code>. (upstream PR #1438) </td></tr>
 <tr><td> <code>:display-prompt</code> </td><td> string </td><td> Alternate prompt shown in the timeline UI instead of <code>:prompt</code>. Useful when the model-facing prompt contains machinery or context that should not be surfaced to the end user. Wire-encoded as <code>displayPrompt</code>. (upstream PR #1470) </td></tr>
 <tr><td> <code>:request-headers</code> </td><td> map </td><td> Extra HTTP headers (string→string) forwarded to the model provider for this request. Merged with provider-level <code>:headers</code>. (upstream PR #1094) </td></tr>
+<tr><td> <code>:source</code> </td><td> keyword or map </td><td> Optional message provenance. Use <code>:user</code>, <code>:system</code>, or <code>{:agent-id "..."}</code>. Agent IDs are opaque strings, including the empty string, and serialize as <code>agent-&lt;id&gt;</code>. Omission sends no wire key; explicit <code>nil</code> is invalid. Remote backends may echo the source locally without forwarding it end to end. (<a href="https://github.com/github/copilot-sdk/pull/2573">upstream PR #2573</a>) </td></tr>
 </tbody>
 </table>
+<pre><code class="language-clojure">(copilot/send! session
+  {:prompt "Review this change"
+   :source {:agent-id "reviewer"}})
+</code></pre>
 <p><strong>Attachment types:</strong></p>
 <table>
 <thead>

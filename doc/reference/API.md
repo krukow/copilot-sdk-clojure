@@ -204,6 +204,7 @@ adapted to Clojure idioms. When translating Node.js examples, use this map:
 |---------|----------------------|-------|
 | `:disable-resume?` | `suppressResumeEvent` | Config key on `resume-session` / `join-session`. When true, skips emitting the `session.resume` event. Defaults to `true` in `join-session` (matching upstream), `false` elsewhere. |
 | `:max-input-tokens` | `maxPromptTokens` | BYOK provider/model config key (input/prompt token cap). Serialized back to `maxPromptTokens` on the wire. |
+| `:source {:agent-id "reviewer"}` | `source: "agent-reviewer"` | `send` message provenance. Fixed sources use `:user` or `:system`; identified agents use a map so the opaque ID is preserved exactly before the `agent-` wire prefix is added. |
 | `join-session` return `{:client :session}` | `joinSession()` returns `CopilotSession` | Clojure has no implicit/global client, so it returns both so the caller can own the client lifecycle. See [`join-session`](#join-session). |
 | `join-session` return `:granted-environment-variables` | `joinSession()` writes grants to `process.env` | The JVM cannot portably mutate process environment variables. When an extension requests environment access, Clojure returns approved values as a string-keyed map filtered to the exact requested names. |
 
@@ -968,6 +969,13 @@ Send a message to the session. Returns immediately with the message ID.
 | `:agent-mode` | keyword | `#{:interactive :plan :autopilot :shell}`. Per-message agent mode. Wire-encoded as `agentMode`. (upstream PR #1438) |
 | `:display-prompt` | string | Alternate prompt shown in the timeline UI instead of `:prompt`. Useful when the model-facing prompt contains machinery or context that should not be surfaced to the end user. Wire-encoded as `displayPrompt`. (upstream PR #1470) |
 | `:request-headers` | map | Extra HTTP headers (string→string) forwarded to the model provider for this request. Merged with provider-level `:headers`. (upstream PR #1094) |
+| `:source` | keyword or map | Optional message provenance. Use `:user`, `:system`, or `{:agent-id "..."}`. Agent IDs are opaque strings, including the empty string, and serialize as `agent-<id>`. Omission sends no wire key; explicit `nil` is invalid. Remote backends may echo the source locally without forwarding it end to end. ([upstream PR #2573](https://github.com/github/copilot-sdk/pull/2573)) |
+
+```clojure
+(copilot/send! session
+  {:prompt "Review this change"
+   :source {:agent-id "reviewer"}})
+```
 
 **Attachment types:**
 

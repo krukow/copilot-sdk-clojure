@@ -812,6 +812,7 @@
     :github.copilot-sdk.specs/memory-reason
     :github.copilot-sdk.specs/message
     :github.copilot-sdk.specs/message-id
+    :github.copilot-sdk.specs/message-source
     :github.copilot-sdk.specs/messages-cleared
     :github.copilot-sdk.specs/metadata
     :github.copilot-sdk.specs/metrics
