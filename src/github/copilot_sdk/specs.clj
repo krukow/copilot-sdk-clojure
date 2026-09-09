@@ -1647,10 +1647,24 @@
 ;; (upstream PR #1470, post-v1.0.0-beta.4).
 (s/def ::display-prompt string?)
 
+(defn- message-source?
+  [source]
+  (or (contains? #{:user :system} source)
+      (and (map? source)
+           (= #{:agent-id} (set (keys source)))
+           (string? (:agent-id source)))))
+
+;; Stable message provenance (upstream PR #2573). Fixed sources use keywords;
+;; identified agents use a map because agent IDs are opaque strings and may be
+;; empty or contain characters that are unsuitable for keywords.
+(s/def ::message-source message-source?)
+
 (s/def ::send-options
-  (s/keys :req-un [::prompt]
-          :opt-un [::attachments ::mode ::timeout-ms ::request-headers
-                   ::agent-mode ::display-prompt]))
+  (s/and
+   (s/keys :req-un [::prompt]
+           :opt-un [::attachments ::mode ::timeout-ms ::request-headers
+                    ::agent-mode ::display-prompt])
+   #(optional-field? % :source message-source?)))
 
 ;; :timeout-ms as used in option maps for send-async / <send! /
 ;; send-async-with-id / send-and-wait! allows nil to "disable" the timeout per

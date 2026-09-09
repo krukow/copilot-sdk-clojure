@@ -3,7 +3,23 @@ All notable changes to this project will be documented in this file. This change
 
 ## [Unreleased]
 
+### Added (upstream parity)
+- Added stable message provenance to every send API. Use `:source :user`,
+  `:source :system`, or `:source {:agent-id "..."}`; identified agents
+  preserve the opaque ID exactly and serialize it as `agent-<id>`. Omission
+  sends no source, while explicit `nil` and unsupported values are rejected.
+  ([upstream PR #2573](https://github.com/github/copilot-sdk/pull/2573))
+
 ### Changed (upstream parity)
+- Recertified the complete stable Node SDK public surface through upstream
+  commit
+  [`d8bbc9dd7a6167d4806780f405d8ce74add1cc7c`](https://github.com/github/copilot-sdk/commit/d8bbc9dd7a6167d4806780f405d8ce74add1cc7c).
+  The only stable delta is typed message provenance on `send`; the runtime
+  schema and generated sources remain unchanged. ARM64 musl transport coverage
+  is language-specific, and the existing experimental exclusions remain
+  outside the stable Clojure API.
+  ([upstream PR #2548](https://github.com/github/copilot-sdk/pull/2548),
+  [upstream PR #2573](https://github.com/github/copilot-sdk/pull/2573))
 - Recertified the complete stable Node SDK public surface through upstream
   commit
   [`1644e74578db3637bc7527951bac227aabbc0584`](https://github.com/github/copilot-sdk/commit/1644e74578db3637bc7527951bac227aabbc0584).

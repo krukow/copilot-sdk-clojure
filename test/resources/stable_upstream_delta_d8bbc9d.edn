@@ -1,0 +1,328 @@
+{:upstream
+ {:repository "github/copilot-sdk"
+  :base-commit "1644e74578db3637bc7527951bac227aabbc0584"
+  :target-commit "d8bbc9dd7a6167d4806780f405d8ce74add1cc7c"
+  :base-tag "v1.0.13"
+  :base-tag-commit "f13e4a2cc7e4e220974d2333142234e162a3252e"
+  :target-position :post-v1.0.13-main
+  :target-package-version "0.0.0-dev"
+  :runtime-version "1.0.83"
+  :commit-count 2
+  :commit-sequence-sha256
+  "dc02f407b1f686e320f1f39dc3606c41bf195d59a622350eb7b04023e64b060b"}
+
+ :historical-oracle
+ {:resource "resources/stable_upstream_delta_1644e74.edn"
+  :sha256
+  "c4840042bd6f3894e535fa5e60eec75238a7a07fd9f906442c9952a4b1879773"
+  :policy
+  "Immutable complete public-surface inventory at the prior exact pin; this report certifies only baseline..target."}
+
+ :commit-classifications
+ [{:commit "d5c9d06d8c4118530083848d9c3fa9d615c0a5c4"
+   :subject "Add ARM64 musl coverage across SDK transports (#2548)"
+   :source-url "https://github.com/github/copilot-sdk/pull/2548"
+   :classification :language-specific
+   :status :reviewed-no-port
+   :reason
+   "Adds CI, .NET test, and Node native-package coverage for ARM64 musl without changing a stable SDK contract."
+   :changed-path-count 11
+   :changed-paths-sha256
+   "3cb269b2f28c08f5c25835cf7320610d9d40baaeeca2f116d996dab6b19834c5"}
+  {:commit "d8bbc9dd7a6167d4806780f405d8ce74add1cc7c"
+   :subject "Add typed user, system, and agent message sources across SDKs (#2573)"
+   :source-url "https://github.com/github/copilot-sdk/pull/2573"
+   :classification :stable-public
+   :status :ported
+   :reason
+   "Adds stable typed message provenance to MessageOptions and forwards it through CopilotSession.send."
+   :changed-path-count 33
+   :changed-paths-sha256
+   "5ccebd23fbc63688c2e2d148c477ef32a5aeb03d58b79dcd676a92801862fc07"}]
+
+ :changed-paths
+ {:count 44
+  :sha256
+  "c94f7b435769cf318391cea5d79e723fbbeecf8eadafaadf73c2ab5b0a2c9545"
+  :classification-counts {:language-specific 11 :stable-public 33}
+  :entries
+  [{:path ".github/actions/run-alpine-tests/action.yml"
+    :classification :language-specific}
+   {:path ".github/workflows/dotnet-sdk-tests.yml"
+    :classification :language-specific}
+   {:path ".github/workflows/go-sdk-tests.yml"
+    :classification :language-specific}
+   {:path ".github/workflows/nodejs-sdk-tests.yml"
+    :classification :language-specific}
+   {:path ".github/workflows/python-sdk-tests.yml"
+    :classification :language-specific}
+   {:path ".github/workflows/required-checks.yml"
+    :classification :language-specific}
+   {:path ".github/workflows/rust-sdk-tests.yml"
+    :classification :language-specific}
+   {:path "docs/features/steering-and-queueing.md"
+    :classification :stable-public}
+   {:path "dotnet/README.md" :classification :stable-public}
+   {:path "dotnet/src/Session.cs" :classification :stable-public}
+   {:path "dotnet/src/Types.cs" :classification :stable-public}
+   {:path "dotnet/test/Unit/ClientSessionLifetimeTests.cs"
+    :classification :stable-public}
+   {:path "dotnet/test/Unit/CloneTests.cs" :classification :stable-public}
+   {:path "dotnet/test/Unit/MSBuildTargetsTests.cs"
+    :classification :language-specific}
+   {:path "dotnet/test/Unit/RuntimeWrapperTests.cs"
+    :classification :language-specific}
+   {:path "dotnet/test/Unit/SerializationTests.cs"
+    :classification :stable-public}
+   {:path "go/README.md" :classification :stable-public}
+   {:path "go/message_source_test.go" :classification :stable-public}
+   {:path "go/session.go" :classification :stable-public}
+   {:path "go/types.go" :classification :stable-public}
+   {:path "java/README.md" :classification :stable-public}
+   {:path "java/sdk/src/main/java/com/github/copilot/CopilotSession.java"
+    :classification :stable-public}
+   {:path "java/sdk/src/main/java/com/github/copilot/rpc/MessageOptions.java"
+    :classification :stable-public}
+   {:path "java/sdk/src/main/java/com/github/copilot/rpc/MessageSource.java"
+    :classification :stable-public}
+   {:path "java/sdk/src/main/java/com/github/copilot/rpc/SendMessageRequest.java"
+    :classification :stable-public}
+   {:path "java/sdk/src/test/java/com/github/copilot/MessageSourceTest.java"
+    :classification :stable-public}
+   {:path "nodejs/README.md" :classification :stable-public}
+   {:path "nodejs/package-lock.json" :classification :language-specific}
+   {:path "nodejs/package.json" :classification :language-specific}
+   {:path "nodejs/src/index.ts" :classification :stable-public}
+   {:path "nodejs/src/session.ts" :classification :stable-public}
+   {:path "nodejs/src/types.ts" :classification :stable-public}
+   {:path "nodejs/test/message-source.test.ts"
+    :classification :stable-public}
+   {:path "nodejs/tsconfig.test.json" :classification :stable-public}
+   {:path "python/README.md" :classification :stable-public}
+   {:path "python/copilot/__init__.py" :classification :stable-public}
+   {:path "python/copilot/session.py" :classification :stable-public}
+   {:path "python/test_session.py" :classification :stable-public}
+   {:path "rust/README.md" :classification :stable-public}
+   {:path "rust/src/rpc.rs" :classification :stable-public}
+   {:path "rust/src/session.rs" :classification :stable-public}
+   {:path "rust/src/types.rs" :classification :stable-public}
+   {:path "rust/tests/e2e/copilot_request_handler.rs"
+    :classification :stable-public}
+   {:path "rust/tests/session_test.rs" :classification :stable-public}]}
+
+ :target-public-surface
+ {:package-root
+  {:path "nodejs/src/index.ts"
+   :explicit-symbol-count 199
+   :explicit-symbols-sha256
+   "051a48c091329ccb9e386c396c5a0cf03a2fc30c21fad4222150cd64626291cc"
+   :star-exports
+   [{:module "./generated/session-events.js"
+     :path "nodejs/src/generated/session-events.ts"
+     :symbol-count 529
+     :symbols-sha256
+     "89c603979efe106904751acd486988d398e1f11d8dfdb248c02b3fd473547d34"}]
+   :symbol-count 719
+   :symbols-sha256
+   "3d6b3bd7dba3f4ab82eddc0d78a32f54260d41c6ed526e776a7edf33cc6dcad1"
+   :classification-counts {:stable-public 564 :experimental 150 :internal 5}
+   :delta {:stable-public #{"MessageSource"}
+           :experimental #{}
+           :removed #{}}
+   :provenance
+   {:baseline
+    {:resource "resources/stable_upstream_delta_f13e4a2.edn"
+     :symbol-count 718}}}
+  :types
+  {:path "nodejs/src/types.ts"
+   :symbol-count 207
+   :symbols-sha256
+   "ac251977aae64ea16c156a4d8d7a10dab4d5a3a89bd201bf5856459cd668aeff"
+   :delta {:stable-public #{"MessageSource"}
+           :experimental #{}
+           :removed #{}}}
+  :classes
+  {:client
+   {:path "nodejs/src/client.ts"
+    :class-name "CopilotClient"
+    :method-count 20
+    :methods-sha256
+    "bcf31a8e931df3230402c11670d9e14dd03b90564fb6e7192356d746edd273e6"}
+   :session
+   {:path "nodejs/src/session.ts"
+    :class-name "CopilotSession"
+    :method-count 41
+    :methods-sha256
+    "e3d8d11b11ae017b7485e25197283d41f64aac2be2a582c73cc96be3685480bb"
+    :properties {:stable-public #{"sessionId"}
+                 :experimental #{"factory"}
+                 :internal #{"clientSessionApis"}}}}
+  :extension
+  {:path "nodejs/src/extension.ts"
+   :symbol-count 39
+   :symbols-sha256
+   "13316e0859171d9c8be79a0bdbe2626b9c21a1947dae04a24fc51ddede17b52c"
+   :stable-public #{"ExtensionInfo" "JoinSessionConfig" "JsonValue" "joinSession"}}
+  :tool-set
+  {:path "nodejs/src/toolSet.ts"
+   :symbol-count 2
+   :symbols-sha256
+   "99ef0910d8d65bfb0074e664122cd7d9642aa6c89d8d476bb26d0a9ce1d748ca"
+   :stable-public #{"BuiltInTools" "ToolSet"}}
+  :relevant-stable-tests ["nodejs/test/message-source.test.ts"]}
+
+ :public-surface-audit
+ {:inspected
+  ["nodejs/package.json"
+   "nodejs/src/index.ts"
+   "nodejs/src/types.ts"
+   "nodejs/src/client.ts"
+   "nodejs/src/session.ts"
+   "nodejs/src/extension.ts"
+   "nodejs/src/toolSet.ts"
+   "nodejs/src/factory.ts"
+   "nodejs/src/canvas.ts"
+   "nodejs/src/generated"
+   "nodejs/test"]
+  :source-blobs
+  {"nodejs/package.json"
+   {:base "783c4d53900c7176005ca1fac80b95fe7081a543"
+    :target "ee02f32fb6d09e7414c4ca4807d252b93f0d581c"}
+   "nodejs/src/index.ts"
+   {:base "2007679d619831273bac2dc7e58b2969c181b812"
+    :target "6251df4fc766e40730a57d5f668a91efbd5bed73"}
+   "nodejs/src/types.ts"
+   {:base "0f15749f716af0b942183fb6557d539ba9b450d4"
+    :target "068e0f0a583424d528e27b08647f5e6026b4e0e6"}
+   "nodejs/src/client.ts"
+   {:base "eb92cf0bed34e5ac6bf4e208365fb8be047c43f0"
+    :target "eb92cf0bed34e5ac6bf4e208365fb8be047c43f0"}
+   "nodejs/src/session.ts"
+   {:base "b7fc7837a5ac17f3625d6fa6cb6382da2dd3a640"
+    :target "4c2be1429921b0c6cb397b2d45266c1b41b3dc7d"}
+   "nodejs/src/extension.ts"
+   {:base "ac0ccdb7ce3102cabc98e8457f4c7f684b76fa28"
+    :target "ac0ccdb7ce3102cabc98e8457f4c7f684b76fa28"}
+   "nodejs/src/toolSet.ts"
+   {:base "559e9234e5b178036d88a7045a632bd16a97f534"
+    :target "559e9234e5b178036d88a7045a632bd16a97f534"}
+   "nodejs/src/factory.ts"
+   {:base "6212f462b4aff716417baf2180b9a8b887c12ad1"
+    :target "6212f462b4aff716417baf2180b9a8b887c12ad1"}
+   "nodejs/src/canvas.ts"
+   {:base "aeb1f00ec42926977c010df2471123dc18ddddd3"
+    :target "aeb1f00ec42926977c010df2471123dc18ddddd3"}}
+  :baseline-node-tree "f506a0e89c7920149e520da2e8a43a41d7459d16"
+  :target-node-tree "feecf04fc34de66db918972850d26a93e27c92b3"
+  :baseline-generated-tree "33841e17abf78f49e06d8af6dce3e8d72a3827f6"
+  :target-generated-tree "33841e17abf78f49e06d8af6dce3e8d72a3827f6"
+  :baseline-test-tree "19124b3cd602bf7d04079c4f76fbc2822160046d"
+  :target-test-tree "87fdb6360171ca6a5f3b58f2bf6aa2c906c67347"
+  :changed-node-files
+  ["nodejs/README.md"
+   "nodejs/package-lock.json"
+   "nodejs/package.json"
+   "nodejs/src/index.ts"
+   "nodejs/src/session.ts"
+   "nodejs/src/types.ts"
+   "nodejs/test/message-source.test.ts"
+   "nodejs/tsconfig.test.json"]
+  :stable-public-deltas [:session/message-source]
+  :unclassified-deltas []}
+
+ :stable-delta-ids #{:session/message-source}
+ :stable-deltas
+ [{:id :session/message-source
+   :classification :stable-public
+   :status :ported
+   :evidence
+   [:message-source-export
+    :message-source-type
+    :message-source-option
+    :message-source-send
+    :message-source-tests]
+   :inventory-items
+   [[:exported-symbol "nodejs/src/index.ts" "MessageSource"]
+    [:exported-symbol "nodejs/src/types.ts" "MessageSource"]
+    [:interface-field "MessageOptions" "source"]
+    [:builder "CopilotSession.send" "source"]]
+   :clojure-paths
+   ["src/github/copilot_sdk/specs.clj"
+    "src/github/copilot_sdk/session.clj"
+    "resources/github/copilot_sdk/api_surface.edn"
+    "doc/reference/API.md"]
+   :tests
+   ["test/github/copilot_sdk/integration/message_source_test.clj"]
+   :contract
+   "Optional :source accepts :user, :system, or {:agent-id string}; agent IDs are opaque and may be empty. The field is omitted when absent, explicit nil is rejected, and all send paths emit user/system or agent-<id> as the top-level session.send source string."}]
+
+ :intentional-exclusions
+ [{:id :session/live-auto-tier-switching
+   :classification :experimental
+   :decision :exclude
+   :status :approved
+   :reason
+   "The existing setAutoTier and related result/event surface remains explicitly experimental."}
+  {:id :events/completion-receipt
+   :classification :experimental
+   :decision :exclude
+   :status :approved
+   :reason
+   "The completion receipt event family remains generated wire evidence only."}
+  {:id :events/fusion-phase-routing
+   :classification :experimental
+   :decision :exclude
+   :status :approved
+   :reason
+   "HydraFusion phase activity and routing remain explicitly experimental."}
+  {:id :sandbox/allow-bypass
+   :classification :experimental
+   :decision :exclude
+   :status :approved
+   :reason
+   "sandbox.allowBypass remains outside the stable official SDK contract."}
+  {:id :generated/send-request-source-values
+   :classification :generated-only
+   :decision :exclude
+   :status :approved
+   :reason
+   "Generated SendRequest accepts broader command-* and schedule-* source strings, but the stable Node MessageSource type exposes only user, system, and agent-*."}]
+
+ :source-evidence
+ {:message-source-export
+  {:path "nodejs/src/index.ts"
+   :symbol "MessageSource,"
+   :kind :added}
+  :message-source-type
+  {:path "nodejs/src/types.ts"
+   :symbol "export type MessageSource = \"user\" | \"system\" | `agent-${string}`;"
+   :kind :added}
+  :message-source-option
+  {:path "nodejs/src/types.ts"
+   :symbol "source?: MessageSource;"
+   :kind :added}
+  :message-source-send
+  {:path "nodejs/src/session.ts"
+   :symbol "source: options.source,"
+   :kind :added}
+  :message-source-tests
+  {:path "nodejs/test/message-source.test.ts"
+   :symbols
+   ["omits source when sending a plain human prompt"
+    "preserves the wire payload with delivery mode %s"
+    "preserves attachments, display text, headers, agent mode and tracing"
+    "allows sendAndWait to finish without assistant output in mode %s"
+    "propagates an RPC failure from sendAndWait"
+    "propagates a session error from sendAndWait"]}}
+
+ :schema
+ {:runtime-pin "1.0.83"
+  :changed? false
+  :reason
+  "The runtime SendRequest source field predates this stable SDK addition; generated protocol and event sources are byte-for-byte unchanged."}
+
+ :version
+ {:sdk "1.0.13.0"
+  :changed? false
+  :release-required? false
+  :next-release "1.0.13.1"}}

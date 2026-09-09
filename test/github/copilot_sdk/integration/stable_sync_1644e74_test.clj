@@ -163,8 +163,6 @@
                  :coercion-source-changed? false}}
                schema))
         (is (= "1.0.83" (str/trim (slurp ".copilot-schema-version"))))
-        (is (str/includes? (slurp ".github/workflows/ci.yml")
-                           (str "ref: " (:target-commit upstream))))
         (is (= {:sdk "1.0.13.0"
                 :changed? false
                 :release-required? false}

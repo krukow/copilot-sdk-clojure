@@ -2086,6 +2086,32 @@
   (let [{:keys [session-id client]} session]
     (:config (session-state client session-id))))
 
+(defn- message-source->wire
+  [source]
+  (if (keyword? source)
+    (name source)
+    (str "agent-" (:agent-id source))))
+
+(defn- build-send-params
+  [client session-id opts]
+  (let [wire-attachments (when (:attachments opts)
+                           (util/attachments->wire (:attachments opts)))
+        trace-ctx (when-let [provider (:on-get-trace-context client)]
+                    (try (let [ctx (provider)]
+                           (when (map? ctx)
+                             (select-keys ctx [:traceparent :tracestate])))
+                         (catch Throwable _ nil)))]
+    (cond-> {:session-id session-id
+             :prompt (:prompt opts)}
+      trace-ctx (merge trace-ctx)
+      wire-attachments (assoc :attachments wire-attachments)
+      (:mode opts) (assoc :mode (name (:mode opts)))
+      (:agent-mode opts) (assoc :agent-mode (name (:agent-mode opts)))
+      (some? (:display-prompt opts)) (assoc :display-prompt (:display-prompt opts))
+      (:request-headers opts) (assoc :request-headers (:request-headers opts))
+      (contains? opts :source) (assoc :source
+                                      (message-source->wire (:source opts))))))
+
 (defn- prepare-send-request
   [session opts]
   (when-not (s/valid? ::specs/send-options opts)
@@ -2096,24 +2122,9 @@
     (log/debug "send! called for session " session-id " with prompt: " (subs (str (:prompt opts)) 0 (min 50 (count (str (:prompt opts))))) "...")
     (when (session-disconnected? client session-id)
       (throw (ex-info "Session has been disconnected" {:session-id session-id})))
-    (let [conn (connection-io client)
-          wire-attachments (when (:attachments opts)
-                             (util/attachments->wire (:attachments opts)))
-          trace-ctx (when-let [provider (:on-get-trace-context client)]
-                      (try (let [ctx (provider)]
-                             (when (map? ctx)
-                               (select-keys ctx [:traceparent :tracestate])))
-                           (catch Throwable _ nil)))
-          params (cond-> {:session-id session-id
-                          :prompt (:prompt opts)}
-                   trace-ctx (merge trace-ctx)
-                   wire-attachments (assoc :attachments wire-attachments)
-                   (:mode opts) (assoc :mode (name (:mode opts)))
-                   (:agent-mode opts) (assoc :agent-mode (name (:agent-mode opts)))
-                   (some? (:display-prompt opts)) (assoc :display-prompt (:display-prompt opts))
-                   (:request-headers opts) (assoc :request-headers (:request-headers opts)))]
+    (let [conn (connection-io client)]
       {:connection conn
-       :params params
+       :params (build-send-params client session-id opts)
        :session-id session-id})))
 
 (defn ^:no-doc send-with-timeout!
@@ -2142,6 +2153,9 @@
                        instead of the model `:prompt` (e.g., when the model
                        prompt is augmented with internal context that should
                        not be shown to end users). (upstream PR #1470)
+   - :source          - **Optional**. Message provenance: :user, :system, or
+                       {:agent-id string}. Agent IDs are opaque and are sent as
+                       `agent-<id>`. Omission sends no source. (upstream PR #2573)
    - :request-headers - Optional map of HTTP headers forwarded to the
                        upstream LLM on this send (upstream PR #1094).
                        Keys and values must both be strings (do not use
@@ -2373,21 +2387,7 @@
             (tap event-mult event-ch)
             ;; Send message via channel-based RPC (no blocking)
             (let [conn (connection-io client)
-                  wire-attachments (when (:attachments opts)
-                                     (util/attachments->wire (:attachments opts)))
-                  trace-ctx (when-let [provider (:on-get-trace-context client)]
-                              (try (let [ctx (provider)]
-                                     (when (map? ctx)
-                                       (select-keys ctx [:traceparent :tracestate])))
-                                   (catch Throwable _ nil)))
-                  params (cond-> {:session-id session-id
-                                  :prompt (:prompt opts)}
-                           trace-ctx (merge trace-ctx)
-                           wire-attachments (assoc :attachments wire-attachments)
-                           (:mode opts) (assoc :mode (name (:mode opts)))
-                           (:agent-mode opts) (assoc :agent-mode (name (:agent-mode opts)))
-                           (some? (:display-prompt opts)) (assoc :display-prompt (:display-prompt opts))
-                           (:request-headers opts) (assoc :request-headers (:request-headers opts)))
+                  params (build-send-params client session-id opts)
                   response-ch (proto/send-request conn "session.send" params)
                   [result port] (if deadline-ch
                                   (async/alts! [response-ch deadline-ch])
