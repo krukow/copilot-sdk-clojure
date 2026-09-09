@@ -20,15 +20,6 @@ All notable changes to this project will be documented in this file. This change
   outside the stable Clojure API.
   ([upstream PR #2548](https://github.com/github/copilot-sdk/pull/2548),
   [upstream PR #2573](https://github.com/github/copilot-sdk/pull/2573))
-- Recertified the complete stable Node SDK public surface through upstream
-  commit
-  [`1644e74578db3637bc7527951bac227aabbc0584`](https://github.com/github/copilot-sdk/commit/1644e74578db3637bc7527951bac227aabbc0584).
-  The `nodejs/` tree and package metadata are byte-for-byte identical to the
-  `v1.0.13` oracle, so no API, wire, schema, runtime, generated source, or
-  version changes were required. The intervening commits update Java release
-  metadata and add the generated v1.0.13 changelog; live Auto-tier switching
-  and sandbox bypass remain explicitly experimental.
-  ([upstream PR #2545](https://github.com/github/copilot-sdk/pull/2545))
 
 ### Added (v1.0.13 sync)
 - Added stable `:client-info` identity on the connection handshake, with
